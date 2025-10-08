@@ -1,0 +1,15 @@
+.git
+.vscode
+.devcontainer
+.github
+react_app/node_modules
+react_app/.dist
+react_app/test-results*
+react_app/playwright-report
+react_app/coverage
+.DS_Store
+Dockerfile_dev
+docker-compose.yaml
+Dockerfile_prod
+docker-compose-prod.yaml
+

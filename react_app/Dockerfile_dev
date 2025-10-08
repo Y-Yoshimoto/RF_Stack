@@ -1,0 +1,58 @@
+# https://hub.docker.com/_/node
+FROM node:24-trixie-slim
+LABEL maintainer='y-yoshimoto'
+# アプリケーションディレクトリ名指定
+ARG APPNAME=react_app
+# 環境変数を設定する
+ENV NODE_ENV=development
+
+# # aptパッケージインストール/日本語環境設定
+RUN --mount=type=cache,target=/var/cache/apt \
+    --mount=type=cache,target=/var/lib/apt \
+    apt-get update \
+    && apt-get install -y vim git curl make gnupg2 graphviz zip jq locales-all fonts-noto fonts-noto-cjk \
+    && echo "export LANG=ja_JP.UTF-8" >> ~/.bashrc
+# chromeインストール(x86_64版のみ)
+# RUN curl -fsSL https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add - \
+#     && echo "deb http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google-chrome.list \
+#     && apt-get update -y \
+#     && apt-get install -y --no-install-recommends google-chrome-stable xvfb fonts-vlgothic \
+#     && apt-get clean \
+#     && rm -rf /var/lib/apt/lists/* \
+# playwrightの依存パッケージインストール
+RUN --mount=type=cache,target=/root/.npm \
+    npm install -g npm \
+    && npx playwright install-deps
+# initファイルのコピー
+COPY ./auxiliary/docker-entrypoint.sh /usr/bin/docker-entrypoint.sh
+RUN chmod +x /usr/bin/docker-entrypoint.sh
+
+# vite, vitest, ts-node関連のコマンドエイリアス追加
+RUN echo "alias vitest='/work/${APPNAME}/node_modules/vitest/vitest.mjs'" >> /etc/bash.bashrc \
+    && echo "alias vite='/work/${APPNAME}/node_modules/vite/bin/vite.js'" >> /etc/bash.bashrc \
+    && echo "alias playwright='/work/${APPNAME}/node_modules/playwright/cli.js'" >> /etc/bash.bashrc \
+    && echo 'alias ts="tsx"' >> /etc/bash.bashrc \
+    && echo 'alias tst="tsx -T"' >> /etc/bash.bashrc \
+    && echo 'alias tsw="tsx watch"' >> /etc/bash.bashrc
+
+# 開発コンテナ実行ユーザー追加(nodeユーザーとIDが一致する場合はユーザー名を変更する)
+ARG USERNAME=vscode
+ARG USER_ID=1000
+ARG GROUP_ID=1000
+RUN useradd -m -s /bin/bash -u $USER_ID -g $GROUP_ID $USERNAME || usermod -l $USERNAME node \
+    && usermod -a -G $GROUP_ID $USERNAME
+
+# アプリケーション, vscodeディレクトリ作成/権限変更
+RUN mkdir -p /work/$APPNAME/ 
+RUN chown $USERNAME:dialout /work/$APPNAME/ \
+    && chown $USERNAME:dialout /work/$APPNAME/.* \
+    && mkdir -p /vscode/vscode-server/ \
+    && chown $USERNAME:dialout /vscode/vscode-server/ \
+    && chown $USERNAME:dialout /vscode/vscode-server/.*
+WORKDIR /work/$APPNAME
+
+# 公開ポート設定
+EXPOSE 5173 9323
+
+ENTRYPOINT ["/usr/bin/docker-entrypoint.sh"]
+CMD ["tail", "-f", "/dev/null"]

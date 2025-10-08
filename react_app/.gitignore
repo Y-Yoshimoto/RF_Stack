@@ -1,0 +1,61 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# ロックファイル
+# package-lock.json
+.npm_install.lock
+
+# node関連ファイル
+node_modules
+dist
+dist-ssr
+dev-dist
+*.local
+eslint-report.html
+
+# キャッシュファイル
+.vscode/*
+!.vscode/*.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+#ローカル用作業ファイル
+ToDo.md
+
+# 環境変数ファイル
+.env
+!/react_app/.env
+
+# playwrite関連ファイル
+playwright-report
+playwright-video
+test-results
+test-results.*
+*.webm
+trace.zip
+
+# Vite関連ファイル
+dev-dist
+rollup-visualizer.html
+
+# Vitest関連ファイル
+coverage
+__screenshots__/
+
+# アイコン用元ファイル
+/react_app/public/*.idraw
+/react_app/public/icon.png
+
+# コードメトリクスレポート
+madge_graph.svg

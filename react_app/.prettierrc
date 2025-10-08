@@ -1,0 +1,15 @@
+{
+  "description": "Prettier configuration file",
+  "printWidth": 240,
+  "trailingComma": "es5",
+  "proseWrap": "preserve",
+  "objectWrap": "collapse",
+  "tabWidth": 2,
+  "semi": true,
+  "singleQuote": true,
+  "jsxSingleQuote": true,
+  "singleAttributePerLine": false,
+  "bracketSpacing": true,
+  "bracketSameLine": true,
+  "arrowParens": "avoid"
+}

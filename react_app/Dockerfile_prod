@@ -1,0 +1,64 @@
+# https://hub.docker.com/_/node
+FROM node:24-trixie-slim AS builder
+LABEL maintainer=y-yoshimoto
+# 環境変数を設定する
+ENV NODE_ENV=production
+# 日本語環境設定packageのインストール
+RUN --mount=type=cache,target=/var/cache/apt \
+    --mount=type=cache,target=/var/lib/apt \
+    apt-get update \
+    && apt-get install -y graphviz zip locales-all fonts-noto fonts-noto-cjk \
+    && echo "export LANG=ja_JP.UTF-8" >> ~/.bashrc
+
+# アプリケーションディレクトリ作成
+RUN mkdir -p /react_app
+WORKDIR /react_app
+# 依存関係インストール(playwrightの依存関係インストールのため)
+RUN --mount=type=cache,target=/root/.npm \
+    npm install -g npm \
+    && npx playwright install-deps \
+    && npx playwright install chromium chromium-headless-shell 
+# パッケージインストール(viteインストールのため --devオプション付き)
+COPY ./package.json /react_app/package.json
+COPY ./package-lock.json /react_app/package-lock.json
+RUN --mount=type=cache,target=/root/.npm \
+    npm install -g npm \
+    && npm install --include=dev
+
+# アプリケーションのソースコードをコピー
+COPY ./ /react_app/
+# RUN npm run lint
+RUN npm run lint:report || echo "Linting completed with warnings/errors, but continuing build."
+# Unitテストの実行
+RUN NODE_ENV=development npm run coverage
+# E2Eテストの実行
+RUN NODE_ENV=development npm run playwright 
+# ビルドの実行
+RUN npm run build:production
+# 依存関係グラフの生成
+RUN npm run madge
+
+# ビルド時のレポートファイルを配置
+RUN mkdir -p /react_app/dist/dev \
+    && mv /react_app/rollup-visualizer.html /react_app/dist/dev/ \
+    && mv /react_app/coverage /react_app/dist/dev/ \
+    && mv /react_app/playwright-report /react_app/dist/dev/ \
+    && mv /react_app/madge_graph.svg /react_app/dist/dev/
+
+COPY ./auxiliary/index.html /react_app/dist/dev/
+
+# ビルド成果物デリバリーコンテナ
+FROM alpine:latest
+# Install rsync And create directories
+RUN apk add --no-cache rsync \
+    && mkdir -p /distOrg \
+    && mkdir -p /dist
+COPY --from=builder /react_app/dist /distOrg/
+# Define a volume for syncing
+RUN echo "#!/bin/sh" > /entrypoint.sh \
+    && echo "rsync -av --delete /distOrg/ /dist/" >> /entrypoint.sh \
+    && echo 'exec "$@"' >> /entrypoint.sh \
+    && chmod +x /entrypoint.sh
+ENTRYPOINT [ "/entrypoint.sh" ] 
+VOLUME [ "/dist" ]
+CMD ["exit", "0"]

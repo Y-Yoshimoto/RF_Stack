@@ -1,0 +1,11 @@
+{
+    "vitest.nodeEnv": {},
+    "testing.automaticallyOpenPeekView": "never",
+    "editor.formatOnSave": true,
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "[typescriptreact]": {
+        "editor.defaultFormatter": "vscode.typescript-language-features"
+    },
+    "chat.mcp.access": "all",
+    "github.copilot.chat.newWorkspace.useContext7": true,
+}

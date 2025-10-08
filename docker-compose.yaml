@@ -1,0 +1,26 @@
+services:
+  # Portal React アプリケーション
+  react:
+    image: react
+    build:
+      context: ./react_app
+      dockerfile: Dockerfile_dev
+      # コンテナ内のユーザーIDとグループIDを指定
+      args:
+        USER_ID: ${USER_ID:-1000}
+        GROUP_ID: ${GROUP_ID:-1000}
+    user: "${USER_ID:-1000}:${GROUP_ID:-1000}" # ここでユーザーとグループを指定
+    ports:
+      - "5173:5173"
+      - "9323:9323"
+    # restart: always
+    environment:
+      - TZ=${TZ:-Asia/Tokyo}
+      - UID=${USER_ID:-1000}
+      - GID=${GROUP_ID:-1000}
+      - PLAYWRIGHT_BROWSERS_PATH=${PLAYWRIGHT_BROWSERS_PATH:-/work/react_app/node_modules/playwright/.local-browsers}
+    # stdin_open: true
+    # 開発用にソースコードをマウント
+    volumes:
+      - ./:/work/
+      # - /tmp/.X11-unix:/tmp/.X11-unix

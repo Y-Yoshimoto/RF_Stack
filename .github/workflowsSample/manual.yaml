@@ -1,0 +1,12 @@
+name: Manual Action
+
+on:
+  workflow_dispatch:
+
+jobs:
+  printLog:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: echo Manual Action
+        run: echo "Manual Action"
