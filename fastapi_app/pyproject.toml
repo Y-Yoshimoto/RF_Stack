@@ -17,7 +17,7 @@ dependencies = [
     "python-dotenv",
     # データベース関連
     "sqlmodel",
-
+    "psycopg2-binary>=2.9.10",
 ]
 [dependency-groups]
 dev = [
