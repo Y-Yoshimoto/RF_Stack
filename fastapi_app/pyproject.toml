@@ -1,0 +1,28 @@
+[project]
+name = "fastapi-app"
+version = "0.1.0"
+description = "FastAPIを使ったAPIサーバー"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    # FastAPI: Webフレームワーク群
+    "fastapi",
+    "fastapi-mcp",
+    "gunicorn",
+    "httpx",
+    "uvicorn[standard]",
+    "strawberry-graphql[debug-server]",
+    # 共通ライブラリ
+    "datetime",
+    "python-dotenv",
+    # 開発用ツール群
+    "jinja2",
+    "lizard",
+    "ruff",
+    # Pytest: テストツール群
+    "pytest",
+    "pytest-cov",
+    "pytest-asyncio",
+    "pytest-html",
+    "pytest-check",
+]

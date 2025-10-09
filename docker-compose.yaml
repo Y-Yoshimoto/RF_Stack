@@ -1,7 +1,7 @@
 services:
   # Portal React アプリケーション
-  react:
-    image: react
+  react_app:
+    image: react_app
     build:
       context: ./react_app
       dockerfile: Dockerfile_dev
@@ -9,7 +9,7 @@ services:
       args:
         USER_ID: ${USER_ID:-1000}
         GROUP_ID: ${GROUP_ID:-1000}
-    user: "${USER_ID:-1000}:${GROUP_ID:-1000}" # ここでユーザーとグループを指定
+    user: "${USER_ID:-1000}:${GROUP_ID:-1000}"
     ports:
       - "5173:5173"
       - "9323:9323"
@@ -24,3 +24,24 @@ services:
     volumes:
       - ./:/work/
       # - /tmp/.X11-unix:/tmp/.X11-unix
+  fastapi_app:
+    image: fastapi_app
+    build:
+      context: ./fastapi_app
+      dockerfile: Dockerfile_dev
+      # コンテナ内のユーザーIDとグループIDを指定
+    # restart: always
+    volumes:
+      - ./:/work/
+    ports:
+      - "8000:8000"
+    user: "${USER_ID:-1000}:${GROUP_ID:-1000}"
+    environment:
+      - TZ=${TZ:-Asia/Tokyo}
+      - PYTHONDONTWRITEBYTECODE=1
+      - PYTHONPATH=/work/fastapi_app/src/
+      - UID=${USER_ID:-1000}
+      - GID=${GROUP_ID:-1000}
+      # PLAYWRIGHT_BROWSERS_PATH: デフォルト値で使用可能/変える場合はDockerfile_devと合わせること
+      # - PLAYWRIGHT_BROWSERS_PATH=/home/vscode/pw-browsers
+      # - PGPASSWORD=postgres

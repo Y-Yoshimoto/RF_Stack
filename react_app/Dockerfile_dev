@@ -40,15 +40,14 @@ ARG USERNAME=vscode
 ARG USER_ID=1000
 ARG GROUP_ID=1000
 RUN useradd -m -s /bin/bash -u $USER_ID -g $GROUP_ID $USERNAME || usermod -l $USERNAME node \
-    && usermod -a -G $GROUP_ID $USERNAME
+    && usermod -a -G $GROUP_ID $USERNAME \
+    && mkdir -p /vscode/vscode-server/ \
+    && chown $USERNAME:dialout /vscode/vscode-server/.*
 
-# アプリケーション, vscodeディレクトリ作成/権限変更
+# アプリケーションディレクトリ作成/権限変更
 RUN mkdir -p /work/$APPNAME/ 
 RUN chown $USERNAME:dialout /work/$APPNAME/ \
-    && chown $USERNAME:dialout /work/$APPNAME/.* \
-    && mkdir -p /vscode/vscode-server/ \
-    && chown $USERNAME:dialout /vscode/vscode-server/ \
-    && chown $USERNAME:dialout /vscode/vscode-server/.*
+    && chown $USERNAME:dialout /work/$APPNAME/.* 
 WORKDIR /work/$APPNAME
 
 # 公開ポート設定

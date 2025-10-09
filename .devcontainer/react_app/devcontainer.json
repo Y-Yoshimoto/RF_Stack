@@ -1,9 +1,9 @@
 {
-    "name": "react",
+    "name": "react_app",
     "dockerComposeFile": [
         "../../docker-compose.yaml"
     ],
-    "service": "react",
+    "service": "react_app",
     "workspaceFolder": "/work/react_app/",
     "customizations": {
         "vscode": {
