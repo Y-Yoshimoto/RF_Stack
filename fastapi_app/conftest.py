@@ -3,16 +3,14 @@
 import pytest
 # テスト用のロガー設定
 import logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO,
+            format="%(asctime)s %(name)s %(filename)s:%(lineno)d %(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
 
 # テスト用の環境変数読み込み
-import os
+import os  # noqa: F401
 from dotenv import dotenv_values
-""" 
-    pytest-envを使用する方法もあるが、秘匿情報を含むため、.envファイルを使用して環境変数を読み込む
-""" 
-
+"""  pytest-envを使用する方法もあるが、秘匿情報を含むため、.envファイルを使用して環境変数を読み込む """ 
 
 @pytest.hookimpl(tryfirst=True)
 def pytest_configure(config):

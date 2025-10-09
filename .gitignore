@@ -1,6 +1,17 @@
+# システムファイル
+.DS_Store
+Thumbs.db
+
 #ローカル用作業ファイル
 ToDo.md
 
 # 環境変数ファイル
 .env
 !/react_app/.env
+
+# DBデータ保存用ディレクトリ
+db_data/**/*
+
+
+
+!db_data/postgresql/.gitkeep

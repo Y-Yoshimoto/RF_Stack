@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/bash -x
 ## 一時ファイルを一括削除するスクリプト
 DIR=./react_app/
 DIR=${1:-./react_app/}

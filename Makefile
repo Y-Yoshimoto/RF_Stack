@@ -23,9 +23,12 @@ d-down-all:
 
 d-clean:
 	@docker compose down --rmi all --volumes --remove-orphans 
-	@rm -rf ./node_modules
-	@rm -f ./.npm_install.lock
+	@rm -rf ./react_app/node_modules
+	@rm -f ./react_app/.npm_install.lock
 	./react_app/auxiliary/clean-temporary-files.sh ./
+	@rm -rf ./fastapi_app/.venv
+	@rm -f ./fastapi_app/uv.lock
+	./fastapi_app/auxiliary/clean-temporary-files.sh ./
 
 ## Productionコンテナ用
 p-build:

@@ -1,26 +1,26 @@
 # -*- coding: utf-8 -*-
 # ユニットテストコードサンプル
 # https://docs.pytest.org/en/stable/getting-started.html
+import pytest
 import pytest_check as check
 from playwright.sync_api import Page
 import logging
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class TestRuntime:
     """ Pytestの実行環境確認テスト"""
 
     def test_runtime(self):
-        """ Pytestの動作確認 """
+        """ Pytestの動作確認
+            アサーションを実行して、Pytestが正しく動作していることを確認"""
         logger.info("Pytestの動作環境を確認")
         check.equal(1 + 1, 2, "1 + 1 は 2 ではありません")
         check.is_true(True, "Trueではありません")
 
     def test_playwright(self, page: Page):
         """ Playwrightの動作確認
-            Playwrightのページにアクセスし、スクリーンショットを取得します。
+            Playwrightのページにアクセスし、スクリーンショットを取得
         """
-        from playwright.sync_api import sync_playwright
         logger.info("Playwrightの動作環境を確認")
         page.goto("https://playwright.dev/python/")
         page.screenshot(path="./test/_tmp/screenshot.png")
