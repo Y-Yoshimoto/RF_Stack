@@ -15,6 +15,10 @@ dependencies = [
     # 共通ライブラリ
     "datetime",
     "python-dotenv",
+
+]
+[dependency-groups]
+dev = [
     # 開発用ツール群
     "jinja2",
     "lizard",
@@ -25,4 +29,10 @@ dependencies = [
     "pytest-asyncio",
     "pytest-html",
     "pytest-check",
+    "pytest-playwright",
+]
+[tool.ruff]
+
+ignore = [
+    "E402", # E402: Module level import not at top of file
 ]

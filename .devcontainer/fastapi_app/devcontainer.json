@@ -17,7 +17,8 @@
                 "charliermarsh.ruff",
                 // "ms-python.autopep8",
                 // "ms-python.pylint",
-                "ms-vscode.live-server"
+                "ms-vscode.live-server",
+                "tamasfe.even-better-toml"
             ]
         }
     },

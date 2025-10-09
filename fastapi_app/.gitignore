@@ -82,6 +82,9 @@ test-results/
 pw-report/**/*
 screenshot.png
 
+# Ruff
+.ruff_cache/
+
 # Cython debug symbols
 cython_debug/
 
@@ -93,3 +96,7 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+
+# Lockファイル 
+## バージョンを確定しないため一時的に無視
+uv.lock

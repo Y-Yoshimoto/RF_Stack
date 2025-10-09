@@ -42,6 +42,6 @@ services:
       - PYTHONPATH=/work/fastapi_app/src/
       - UID=${USER_ID:-1000}
       - GID=${GROUP_ID:-1000}
-      # PLAYWRIGHT_BROWSERS_PATH: デフォルト値で使用可能/変える場合はDockerfile_devと合わせること
-      # - PLAYWRIGHT_BROWSERS_PATH=/home/vscode/pw-browsers
-      # - PGPASSWORD=postgres
+      # PlayWrightブラウザインストールディレクトリ
+      - PLAYWRIGHT_BROWSERS_PATH=/work/fastapi_app/.venv
+        # - PGPASSWORD=postgres

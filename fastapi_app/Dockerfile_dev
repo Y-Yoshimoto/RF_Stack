@@ -2,24 +2,34 @@
 FROM python:3.13-slim-bookworm
 # アプリケーションディレクトリ名指定
 ARG APPNAME=fastapi_app
+# Pythonの実行環境補完
+## uvインストール
+RUN --mount=type=cache,mode=0755,target=/root/.cache/pip \
+    pip install uv 
+
+
+# Playwrightインストール
+## 日本語ロケール、Notoフォントインストール
+RUN --mount=type=cache,target=/var/cache/apt \
+    --mount=type=cache,target=/var/lib/apt \
+    apt-get update \
+    && apt-get install -y --no-install-recommends locales-all fonts-noto fonts-noto-cjk \
+    && echo "export LANG=ja_JP.UTF-8" >> ~/.bashrc
+## Playwright用のブラウザ依存関係解決
+RUN --mount=type=cache,mode=0755,target=/root/.cache/pip \
+    pip install playwright -t /tmp/ \
+    && PYTHONPATH=/tmp /tmp/bin/playwright install-deps \
+    && rm -rf /tmp/*
 
 # Install OS packages
 RUN --mount=type=cache,target=/var/cache/apt \
     --mount=type=cache,target=/var/lib/apt \
     apt-get update \
-    && apt-get install -y --no-install-recommends sudo curl vim git inotify-tools postgresql-client \
-    locales-all fonts-noto fonts-noto-cjk \
-    && echo "export LANG=ja_JP.UTF-8" >> ~/.bashrc
-# Install pip package
-# COPY requirements.txt /work/app/
-COPY requirements.txt /
-RUN --mount=type=cache,mode=0755,target=/root/.cache/pip \
-    pip install uv \
-    && pip install --upgrade pip \
-    && pip install -r requirements.txt \
-    && pip install pytest-playwright \
-    && playwright install-deps \
-    && pip freeze > requirements.lock
+    && apt-get install -y --no-install-recommends sudo curl vim git inotify-tools postgresql-client 
+
+# initファイルのコピー
+COPY ./auxiliary/docker-entrypoint.sh /usr/bin/docker-entrypoint.sh
+RUN chmod +x /usr/bin/docker-entrypoint.sh
 
 # vscodeのユーザーを追加
 # 実行ユーザー追加
@@ -30,11 +40,6 @@ RUN useradd -m -s /bin/bash -u $USER_ID -g $GROUP_ID $USERNAME || usermod -l $US
     && usermod -a -G $GROUP_ID $USERNAME \
     && mkdir -p /vscode/vscode-server/ \
     && chown $USERNAME:dialout /vscode/vscode-server/.*
-
-# vscode権限でplaywrightのブラウザをインストール
-# デフォルト値で使用可能/変える場合はdocker-compose.yamlと合わせること
-# ENV PLAYWRIGHT_BROWSERS_PATH=/home/vscode/pw-browsers
-RUN sudo -u $USERNAME python -m playwright install chromium
 
 # アプリケーションディレクトリ作成/権限変更
 RUN mkdir -p /work/$APPNAME/ 
@@ -50,6 +55,7 @@ RUN echo 'alias py="python"' >> /etc/bash.bashrc \
     && echo 'export pytest="python -m pytest"' >> /etc/bash.bashrc
 
 EXPOSE 8000
+ENTRYPOINT ["/usr/bin/docker-entrypoint.sh"]
 ## unicon起動用
 # CMD ["uvicorn", "app:app", "--reload", "--host", "0.0.0.0", "--port", "8000"]
 ## Gunicorn起動用

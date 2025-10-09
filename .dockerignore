@@ -2,11 +2,16 @@
 .vscode
 .devcontainer
 .github
+# react
 react_app/node_modules
 react_app/.dist
 react_app/test-results*
 react_app/playwright-report
 react_app/coverage
+
+# python
+fastapi_app/.venv
+
 .DS_Store
 Dockerfile_dev
 docker-compose.yaml

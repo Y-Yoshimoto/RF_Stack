@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/bash -x
 NPMINSTALLLOCK=/work/react_app/.npm_install.lock
 echo "Start Setup."
 touch ${NPMINSTALLLOCK}
