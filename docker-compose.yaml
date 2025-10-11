@@ -52,8 +52,10 @@ services:
       # アプリケーション用データベース
       - APP_DB_USER=${APP_DB_USER}
       - APP_DB_PASSWORD=${APP_DB_PASSWORD}
-    depends_on:
-      - postgres_c
+      # コントロールプレーン用データベース
+      - CONTROL_PLANE_DB_NAME=${CONTROL_PLANE_DB_NAME}
+    # depends_on:
+    #   - postgres_c
   # PostgreSQL データベース
   postgres_c:
     image: postgres_c

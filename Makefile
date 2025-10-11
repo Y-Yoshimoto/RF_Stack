@@ -31,7 +31,8 @@ d-clean:
 	./fastapi_app/auxiliary/clean-temporary-files.sh ./
 ### PostgreSQLコンテナの再生作成
 d-reset-db:
-	@docker compose up -d --build --force-recreate postgres_c
+	@docker compose down postgres_c
+	@docker compose up -d --build 
 
 ## Productionコンテナ用
 p-build:

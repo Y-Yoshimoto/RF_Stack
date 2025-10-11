@@ -14,3 +14,4 @@ CREATE TABLE runtime_table (
 INSERT INTO runtime_table (description) VALUES ('OK');
 -- テーブルのデータを取得
 SELECT * FROM runtime_table;
+

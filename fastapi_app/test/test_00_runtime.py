@@ -33,12 +33,12 @@ class TestRuntime:
         """ PostgreSQLへの接続確認 """
         # 接続用モジュールのインポート
         from sqlmodel import Session, create_engine, text
-        # DB接続情報を環境変数から取得
+        # DB接続情報を環境変数から取得(DB_USERは、Postgres用のデフォルト値を設定)
         DB_USER = os.getenv("DB_USER", "postgres")
-        DB_PASSWORD = os.getenv("DB_PASSWORD", "postgres")
-        DB_HOST = os.getenv("DB_HOST", "postgres_c")
-        DB_PORT = os.getenv("DB_PORT", "5432")
-        DB_NAME = os.getenv("DB_NAME", "runtime_db")
+        DB_PASSWORD = os.environ["DB_PASSWORD"]
+        DB_HOST = os.environ["DB_HOST"]
+        DB_PORT = os.environ["DB_PORT"]
+        DB_NAME = os.environ["DB_NAME"]
         # URLを組み立ててDBエンジンを作成
         logger.info(f'PostgreSQLへの接続を確認: {DB_USER}:_password_@{DB_HOST}:{DB_PORT}/{DB_NAME}')
         engine = create_engine(f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}", echo=True)
