@@ -1,0 +1,64 @@
+services:
+  # React アプリケーション
+  react_app:
+    image: react_app
+    build:
+      context: ./react_app
+      dockerfile: Dockerfile_dev
+      # コンテナ内のユーザーIDとグループIDを指定
+      args:
+        USER_ID: ${USER_ID:-1000}
+        GROUP_ID: ${GROUP_ID:-1000}
+    user: "${USER_ID:-1000}:${GROUP_ID:-1000}"
+    ports:
+      - "5173:5173"
+      - "9323:9323"
+    # restart: always
+    environment:
+      - TZ=${TZ:-Asia/Tokyo}
+      - UID=${USER_ID:-1000}
+      - GID=${GROUP_ID:-1000}
+      - PLAYWRIGHT_BROWSERS_PATH=${PLAYWRIGHT_BROWSERS_PATH:-/work/react_app/node_modules/playwright/.local-browsers}
+    # stdin_open: true
+    # 開発用にソースコードをマウント
+    volumes:
+      - ./:/work/
+      # - /tmp/.X11-unix:/tmp/.X11-unix
+  # FastAPI アプリケーション
+  fastapi_app:
+    image: fastapi_app
+    build:
+      context: ./fastapi_app
+      dockerfile: Dockerfile_dev
+      # コンテナ内のユーザーIDとグループIDを指定
+    # restart: always
+    volumes:
+      - ./:/work/
+    ports:
+      - "8000:8000"
+    user: "${USER_ID:-1000}:${GROUP_ID:-1000}"
+    environment:
+      - TZ=${TZ:-Asia/Tokyo}
+      - PYTHONDONTWRITEBYTECODE=1
+      - PYTHONPATH=/work/fastapi_app/src/
+      - UID=${USER_ID:-1000}
+      - GID=${GROUP_ID:-1000}
+      # PlayWrightブラウザインストールディレクトリ
+      - PLAYWRIGHT_BROWSERS_PATH=/work/fastapi_app/.venv
+      - PGPASSWORD=${PGPASSWORD:-postgres}
+  # PostgreSQL データベース
+  postgres_c:
+    image: postgres_c
+    build: postgres_c
+    ports:
+      - 5432
+    # restart: always
+    user: postgres
+    environment:
+      POSTGRES_PASSWORD: ${PGPASSWORD:-postgres}
+      #POSTGRES_USER:
+      LANG: en_US.UTF-8
+      LANGUAGE: en_US:en
+      LC_ALL: en_US.UTF-8
+    # volumes:
+    #     - ./db_data:/postgres/var/lib/postgresql/data

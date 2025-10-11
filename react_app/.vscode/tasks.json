@@ -1,0 +1,58 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "type": "shell",
+            "command": "npm run dev",
+            "label": "npm-dev",
+            "detail": "react-scripts dev",
+            "group": {
+                "kind": "test",
+                "isDefault": true
+            },
+            "isBackground": true,
+            "problemMatcher": {
+                "owner": "custom",
+                "pattern": {
+                    "regexp": "ˆ$"
+                },
+                "background": {
+                    "activeOnStart": true,
+                    "beginsPattern": "VITE",
+                    "endsPattern": "help"
+                }
+            }
+        },
+        {
+            "type": "shell",
+            "command": "npm run preview",
+            "label": "npm-preview",
+            "detail": "react-scripts preview",
+            "group": {
+                "kind": "test",
+                "isDefault": true
+            },
+            "isBackground": true,
+            "problemMatcher": {
+                "owner": "custom",
+                "pattern": {
+                    "regexp": "ˆ$"
+                }
+            }
+        },
+        {
+            "label": "stop-debug",
+            "command": "echo ${input:terminate}",
+            "type": "shell",
+            "problemMatcher": []
+        }
+    ],
+    "inputs": [
+        {
+            "id": "terminate",
+            "type": "command",
+            "command": "workbench.action.tasks.terminate",
+            "args": "terminateAll"
+        }
+    ],
+}

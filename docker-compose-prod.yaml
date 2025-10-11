@@ -1,0 +1,22 @@
+services:
+  rproxy:
+    image: rproxy_nginx:${IMAGE_TAG:-latest}
+    build:
+      context: ./rproxy
+      dockerfile: Dockerfile_rproxy
+    ports:
+      - "30080:80"
+    # 開発用にソースコードをマウント
+    volumes:
+      - dist_volumes:/usr/share/nginx/html/dist
+
+  rsync_dist:
+    image: rsync_dist:${IMAGE_TAG:-latest}
+    build:
+      context: ./react_app
+      dockerfile: Dockerfile_prod
+    volumes:
+      - dist_volumes:/dist
+
+volumes:
+  dist_volumes:

@@ -1,0 +1,25 @@
+{
+    "name": "react_app",
+    "dockerComposeFile": [
+        "../../docker-compose.yaml"
+    ],
+    "service": "react_app",
+    "workspaceFolder": "/work/react_app/",
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "dsznajder.es7-react-js-snippets",
+                "dbaeumer.vscode-eslint",
+                "esbenp.prettier-vscode",
+                "ms-vscode.js-debug-companion",
+                "vitest.explorer",
+                "ms-playwright.playwright",
+                "ms-vscode.live-server",
+                "GitHub.vscode-pull-request-github",
+                "mhutchie.git-graph",
+                "kisstkondoros.vscode-codemetrics"
+            ]
+        }
+    },
+    "remoteUser": "vscode"
+}

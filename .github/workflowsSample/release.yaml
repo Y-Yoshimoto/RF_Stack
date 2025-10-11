@@ -1,0 +1,13 @@
+name: Release Action
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  printLog:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: echo Release Action
+        run: echo "Release Action"
