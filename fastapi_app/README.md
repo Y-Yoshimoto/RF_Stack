@@ -21,7 +21,7 @@ pytest: pytestコマンド
 
 ### 接続先情報
 
-export PGPASSWORD=postgres
+export POSTGRES_PASSWORD=postgres
 psql -h postgres_c -p 5432 -U postgres
 psql -h postgres_c -p 5432 -U postgres -d runtime_db
 

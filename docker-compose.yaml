@@ -45,7 +45,15 @@ services:
       - GID=${GROUP_ID:-1000}
       # PlayWrightブラウザインストールディレクトリ
       - PLAYWRIGHT_BROWSERS_PATH=/work/fastapi_app/.venv
-      - PGPASSWORD=${PGPASSWORD:-postgres}
+      # DB接続情報
+      - DB_HOST=postgres_c
+      - DB_PORT=5432
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
+      # アプリケーション用データベース
+      - APP_DB_USER=${APP_DB_USER}
+      - APP_DB_PASSWORD=${APP_DB_PASSWORD}
+    depends_on:
+      - postgres_c
   # PostgreSQL データベース
   postgres_c:
     image: postgres_c
@@ -55,10 +63,22 @@ services:
     # restart: always
     user: postgres
     environment:
-      POSTGRES_PASSWORD: ${PGPASSWORD:-postgres}
       #POSTGRES_USER:
-      LANG: en_US.UTF-8
-      LANGUAGE: en_US:en
-      LC_ALL: en_US.UTF-8
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
+      # アプリケーション/コントロールプレーンユーザー
+      - APP_DB_USER=${APP_DB_USER}
+      - APP_DB_PASSWORD=${APP_DB_PASSWORD}
+      # アプリケーション用データベース
+      - APP_DB_NAME=${APP_DB_NAME}
+      # コントロールプレーン用データベース
+      - CONTROL_PLANE_DB_NAME=${CONTROL_PLANE_DB_NAME}
+      - LANG=en_US.UTF-8
+      - LANGUAGE=en_US:en
+      - LC_ALL=en_US.UTF-8
     # volumes:
     #     - ./db_data:/postgres/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5

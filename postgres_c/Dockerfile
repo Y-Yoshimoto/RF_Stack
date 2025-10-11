@@ -12,4 +12,4 @@ ENV LC_ALL=en_US.UTF-8
 # COPY postgresql.conf /etc/postgresql/postgresql.conf
 
 # 初期構築データのコピー
-COPY ./startup.sql /docker-entrypoint-initdb.d/startup.sql
+COPY ./initdb/* /docker-entrypoint-initdb.d/
