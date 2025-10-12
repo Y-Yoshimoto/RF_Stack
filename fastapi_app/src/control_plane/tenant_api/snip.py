@@ -7,8 +7,6 @@ from sqlmodel import text
 # DB接続用のモジュールをインポート
 from modules.db_connector.engine import create_db_engine
 
-# テナント情報テーブルモデルをインポート
-from control_plane.models.sql_models import *  # noqa: F403 # モデルをすべてインポート
 
 def create_db_and_tables(engine):
     SQLModel.metadata.create_all(engine)

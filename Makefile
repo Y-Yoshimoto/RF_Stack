@@ -32,7 +32,7 @@ d-clean:
 ### PostgreSQLコンテナの再生作成
 d-reset-db:
 	@docker compose down postgres_c
-	@docker compose up -d --build 
+	@docker compose up -d --build postgres_c
 
 ## Productionコンテナ用
 p-build:
