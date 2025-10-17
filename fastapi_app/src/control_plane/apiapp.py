@@ -3,16 +3,16 @@
 # モデル読み込み
 from fastapi import APIRouter, HTTPException
 
-from .tenant_api.apiapp import router as tenant_router
+from .tenant_api.router import router as router_tenant
 
 # APIルータ
 router = APIRouter()
 
 # テナント管理
 router.include_router(
-    tenant_router,
-    prefix="/tenant_router",
-    tags=["tenant_router"],
+    router_tenant,
+    prefix="/tenant",
+    tags=["tenant"],
 )
 
 
