@@ -5,11 +5,34 @@ from sqlmodel import Field, Session, SQLModel, create_engine, select
 from sqlmodel import text
 # from sqlalchemy import create_engine
 
-def create_db_engine(dbuser: str, dbpassword: str, dbhost: str, dbport: str, dbname: str):
-    """ DBエンジンの作成 """
-    # 参考: https://docs.sqlalchemy.org/en/20/core/engines.html#postgresql
-    postgresql_url = f"postgresql://{dbuser}:{dbpassword}@{dbhost}:{dbport}/{dbname}"
-    return create_engine(postgresql_url, echo=False)
+
+class DBConnector:
+    """ DBコネクタクラス """
+
+    def __init__(self, dbuser: str, dbpassword: str, dbhost: str, dbport: str, dbname: str):
+        """ コンストラクタ """
+        # DB接続情報の接続情報を保持
+        self.endpoint = {
+            "dbuser": dbuser,
+            "dbpassword": dbpassword,
+            "dbhost": dbhost,
+            "dbport": dbport,
+            "dbname": dbname,
+            "url": f"postgresql://{dbuser}:{dbpassword}@{dbhost}:{dbport}/{dbname}"
+        }
+        # DBエンジンの作成
+        self.engine = self.create_db_engine()
+
+    def create_db_engine(self):
+        """ DBエンジンの作成 """
+        # 参考: https://docs.sqlalchemy.org/en/20/core/engines.html#postgresql
+        return create_engine(self.endpoint["url"], echo=False)
+    
+# def create_db_engine(dbuser: str, dbpassword: str, dbhost: str, dbport: str, dbname: str):
+#     """ DBエンジンの作成 """
+#     # 参考: https://docs.sqlalchemy.org/en/20/core/engines.html#postgresql
+#     postgresql_url = f"postgresql://{dbuser}:{dbpassword}@{dbhost}:{dbport}/{dbname}"
+#     return create_engine(postgresql_url, echo=False)
 
 
 # 直接実行/動作確認用
