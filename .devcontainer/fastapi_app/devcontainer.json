@@ -18,7 +18,8 @@
                 // "ms-python.autopep8",
                 // "ms-python.pylint",
                 "ms-vscode.live-server",
-                "tamasfe.even-better-toml"
+                "tamasfe.even-better-toml",
+                "mhutchie.git-graph"
             ]
         }
     },

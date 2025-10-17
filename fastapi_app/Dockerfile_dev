@@ -1,5 +1,5 @@
 # Run Images
-FROM python:3.13-slim-trixie
+FROM python:3.14-slim-trixie
 # アプリケーションディレクトリ名指定
 ARG APPNAME=fastapi_app
 # Pythonの実行環境補完
@@ -10,16 +10,16 @@ RUN --mount=type=cache,mode=0755,target=/root/.cache/pip \
 
 # Playwrightインストール
 ## 日本語ロケール、Notoフォントインストール
-RUN --mount=type=cache,target=/var/cache/apt \
-    --mount=type=cache,target=/var/lib/apt \
-    apt-get update \
-    && apt-get install -y --no-install-recommends locales-all fonts-noto fonts-noto-cjk \
-    && echo "export LANG=ja_JP.UTF-8" >> ~/.bashrc
-## Playwright用のブラウザ依存関係解決
-RUN --mount=type=cache,mode=0755,target=/root/.cache/pip \
-    pip install playwright -t /tmp/ \
-    && PYTHONPATH=/tmp /tmp/bin/playwright install-deps \
-    && rm -rf /tmp/*
+# RUN --mount=type=cache,target=/var/cache/apt \
+#     --mount=type=cache,target=/var/lib/apt \
+#     apt-get update \
+#     && apt-get install -y --no-install-recommends locales-all fonts-noto fonts-noto-cjk \
+#     && echo "export LANG=ja_JP.UTF-8" >> ~/.bashrc
+# ## Playwright用のブラウザ依存関係解決
+# RUN --mount=type=cache,mode=0755,target=/root/.cache/pip \
+#     pip install playwright -t /tmp/ \
+#     && PYTHONPATH=/tmp /tmp/bin/playwright install-deps \
+#     && rm -rf /tmp/*
 
 # Install OS packages
 RUN --mount=type=cache,target=/var/cache/apt \

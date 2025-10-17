@@ -3,7 +3,7 @@ name = "fastapi-app"
 version = "0.1.0"
 description = "FastAPIを使ったAPIサーバー"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.14"
 dependencies = [
     # FastAPI: Webフレームワーク群
     "fastapi",
@@ -32,7 +32,7 @@ dev = [
     "pytest-asyncio",
     "pytest-html",
     "pytest-check",
-    "pytest-playwright",
+    # "pytest-playwright",
 ]
 [tool.ruff]
 

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # ユニットテストコードサンプル
 # https://docs.pytest.org/en/stable/getting-started.html
-from playwright.sync_api import Page
+# from playwright.sync_api import Page
 # ロギング設定
 import logging
 logger = logging.getLogger(__name__)
@@ -20,25 +20,25 @@ class TestRuntime:
             check.equal(1 + 1, 2, "1 + 1 は 2 ではありません")
             check.is_true(True, "Trueではありません")
 
-    def test_playwright(self, page: Page):
-        """ Pytest-Playwrightの動作確認 """
-        logger.info("Playwrightの動作環境を確認")
-        page.goto("https://playwright.dev/python/")
-        page.screenshot(path="./test/_tmp/screenshot.png")
-        # Playwrightの文字列がページに表示されていることを確認
-        count = page.locator("text=Playwright").count()
-        assert count > 0, f"Playwrightの文字列がページに見つかりません (一致数: {count})"
+    # def test_playwright(self, page: Page):
+    #     """ Pytest-Playwrightの動作確認 """
+    #     logger.info("Playwrightの動作環境を確認")
+    #     page.goto("https://playwright.dev/python/")
+    #     page.screenshot(path="./test/_tmp/screenshot.png")
+    #     # Playwrightの文字列がページに表示されていることを確認
+    #     count = page.locator("text=Playwright").count()
+    #     assert count > 0, f"Playwrightの文字列がページに見つかりません (一致数: {count})"
 
     def test_conected_postgresql(self, check):
-        """ PostgreSQLへの接続確認 """
+        """ PostgreSQLへの接続確認 Runtime DB への接続確認 """
         # 接続用モジュールのインポート
         from sqlmodel import Session, create_engine, text
         # DB接続情報を環境変数から取得(DB_USERは、Postgres用のデフォルト値を設定)
         DB_USER = os.getenv("DB_USER", "postgres")
-        DB_PASSWORD = os.environ["DB_PASSWORD"]
+        DB_PASSWORD = os.environ["POSTGRES_PASSWORD"]
         DB_HOST = os.environ["DB_HOST"]
         DB_PORT = os.environ["DB_PORT"]
-        DB_NAME = os.environ["DB_NAME"]
+        DB_NAME = "runtime_db"
         # URLを組み立ててDBエンジンを作成
         logger.info(f'PostgreSQLへの接続を確認: {DB_USER}:_password_@{DB_HOST}:{DB_PORT}/{DB_NAME}')
         engine = create_engine(f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}", echo=True)
