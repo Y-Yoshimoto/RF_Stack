@@ -20,7 +20,7 @@ const useFetch = <T>({ url, method = 'GET', body, headers, takeData = takeDataDe
     const [loading, setLoading] = useState<boolean>(false);
     const [error, setError] = useState<Error | null>(null);
     // リクエストオブジェクトメモを生成
-    const { request, requestKey } = useRequestObject({ url, method, body, headers });
+    const { request } = useRequestObject({ url, method, body, headers });
 
     // useEffectでfetchを実行
     useEffect(() => {
