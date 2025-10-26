@@ -37,14 +37,15 @@ const useFetch = <T>({ url, method = 'GET', body, headers, takeData = takeDataDe
                 setError(null);
             })
             .catch((err) => {
-                // console.error('Fetch error:', err);
                 setError(err)
             })
-            .finally(() => setLoading(false));
+            .finally(() => {
+                setLoading(false);
+            });
         return () => {
-            controller.abort();
+            // controller.abort();
         }
-    }, [requestKey]); // URL, bodyが変わったら再実行
+    }, [url]); // URL
     return { response, loading, error };
 };
 
