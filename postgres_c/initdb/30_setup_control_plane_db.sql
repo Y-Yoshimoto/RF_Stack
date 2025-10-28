@@ -5,9 +5,9 @@
 
 -- updated_atカラムを自動更新するトリガー関数
 -- 参考: https://pgsql-jp.github.io/current/html/plpgsql-trigger.html
-CREATE FUNCTION fun_update_at() RETURNS OPAQUE AS '
+CREATE FUNCTION fun_update_at() RETURNS TRIGGER AS '
     begin
-        new.updated_at := ''now'';
+        new.updated_at := now();
         return new;
     end;
 ' LANGUAGE plpgsql;

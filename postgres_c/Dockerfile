@@ -13,3 +13,6 @@ ENV LC_ALL=en_US.UTF-8
 
 # 初期構築データのコピー
 COPY ./initdb/* /docker-entrypoint-initdb.d/
+# 初期構築データの所有者をpostgresユーザーに変更
+RUN chown -R postgres:postgres /docker-entrypoint-initdb.d/ \
+    && chmod -R 755 /docker-entrypoint-initdb.d/

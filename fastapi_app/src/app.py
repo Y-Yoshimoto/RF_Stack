@@ -6,7 +6,7 @@ from fastapi import FastAPI
 # サブモジュール読み込み
 from rest_sample.apiapp import router as RestSample
 # from proxy.apiapp import router as proxy
-from control_plane.apiapp import router as router_control_plane
+from control_plane_app.apiapp import router as router_control_plane
 
 # アプリケーション起動
 app = FastAPI()
