@@ -96,6 +96,7 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+.uv_install.lock
 
 # alembic一時的ファイル
 alembic/control_plane/versions/*.py
