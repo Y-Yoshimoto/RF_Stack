@@ -1,3 +1,7 @@
+/* eslint-disable */
+/* @ts-nocheck */
+// vite.config.ts
+
 import path from 'path';
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
@@ -7,8 +11,7 @@ import type { ManifestOptions, VitePWAOptions } from 'vite-plugin-pwa';
 // https://www.npmjs.com/package/rollup-plugin-visualizer
 import { visualizer } from 'rollup-plugin-visualizer';
 
-
-
+// Vite設定[https://vitejs.dev/config/]
 export default defineConfig(({ mode }) => {
   // 環境変数取り出し
   const env = loadEnv(mode, process.cwd(), '');
@@ -40,6 +43,7 @@ export default defineConfig(({ mode }) => {
     define: {
       __APP_ENV__: JSON.stringify(APP_ENV),
     },
+    // ビルド設定
     build: {
       chunkSizeWarningLimit: 1024,
       minify: 'esbuild',
@@ -59,7 +63,8 @@ export default defineConfig(({ mode }) => {
       host: "0.0.0.0",
       port: 5173,
       // リバースプロキシの設定
-      proxy: reverseproxy
+      // proxy: reverseproxy(),
+      proxy: reverseProxyCache(),
     }
   }
 });
@@ -92,15 +97,149 @@ const manifest = {
   background_color: "#FEFEFE",
 };
 
+
 // リバースプロキシ設定
-const reverseproxy = {
+const reverseproxy = () => {
   // https://ja.vitejs.dev/config/server-options.html
-  '/api': {
-    target: 'http://localhost:8080/api',
-    changeOrigin: true,
-    rewrite: (path) => path.replace(/^\/api/, ''),
-  },
-}
+  const API_HOST = `http://${process.env.VITE_API_HOST || 'fastapi_app:8000'}/`;
+  return {
+    '/api': {
+      target: API_HOST,
+      changeOrigin: true,
+      rewrite: (path: string) => path.replace(/^\/api/, ''),
+    },
+  };
+};
+
+// RP
+const reverseProxyCache = () => {
+  const API_HOST = `http://${process.env.VITE_API_HOST || 'fastapi_app:8000'}/`;
+
+
+  return {
+    '/api': {
+      target: API_HOST,
+      changeOrigin: true,
+      configure: (proxy: any) => {
+        console.log('Proxy', proxy);
+        // リクエスト時の処理
+        proxy.on('proxyReq', proxyReq);
+        proxy.on('proxyRes', proxyRes);
+        //selfHandleResponse: true, // ← 自分でレスポンス処理を制御する
+        // onProxyRes: async (proxyRes, req, res) => {
+        //   const key = `${req.method}:${req.url}`
+        //   console.log('onProxyRes key:', key)
+        // },
+        // onProxyReq: async (proxyReq: any, req: any, res: any) => {
+        //   const key = `${req.method}:${req.url}`
+        //   console.log('onProxyReq key:', key)
+        //   proxyReq.path = req.url.replace(/^\/api/, '')
+        //   proxyReq.end();
+        // },
+        // configure: (proxy) => {
+        //   console.log('Proxy', proxy);
+        //   proxy.on('proxyReq', async (proxyReq, req, res, options) => {
+        //     const key = `${req.method}:${req.url}`
+        //     const now = Date.now()
+
+        //     // キャッシュヒット確認
+        //     const cached = cache.get(key)
+        //     if (cached && (now - cached.time) < TTL) {
+        //       console.log(`[CACHE HIT] ${req.url}`)
+        //       res.writeHead(200, { 'Content-Type': 'application/json' })
+        //       res.end(JSON.stringify(cached.data))
+        //       proxyReq.destroy() // 本来のリクエストはキャンセル
+        //       return
+        //     }
+
+        //     // 通常通りバックエンドへfetchしてレスポンスをキャッシュ
+        //     proxyReq.on('abort', () => {
+        //       // クライアントがキャンセルした場合に備えてabortイベントを監視
+        //     })
+        //   })
+
+        //   proxy.on('proxyRes', async (proxyRes, req, res) => {
+        //     const key = `${req.method}:${req.url}`
+
+        //     // レスポンスをバッファに読み込み
+        //     const bodyChunks = []
+        //     proxyRes.on('data', chunk => bodyChunks.push(chunk))
+        //     proxyRes.on('end', () => {
+        //       const body = Buffer.concat(bodyChunks).toString()
+
+        //       try {
+        //         const json = JSON.parse(body)
+        //         console.log(`[CACHE SET] ${req.url}`)
+        //         cache.set(key, { time: Date.now(), data: json })
+        //       } catch {
+        //         // JSONでない場合はキャッシュしない
+        //       }
+
+        //       // クライアントにレスポンスを返す
+        //       res.writeHead(proxyRes.statusCode, proxyRes.headers)
+        //       res.end(body)
+        //     })
+        //   })
+        // },
+      },
+    }
+  };
+};
+
+// リバースプロキシ設定
+// 簡易キャッシュ/Strictモードの2回目のレスポンスを返す
+const cache = new Map()
+const TTL = 300 // 300ms
+//// リクエスト加工
+const proxyReq = async (proxyReq: any, req: any, res: any) => {
+  const key = `${req.method}:${req.url}`
+  // console.debug('onProxyReq key:', key)
+  proxyReq.path = req.url.replace(/^\/api/, '')
+  // キャッシュヒット確認
+  const cached = cache.get(key)
+  // TTL内であればキャッシュを返す
+  if (cached && (Date.now() - cached.time) < TTL) {
+    // console.log(`[CACHE HIT] Key: ${key}`)
+    // キャッシュが"203 Non-Authoritative Information"レスポンスとして返す
+    res.writeHead(203, cached.headers);
+    res.end(cached.data);
+    // res.end(JSON.stringify(cached.data))
+    // 元のリクエストを中止
+    proxyReq.abort();
+  }
+  return
+};
+
+//// レスポンス加工
+const proxyRes = async (proxyRes: any, req: any, res: any) => {
+  const key = `${req.method}:${req.url}`
+  // console.debug(`proxyRes Key: ${key}`)
+  // レスポンスをバッファに読み込み
+  let bodyChunks: any[] = []
+  proxyRes.on('data', (chunk: any) => bodyChunks.push(chunk))
+  proxyRes.on('end', () => {
+    const body = Buffer.concat(bodyChunks).toString()
+    // レスポンスをキャッシュに保存する
+    try {
+      // cache.set(key, { time: Date.now(), data: JSON.parse(body), headers: proxyRes.headers })
+      cache.set(key, { time: Date.now(), data: body, headers: proxyRes.headers })
+      // console.log(`[CACHE ADD] Key: ${key}`)
+    } catch {
+      console.error(`Add Cache Error. Key: ${key}`);
+    }
+    // Cacheの中に期限切れのデータがあればクリーンアップ
+    clearCache();
+    // クライアントにレスポンスを返す
+    res.end(body)
+  })
+};
+
+// TTLを超過したキャッシュを削除する関数
+const clearCache = async () => {
+  cache.forEach((v, k) => { if ((Date.now() - v.time) > TTL) cache.delete(k); });
+};
+
+
 // サービスワーカ設定
 // https://vite-pwa-org.netlify.app/guide/inject-manifest.html
 const serviceworker = {
@@ -111,3 +250,4 @@ const serviceworker = {
   srcDir: 'src',
   filename: 'serviceworker.js',
 }
+
