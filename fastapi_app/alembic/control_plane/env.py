@@ -5,7 +5,7 @@ from sqlalchemy import pool
 from alembic import context
 config = context.config
 # モデルをインポート
-from control_plane.models.sql_models import *  # noqa: F403 # モデルをすべてインポート
+from control_plane_app.models.sql_models import *  # noqa: F403 # モデルをすべてインポート
 ## SQLModelのメタデータをターゲットに設定
 from sqlmodel import SQLModel
 target_metadata = SQLModel.metadata 

@@ -8,7 +8,7 @@ from sqlmodel import text
 from modules.db_connector.engine import DBConnector
 
 # モデルインポート
-# from control_plane.models.sql_models import * # noqa: F403, F401
+# from control_plane_app.models.sql_models import * # noqa: F403, F401
 
 def create_db_and_tables(engine):
     """ DBとテーブル作成 """
