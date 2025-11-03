@@ -44,7 +44,7 @@ def read_root():
 # テナント一覧取得
 ## ToDo: SessionDepの型指定を修正
 @router.get("/tenants", tags=["tenant"])
-def get_tenants(session: SessionDep) -> list[TenantModel]:
+def get_tenants(session: SessionDep) -> list[T_Tenant]:
     """ テナント一覧取得 """
-    tenants = session.exec(select(TenantModel)).all()
+    tenants = session.exec(select(T_Tenant)).all()
     return tenants
