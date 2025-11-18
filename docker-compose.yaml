@@ -64,6 +64,7 @@ services:
       - 5432
     # restart: always
     # user: postgres
+    user: postgres
     environment:
       #POSTGRES_USER:
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}

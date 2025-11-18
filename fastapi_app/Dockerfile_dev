@@ -57,9 +57,9 @@ RUN echo 'alias py="python"' >> /etc/bash.bashrc \
 
 EXPOSE 8000
 ENTRYPOINT ["/usr/bin/docker-entrypoint.sh"]
-## unicon起動用
+## unicon起動用(uvicorn app:app --reload --host 0.0.0.0 --port 8000)
 # CMD ["uvicorn", "app:app", "--reload", "--host", "0.0.0.0", "--port", "8000"]
-## Gunicorn起動用
+## Gunicorn起動用(gunicorn --config ./src/gunicorn.conf.py)
 # CMD ["gunicorn" ,"--config", "./src/gunicorn.conf.py"]
 ## デバック用
 CMD [ "tail", "-f", "/dev/null"]
