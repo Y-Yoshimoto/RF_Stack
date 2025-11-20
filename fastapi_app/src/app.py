@@ -4,14 +4,22 @@ import uvicorn
 from fastapi import FastAPI
 
 # サブモジュール読み込み
-from RestSample.apiapp import router as RestSample
-from Proxy.apiapp import router as Proxy
+from rest_sample.apiapp import router as RestSample
+# from proxy.apiapp import router as proxy
+from control_plane_app.apiapp import router as router_control_plane
 
 # アプリケーション起動
 app = FastAPI()
 # サブモジュール読み込み
+# 参考: https://fastapi.tiangolo.com/tutorial/bigger-applications/#import-fastapi
 app.include_router(RestSample)
-app.include_router(Proxy)
+# コントロールプレーン
+app.include_router(
+    router_control_plane,
+    prefix="/control_plane",
+    tags=["control_plane"],
+)
+
 
 
 @app.get("/", include_in_schema=False)

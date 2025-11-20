@@ -17,11 +17,20 @@ py: pythonコマンド
 pyw: ホットリロード
 pytest: pytestコマンド
 
+## Playwrightを使用する場合
+
+以下のファイルのコメントアウトを外すこと
+
+- Dockerfile_dev
+- auxiliary/docker-entrypoint.sh
+- test/test_00_runtime.py
+- pyproject.toml
+
 ## データベース
 
 ### 接続先情報
 
-export PGPASSWORD=postgres
+export POSTGRES_PASSWORD=postgres
 psql -h postgres_c -p 5432 -U postgres
 psql -h postgres_c -p 5432 -U postgres -d runtime_db
 

@@ -1,5 +1,5 @@
 
-from RestSample.apiapp import router as RestSample
+from rest_sample.apiapp import router as RestSample
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 

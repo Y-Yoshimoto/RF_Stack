@@ -9,3 +9,7 @@ rm -rf ${DIR}.pytest_cache
 rm -rf ${DIR}pytest_report.html
 rm -f ${DIR}.coverage
 rm -rf ${DIR}.ruff_cache
+
+# ライブラリ関連のファイルをクリーンアップする
+rm -rf f ${DIR}.venv
+rm -f ${DIR}uv.lock

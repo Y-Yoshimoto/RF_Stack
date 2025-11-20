@@ -96,6 +96,11 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+.uv_install.lock
+
+# alembic一時的ファイル
+alembic/control_plane_app/versions/*.py
+
 
 # Lockファイル 
 ## バージョンを確定しないため一時的に無視
