@@ -1,6 +1,6 @@
 // Fetchコンポーネント
 import React from 'react';
-import useFetch from '../fetchhook';
+import useFetch from '../FetchComponentshook';
 import { T } from 'vitest/dist/chunks/reporters.d.BFLkQcL6.js';
 
 // FetchコンポーネントのPropsの型定義
@@ -19,7 +19,7 @@ type FetchComponentProps<T, U> = {
  * @param {function} renderError エラー時に表示するコンポーネント
  * @returns {JSX.Element} 各状態でコンポーネント
  */
-export const FetchComponent = <T, U>({
+export const FetchComponentClassic = <T, U>({
   url,
   renderSuccess = ({ response }: { response: T }) => <ShowSuccess response={response} />,
   renderLoading = () => <ShowLoading />,
@@ -49,4 +49,4 @@ const ShowError = <U,>({ error }: { error: U }) => {
   return <>Error.</>;
 };
 
-export default FetchComponent;
+export default FetchComponentClassic;

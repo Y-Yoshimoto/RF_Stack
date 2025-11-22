@@ -7,13 +7,13 @@ import { render, fireEvent } from '@testing-library/react';
 import { renderHook, waitFor } from '@testing-library/react';
 
 // テスト対象の関数
-import FetchComponent from './index';
+import FetchComponentClassic from './index';
 // テスト用の仮コンポーネント
 const SampleSuccess = ({ response }: { response: any }): React.ReactElement => {
   return <>{response.message}</>;
 };
 const SampleComponent = () => {
-  return <FetchComponent url='https://example.com' renderSuccess={SampleSuccess} />;
+  return <FetchComponentClassic url='https://example.com' renderSuccess={SampleSuccess} />;
 };
 
 // Fetchのモックを生成する関数

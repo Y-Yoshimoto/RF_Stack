@@ -8,7 +8,7 @@ import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 
 // Fetchコンポーネント
-import FetchComponent from '@/utils/libs/fetch/component';
+import FetchComponentClassic from '@/utils/libs/FetchComponents/component';
 
 // 成功時のコンポーネント
 // eslint-disable-next-line
@@ -54,8 +54,8 @@ export const FetchSampleComponent: React.FC = () => {
           Request
         </Button>
         <br />
-        <FetchComponent key={key} resourceObj={{ url: `/static.json?key=${key}` }} renderSuccess={SuccessComponent} />
-        {/* <FetchComponent key={`rwq2-${key}`} resourceObj={{ url: `/api/RestSample/123` }} renderSuccess={SuccessComponent_API} /> */}
+        <FetchComponentClassic key={key} resourceObj={{ url: `/static.json?key=${key}` }} renderSuccess={SuccessComponent} />
+        {/* <FetchComponentClassic key={`rwq2-${key}`} resourceObj={{ url: `/api/RestSample/123` }} renderSuccess={SuccessComponent_API} /> */}
       </Box>
     </Container>
   );

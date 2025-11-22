@@ -45,7 +45,7 @@ type InFetchLoaderSampleComponentProps = {
 export const In_FetchLoaderSampleComponent: React.FC<InFetchLoaderSampleComponentProps> = ({ fetchData }) => {
 
   const navigation = useNavigate();
-  const requestingActions = () => navigation(`/fetch-loader/${new Date().getTime()}`)
+  const requestingActions = () => navigation(`/FetchComponents-loader/${new Date().getTime()}`)
 
   return (
     <Container>

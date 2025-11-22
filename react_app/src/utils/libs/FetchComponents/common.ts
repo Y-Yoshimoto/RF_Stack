@@ -1,26 +1,16 @@
-// Fetch関連の共通型定義と関数
-//// リクエスト情報の型定義
-export type ResourceObj<T> = {
-    url: string;
-    method?: "GET" | "POST" | "PUT" | "DELETE";
-    body?: object | undefined;
-    headers?: HeadersInit;
-    takeData?: (response: Response) => Promise<T>;
-};
-// FetchコンポーネントのPropsの型定義
-export type FetchComponentProps<T, U> = {
-    resourceObj: ResourceObj<T>;
-    renderSuccess?: ({ response }: { response: T }) => React.ReactElement;
-    renderLoading?: () => React.ReactElement;
-    renderError?: ({ error }: { error: U }) => React.ReactElement;
-};
+// 共通関数群定義ファイル
+//// 共通型定義読み込み
+import { ResourceObj } from './type';
 
-// 
-
-// 共通関数
-// レスポンスからデータを抽出する関数
+// Fetch API共通関数群
+//// レスポンスからjsonデータを抽出する関数
 export const takeDataDef = (r: Response) => r.json();
-// リクエストオブジェクト生成関数
+/**
+ * リクエストオブジェクト生成関数
+ * https://developer.mozilla.org/ja/docs/Web/API/Request
+ * @param {ResourceObj<T>} param0 リクエスト情報
+ * @returns {request: Request, requestKey: string} リクエストオブジェクトと一意のキー文字列
+*/
 export const generateRequestObjectAndKey = <T>({ url, method = 'GET', body, headers }: ResourceObj<T>) => {
     const bodyString = JSON.stringify(body);
     const requestKey = `${url}-${method}-${bodyString}-${JSON.stringify(headers)}`;
@@ -33,7 +23,7 @@ export const generateRequestObjectAndKey = <T>({ url, method = 'GET', body, head
 };
 
 /**
- * requestFetch リクエスト情報を受け取り、Fetch APIでデータを取得するプロミスを返す
+ * requestFetch リクエスト情報を受け取り、Fetchプロミスを返す
  *
  * @param {ResourceObj<T>} props - リクエスト情報
  * @param {string} props.url - リクエストURL
