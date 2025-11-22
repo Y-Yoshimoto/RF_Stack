@@ -14,7 +14,7 @@ import loader_FetchLoaderPage from '@/sample/pages/FetchPage/FetchLoder/loader';
 
 import FetchUse from '@/sample/pages/FetchPage/FetchUse';
 
-import { W_ErrorBoundary_Router } from '@/utils/wrapper/ErrorBoundary';
+import { W_ErrorBoundary_Router } from '@/utils/WrapperComponent/ErrorBoundary';
 
 /**
  * ルーティングの設定関数

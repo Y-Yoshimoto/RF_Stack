@@ -5,10 +5,10 @@ LABEL maintainer='y-yoshimoto'
 ARG APPNAME=react_app
 # 環境変数を設定する
 ENV NODE_ENV=development
-
+ARG APT_CACHE_ID=apt-cache
 # # aptパッケージインストール/日本語環境設定
-RUN --mount=type=cache,target=/var/cache/apt \
-    --mount=type=cache,target=/var/lib/apt \
+RUN --mount=type=cache,id=${APT_CACHE_ID},target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,id=${APT_CACHE_ID},target=/var/lib/apt,sharing=locked \
     apt-get update \
     && apt-get install -y vim git curl make gnupg2 graphviz zip jq locales-all fonts-noto fonts-noto-cjk \
     && echo "export LANG=ja_JP.UTF-8" >> ~/.bashrc

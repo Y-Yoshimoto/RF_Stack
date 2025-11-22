@@ -9,9 +9,8 @@ import { ResourceObj, takeDataDef, generateRequestObjectAndKey, requestFetch } f
 // リクエストオブジェクトメモを生成するカスタムフック
 const useRequestObject = <T>({ url, method = 'GET', body, headers }: ResourceObj<T>) => {
     // リクエストオブジェクトを生成
-    return useMemo(() => {
-        return generateRequestObjectAndKey({ url, method, body, headers });
-    }, [url, method, body, headers]);
+    return useMemo(() => generateRequestObjectAndKey({ url, method, body, headers }),
+        [url, method, body, headers]);
 };
 
 const useFetch = <T>({ url, method = 'GET', body, headers, takeData = takeDataDef }: ResourceObj<T>) => {

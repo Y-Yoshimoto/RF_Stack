@@ -13,7 +13,7 @@ type FetchComponentProps<T, U> = {
 
 /**
  * Fetchリクエストを行い、結果を表示するコンポーネント
- * @param {string} uri APIのURI
+ * @param {string} url APIのURL
  * @param {function} renderSuccess 成功時に表示するコンポーネント
  * @param {function} renderLoading ローディング時に表示するコンポーネント
  * @param {function} renderError エラー時に表示するコンポーネント
@@ -32,7 +32,7 @@ export const FetchComponent = <T, U>({
   return null;
 };
 
-//成功表デフォルト示コンポーネント
+//成功表示デフォルトコンポーネント
 const ShowSuccess = <T,>({ response }: { response: T }) => {
   console.log(response);
   return <>Success</>;

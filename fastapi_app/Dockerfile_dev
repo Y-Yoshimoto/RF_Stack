@@ -22,8 +22,9 @@ RUN --mount=type=cache,mode=0755,target=/root/.cache/pip \
 #     && rm -rf /tmp/*
 
 # Install OS packages
-RUN --mount=type=cache,target=/var/cache/apt \
-    --mount=type=cache,target=/var/lib/apt \
+ARG APT_CACHE_ID=apt-cache
+RUN --mount=type=cache,id=${APT_CACHE_ID},target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,id=${APT_CACHE_ID},target=/var/lib/apt,sharing=locked \
     apt-get update \
     && apt-get install -y --no-install-recommends sudo curl vim git inotify-tools postgresql-client 
 

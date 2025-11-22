@@ -4,7 +4,7 @@ import { AppRoutes } from './routes';
 import { Suspense } from 'react';
 
 // 全体のエラーバウンダリー
-import W_ErrorBoundary from '@/utils/wrapper/ErrorBoundary';
+import W_ErrorBoundary from '@/utils/WrapperComponent/ErrorBoundary';
 
 // MUIのテーマプロバイダー
 import { ThemeProvider } from '@mui/material/styles';
