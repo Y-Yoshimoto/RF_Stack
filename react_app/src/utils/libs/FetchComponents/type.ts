@@ -13,6 +13,8 @@ export type FetchComponentProps<T, U> = {
     renderSuccess?: ({ response }: { response: T }) => React.ReactElement;
     renderLoading?: () => React.ReactElement;
     renderError?: ({ error }: { error: U }) => React.ReactElement;
+    onError?: (error: Error, info: React.ErrorInfo, isSendError: boolean) => void;
+    onReset?: () => void;
 };
 
 // FetchコンポーネントのPropsの型定義
@@ -27,6 +29,4 @@ export type FallBacksProps<U> = {
     renderLoading?: () => React.ReactElement;
     renderError?: ({ error }: { error: U }) => React.ReactElement;
 }
-//// リクエスト及び成功時のレンダリングを含むコンポーネント
-export type FetchComponentProps<T, U> = SuccessProps<T> & FallBacksProps<U>;
 

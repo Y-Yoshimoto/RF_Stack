@@ -1,11 +1,13 @@
 // Fetchコンポーネント
 import React from 'react';
-import { use } from 'react';
-import useFetch from './hook.ts';
-// 共通型定義読み込み
+import { use, useState } from 'react';
+// 共通型定義, フック, 関数読み込み
 import { FetchComponentProps, SuccessProps } from './type';
-// 共通関数読み込み
 import { requestFetch } from './common'
+import { useFetchPromiseMemo } from './hook.ts';
+
+// ErrorBoundary及びSuspenseのラッパーコンポーネント
+import { W_ErrorBoundary, W_Suspense } from '../WrapperComponents';
 
 //////// デフォルト表示コンポーネント ////////
 //成功時デフォルト表示コンポーネント
@@ -32,36 +34,34 @@ const ShowError = <U,>({ error }: { error: U }) => {
  * @param {function} renderError エラー時に表示するコンポーネント
  * @returns {JSX.Element} 各状態でコンポーネント
  */
-export const FetchComponentClassic = <T, U>({
+export const FetchComponent = <T, U>({
     resourceObj,
     renderSuccess = ShowSuccess,
-    // renderSuccess = ({ response }: { response: T }) => <ShowSuccess response={response} />,
     renderLoading = () => <ShowLoading />,
-    renderError = ({ error }: { error: U }) => <ShowError error={error} />,
+    renderError = ShowError,
+    onError,
+    onReset
 }: FetchComponentProps<T, U>) => {
-    const { response, loading, error } = useFetch(resourceObj);
-    if (loading) return renderLoading();
-    if (error) return renderError({ error: error as U });
-    if (response) return renderSuccess({ response: response as T });
-    return null;
+    // メモ化したFetchプロミスを取得
+    const fetchPromise = useFetchPromiseMemo(resourceObj);
+    // エラーバウンダリとサスペンスでラップレスポンス結果を表示
+    return (
+        <W_ErrorBoundary errorFallback={renderError} onError={onError} onReset={onReset}>
+            <W_Suspense loadingFallback={renderLoading()}>
+                <In_F<T> promise={fetchPromise} renderSuccess={renderSuccess} />
+            </W_Suspense>
+        </W_ErrorBoundary>
+    );
 };
 
-/* Fetch-useAPIコンポーネント
- * use APIを使用して、プロミスを受け取ってレスポンスを扱うコンポーネント
- * PromiseWrapper又は、Suspense, ErrorBoundaryでラップして使用する
-*/
-export const FetchComponentUseAPI = ({ resourceObj, renderSuccess = ShowSuccess }: SuccessProps<T>) => {
-    return (<In_FetchComponentUseAPI promise={requestFetch(resourceObj)} renderSuccess={renderSuccess} />);
-};
 // 内部コンポーネントのPropsの型定義
-type In_FetchComponentUseAPIProps<T> = {
-    promise: Promise<T | null>;
-    renderSuccess: ({ response }: { response: T }) => React.ReactElement;
-}
+type In_F_Props<T> = { promise: Promise<T | null>; renderSuccess: ({ response }: { response: T }) => React.ReactElement; };
 // use APIでプロミスの中身を取り出して扱うコンポーネント
-const In_FetchComponentUseAPI = ({ promise, renderSuccess }: In_FetchComponentUseAPIProps<T>) => {
-    const data = use(promise) as T;
-    return (<>{renderSuccess({ response: data })}</>);
+const In_F = <T,>({ promise, renderSuccess }: In_F_Props<T>) => {
+    console.log('In_F promise:', promise);
+    const response = use(promise) as T;
+    console.log('In_F response:', response);
+    return (<>{renderSuccess({ response })}</>);
 };
 
-export default FetchComponentClassic;
+export default FetchComponent;

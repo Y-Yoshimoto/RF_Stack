@@ -4,13 +4,26 @@
 */
 import { useState, useEffect, useMemo, use } from 'react';
 // 共通型定義, 関数読み込み
-import { ResourceObj, takeDataDef, generateRequestObjectAndKey, requestFetch } from './common'
+import { ResourceObj } from './type'
+import { takeDataDef, generateRequestObject, generateRequestKey, requestFetch } from './common'
 
-// リクエストオブジェクトメモを生成するカスタムフック
-const useRequestObject = <T>({ url, method = 'GET', body, headers }: ResourceObj<T>) => {
+/** 
+ * リクエストオブジェクトメモを生成するカスタムフック
+ * @param {ResourceObj<T>} resourceObj リクエスト情報
+ * @returns {Request} リクエストオブジェクト
+*/
+const useRequestObjectMemo = <T>(resourceObj: ResourceObj<T>) => {
     // リクエストオブジェクトを生成
-    return useMemo(() => generateRequestObjectAndKey({ url, method, body, headers }),
-        [url, method, body, headers]);
+    return useMemo(() => generateRequestObject(resourceObj), [generateRequestKey(resourceObj)]);
+};
+/** 
+ * Fetchプロミスメモを生成するカスタムフック
+ * @param {ResourceObj<T>} resourceObj リクエスト情報
+ * @returns {Promise<T>} Fetchプロミスオブジェクト
+*/
+export const useFetchPromiseMemo = <T>(resourceObj: ResourceObj<T>) => {
+    // リクエストプロミスを生成
+    return useMemo(() => requestFetch<T>(resourceObj), [generateRequestKey(resourceObj)]);
 };
 
 const useFetch = <T>({ url, method = 'GET', body, headers, takeData = takeDataDef }: ResourceObj<T>) => {
@@ -19,7 +32,7 @@ const useFetch = <T>({ url, method = 'GET', body, headers, takeData = takeDataDe
     const [loading, setLoading] = useState<boolean>(false);
     const [error, setError] = useState<Error | null>(null);
     // リクエストオブジェクトメモを生成
-    const { request } = useRequestObject({ url, method, body, headers });
+    const request = useRequestObjectMemo({ url, method, body, headers });
 
     // useEffectでfetchを実行
     useEffect(() => {
