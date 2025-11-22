@@ -1,4 +1,4 @@
-import W_ErrorBoundary from '@/utils/wrapper/ErrorBoundary';
+import W_ErrorBoundary from '@/utils/libs/WrapperComponents/ErrorBoundary';
 
 // エラーを表示するためのサンプルページ
 const ErrorPage = () => {

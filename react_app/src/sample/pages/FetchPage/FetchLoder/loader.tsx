@@ -1,5 +1,5 @@
 // React Router ローダー関数を使用したデータフェッチのサンプル
-import { requestFetch } from '@/utils/libs/fetch/';
+import { requestFetch } from '@/utils/libs/FetchComponents/';
 
 // 型定義
 type LoaderReturn<T, U> = {

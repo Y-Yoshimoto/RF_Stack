@@ -8,7 +8,7 @@ import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 
 // Fetchコンポーネント
-import FetchComponent from '@/utils/libs/fetch/component';
+import FetchComponent from '@/utils/libs/FetchComponents/component';
 
 // 成功時のコンポーネント
 // eslint-disable-next-line
@@ -27,7 +27,6 @@ const SuccessComponent = ({ response }: { response: any }) => {
 
 // API用 成功時のコンポーネントサンプル
 const SuccessComponent_API = ({ response }: { response: any }) => {
-  console.log('SuccessComponent', response);
   // サンプルレスポンス: {"id":123,"name":"sample","date":"2024-02-27"}
   return (
     <>
@@ -41,7 +40,7 @@ const SuccessComponent_API = ({ response }: { response: any }) => {
 };
 
 export const FetchSampleComponent: React.FC = () => {
-  const [key, setKey] = useState(new Date().getTime());
+  const [key, setKey] = useState(0);
 
   // リクエスト再送ボタン
   const handleClick = () => { setKey(new Date().getTime()); };
@@ -55,7 +54,6 @@ export const FetchSampleComponent: React.FC = () => {
         </Button>
         <br />
         <FetchComponent key={key} resourceObj={{ url: `/static.json?key=${key}` }} renderSuccess={SuccessComponent} />
-        {/* <FetchComponent key={`rwq2-${key}`} resourceObj={{ url: `/api/RestSample/123` }} renderSuccess={SuccessComponent_API} /> */}
       </Box>
     </Container>
   );

@@ -9,6 +9,7 @@ services:
       args:
         USER_ID: ${USER_ID:-1000}
         GROUP_ID: ${GROUP_ID:-1000}
+        APT_CACHE_ID: react_app_apt_cache
     user: vscode
     ports:
       - "5173:5173"
@@ -30,6 +31,8 @@ services:
     build:
       context: ./fastapi_app
       dockerfile: Dockerfile_dev
+      args:
+        APT_CACHE_ID: fastapi_app_cache
       # コンテナ内のユーザーIDとグループIDを指定
     # restart: always
     volumes:

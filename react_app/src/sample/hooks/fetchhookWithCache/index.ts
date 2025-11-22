@@ -17,7 +17,7 @@ type ResourceObj<T> = {
 };
 
 // リクエストオブジェクトメモを生成するカスタムフック
-const useRequestObject = <T>({ url, method = 'GET', body, headers }: ResourceObj<T>) => {
+const useRequestObjectMemo = <T>({ url, method = 'GET', body, headers }: ResourceObj<T>) => {
     // リクエストオブジェクトを生成
     return useMemo(() => {
         const bodyString = JSON.stringify(body);
@@ -37,7 +37,7 @@ const useFetch = <T>({ url = './api/sample', method = 'GET', body, headers, take
     const [loading, setLoading] = useState<boolean>(false);
     const [error, setError] = useState<Error | null>(null);
     // リクエストオブジェクトメモを生成
-    const { request, requestKey } = useRequestObject({ url, method, body, headers });
+    const { request, requestKey } = useRequestObjectMemo({ url, method, body, headers });
 
     // useEffectでfetchを実行
     useEffect(() => {

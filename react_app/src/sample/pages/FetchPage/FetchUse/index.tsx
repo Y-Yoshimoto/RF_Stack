@@ -4,7 +4,7 @@ import { use, useState } from 'react';
 import Button from '@mui/material/Button';
 import Typography from '@mui/material/Typography';
 // 専用プロミスコンポーネント
-import PromiseWrapper from '@/utils/wrapper/PromiseWrapper';
+import PromiseWrapper from '@/utils/libs/WrapperComponents/PromiseWrapper';
 
 // 読み込み中表示
 const Loading = () => (<p>Loading...</p>)
