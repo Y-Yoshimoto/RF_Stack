@@ -3,11 +3,11 @@ import React from 'react';
 /* eslint-disable */
 import { describe, it, expect, vi } from 'vitest';
 import '@testing-library/jest-dom';
-import { render, fireEvent } from '@testing-library/react';
-import { renderHook, waitFor } from '@testing-library/react';
+import { render, waitFor, act, screen } from '@testing-library/react';
 
 // テスト対象の関数
-import FetchComponent from './component.ts';
+import FetchComponent from './component';
+
 // テスト用の仮コンポーネント
 const SampleSuccess = ({ response }: { response: any }): React.ReactElement => {
   return <>{response.message}</>;
@@ -26,18 +26,26 @@ describe('Fetchモック動作確認', () => {
   it('リクエスト成功', async () => {
     const data = { message: '200 OK.' };
     const _ = genMockFetch({ bodyObj: data });
-    const page = render(<SampleComponent />);
 
+    // Suspenseを使用しているためact内でrenderを実行する
+    const page = await act(async () => (render(<SampleComponent />)));
+
+    // 200 OK.が表示されることを確認する
     await waitFor(() => {
       expect(page.getByText('200 OK.')).toBeInTheDocument();
-    }, { timeout: 1000 });
+    }), { timeout: 1000 };
   });
 
   it('リクエスト失敗', async () => {
-    const _ = genMockFetch({ status: 503, statusText: 'Internal Server Error' });
-    const page = render(<SampleComponent />);
+    const _ = genMockFetch({ status: 503, statusText: 'Test Error. ' });
+
+    // Suspenseを使用しているためact内でrenderを実行する
+    const page = await act(async () => (render(<SampleComponent />)));
+
+    // Error. Internal Server Errorが表示されることを確認する
     await waitFor(() => {
       expect(page.getByText('Error.')).toBeInTheDocument();
-    });
+    }), { timeout: 1000 };
+
   });
 });
