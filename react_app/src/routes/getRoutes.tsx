@@ -8,6 +8,7 @@ import FetchPage from '@/sample/pages/FetchPage';
 import IndexedDBPage from '@/sample/pages/IndexdDBPage';
 import LeyoutChildren from '@/sample/pages/LeyoutChildren';
 import ErrorPage from '@/sample/pages/ErrorPage';
+import CanvasPage from '@/sample/pages/CanvasPage';
 
 import FetchLoaderPage from '@/sample/pages/FetchPage/FetchLoder';
 import loader_FetchLoaderPage from '@/sample/pages/FetchPage/FetchLoder/loader';
@@ -33,6 +34,8 @@ const routesList = [
   { path: 'indexedDB', id: 'indexedDB', element: <IndexedDBPage /> },
   { path: 'layoutChildren', id: 'layout-children', element: <LeyoutChildren /> },
   { path: 'error', id: 'error', element: <ErrorPage />, ErrorBoundary: W_ErrorBoundary_Router },
+  { path: 'canvas', id: 'canvas', element: <CanvasPage /> },
+
   { path: '*', id: 'not-found', element: <Navigate to={'/button'} replace /> }
 ];
 
