@@ -36,9 +36,11 @@ RUN chmod +x /usr/bin/docker-entrypoint.sh
 # vscodeのユーザーを追加
 # 実行ユーザー追加
 ARG USERNAME=vscode
-ARG USER_ID=501
-ARG GROUP_ID=20
-RUN useradd -m -s /bin/bash -u $USER_ID -g $GROUP_ID $USERNAME || usermod -l $USERNAME node \
+ARG USER_ID=1000
+ARG GROUP_ID=1000
+
+RUN groupadd -f -g $GROUP_ID $USERNAME || true\
+    && useradd -m -s /bin/bash -u $USER_ID -g $GROUP_ID $USERNAME \
     && usermod -a -G $GROUP_ID $USERNAME \
     && mkdir -p /vscode/vscode-server/ \
     && chown $USERNAME:dialout /vscode/vscode-server/.*

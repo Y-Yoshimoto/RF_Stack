@@ -1,10 +1,11 @@
 #!/usr/bin/env python
 # coding:utf-8
+import os
 from fastapi.responses import JSONResponse
 from fastapi import APIRouter, Request
 import httpx
 router = APIRouter()
-TARGET_API_BASE_URL = "https://api.open-meteo.com/v1/"
+TARGET_API_BASE_URL = os.getenv("TARGET_API_BASE_URL", "https://api.open-meteo.com/v1/")
 
 @router.api_route("/v1/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
 async def reverse_proxy(path: str, request: Request):
