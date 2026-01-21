@@ -8,6 +8,7 @@ import W_ErrorBoundary from '@/utils/libs/WrapperComponents/ErrorBoundary';
 
 // MUIのテーマプロバイダー
 import { ThemeProvider } from '@mui/material/styles';
+import CssBaseline from '@mui/material/CssBaseline';
 import theme from './theme.tsx';
 
 // APPコンポーネント
@@ -17,6 +18,7 @@ export default function App() {
     <Suspense fallback={<></>}>
       <W_ErrorBoundary>
         <ThemeProvider theme={theme}>
+          <CssBaseline />
           <AppRoutes />
         </ThemeProvider>
       </W_ErrorBoundary>

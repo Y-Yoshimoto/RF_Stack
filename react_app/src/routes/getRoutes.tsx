@@ -2,18 +2,19 @@
  * ページルーティング
  */
 import { Navigate, Outlet } from 'react-router-dom';
-// コンポーネント読み込み
+
+// ページコンポーネントの読み込み
+import LoginPage from '@/pages/auth/login';
+
+// サンプルコンポーネント読み込み
 import ButtonPage from '@/sample/pages/ButtonPage';
 import FetchPage from '@/sample/pages/FetchPage';
 import IndexedDBPage from '@/sample/pages/IndexdDBPage';
 import LeyoutChildren from '@/sample/pages/LeyoutChildren';
 import ErrorPage from '@/sample/pages/ErrorPage';
-
 import FetchLoaderPage from '@/sample/pages/FetchPage/FetchLoder';
 import loader_FetchLoaderPage from '@/sample/pages/FetchPage/FetchLoder/loader';
-
 import FetchUse from '@/sample/pages/FetchPage/FetchUse';
-
 import { W_ErrorBoundary_Router } from '@/utils/libs/WrapperComponents/ErrorBoundary';
 
 /**
@@ -23,6 +24,10 @@ import { W_ErrorBoundary_Router } from '@/utils/libs/WrapperComponents/ErrorBoun
  * @returns {list} ルーティングリスト
  */
 const routesList = [
+  // 認証ページ
+  { path: 'login', id: 'login', element: <LoginPage /> },
+
+  // サンプルページ
   { path: 'button', id: 'button', element: <ButtonPage /> },
   { path: 'fetch', id: 'fetch', element: <FetchPage /> },
   {
