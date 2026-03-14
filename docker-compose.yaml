@@ -89,3 +89,25 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+
+  # Keycloak 認証サーバー
+  keycloak_c:
+    image: keycloak_c
+    build: keycloak_c
+    ports:
+      - 8080:8080
+      - 8443:8443
+      - 9000:9000
+    volumes:
+      - ./keycloak_c/data:/opt/keycloak/data
+    environment:
+      TZ: ${TZ}
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KC_BOOTSTRAP_ADMIN_USERNAME-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KC_BOOTSTRAP_ADMIN_PASSWORD-admin}
+      KC_HTTP_RELATIVE_PATH: ${KC_HTTP_RELATIVE_PATH-keycloak}
+      KC_PROXY_HEADER: ${KC_PROXY_HEADER}
+      # KC_PROXY: "edge"
+      # KC_HOSTNAME: ${KC_HOSTNAME-localhost}
+    command: "start-dev"
+    # command: "start-dev --hostname=http://localhost/keycloak"
+    # command: "start --optimized --hostname=localhost"
