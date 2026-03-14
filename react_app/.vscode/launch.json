@@ -31,5 +31,14 @@
             ],
             "postDebugTask": "stop-debug"
         },
+        {
+            "type": "chrome",
+            "name": "Storybook",
+            "request": "launch",
+            "preLaunchTask": "npm-storybook",
+            "url": "http://127.0.0.1:6006",
+            "webRoot": "${workspaceFolder}",
+            "postDebugTask": "stop-debug"
+        }
     ]
 }

@@ -41,6 +41,25 @@
             }
         },
         {
+            "type": "shell",
+            "command": "npm run storybook:no-open",
+            "label": "npm-storybook",
+            "detail": "Start Storybook dev server",
+            "group": "none",
+            "isBackground": true,
+            "problemMatcher": {
+                "owner": "custom",
+                "pattern": {
+                    "regexp": "ˆ$"
+                },
+                "background": {
+                    "activeOnStart": true,
+                    "beginsPattern": "info - starting",
+                    "endsPattern": "Storybook"
+                }
+            }
+        },
+        {
             "label": "stop-debug",
             "command": "echo ${input:terminate}",
             "type": "shell",
