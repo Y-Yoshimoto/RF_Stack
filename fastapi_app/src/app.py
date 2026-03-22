@@ -31,7 +31,7 @@ def read_root():
 def login(request: dict):
     print("Login request received: ", request)
     print(request.get("password"))
-    if request.get("password") != "password":
+    if request.get("password") != "Pass":
         raise HTTPException(status_code=404, detail="Unauthorized")
     return {"message": "Login successful"}
 
