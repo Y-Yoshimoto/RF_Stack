@@ -15,6 +15,7 @@ import { AuthNZContext } from '@/store/AuthNZ';
 
 // Fetchフック
 import useFetch from '@/utils/libs/FetchComponents/hook';
+import { generateRequestKey } from '@/utils/libs/FetchComponents/common';
 
 const LoginPage: React.FC = () => {
     // 認証認可コンテキストから認証情報を取得
@@ -43,6 +44,7 @@ const LoginForm: React.FC = ({ authNInfo, navigate }: any) => {
 
     // リソースオブジェクト
     const [resourceObj, setResourceObj] = useState(null);
+    const resourceKey = resourceObj ? generateRequestKey(resourceObj) : '';
 
     // リソース設定関数
     const Submit = () => {
@@ -66,16 +68,16 @@ const LoginForm: React.FC = ({ authNInfo, navigate }: any) => {
     return (
         <>
             {resourceObj
-                ? <LoginFormRequest resourceObj={resourceObj} formData={formData} />
+                ? <LoginFormRequest key={resourceKey} resourceObj={resourceObj} formData={formData} SuccessLogin={SuccessLogin} />
                 : <LoginFormBody formData={formData} loading={false} error={null} />}
         </>
     );
 };
 
-const LoginFormRequest: React.FC = ({ resourceObj, formData }: any) => {
+const LoginFormRequest: React.FC = ({ resourceObj, formData, SuccessLogin }: any) => {
     const { response, loading, error } = useFetch(resourceObj);
 
-    // ログイン成功時の処理
+    // ログイン成功時の処理, 一度だけ実行するためにuseEffectを使用
     useEffect(() => {
         response && SuccessLogin(response);
     }, [response]);
