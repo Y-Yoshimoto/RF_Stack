@@ -9,6 +9,11 @@ export const AuthNZContext = createContext<ReturnType<typeof useAuthNZ>>(default
 export const AuthNZProvider = ({ children }: { children: ReactNode }) => {
     const { authNInfo, authZInfo, authStatus } = useAuthNZ();
 
+    // 暫定的な実装
+    if (authNInfo.isAuthN === undefined) {
+        authNInfo.setIsAuthN(false);
+    }
+
     return (
         <AuthNZContext value={{ authNInfo, authZInfo, authStatus }}>
             {children}
