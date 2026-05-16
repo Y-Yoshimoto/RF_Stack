@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding:utf-8
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 
 # サブモジュール読み込み
 from rest_sample.apiapp import router as RestSample
@@ -26,6 +26,14 @@ app.include_router(
 def read_root():
     return {"Path": "root"}
 
+# 暫定/api/loginエンドポイント
+@app.post("/api/login", include_in_schema=False)
+def login(request: dict):
+    print("Login request received: ", request)
+    print(request.get("password"))
+    if request.get("password") != "Pass":
+        raise HTTPException(status_code=404, detail="Unauthorized")
+    return {"message": "Login successful"}
 
 def main():
     # サーバー起動
