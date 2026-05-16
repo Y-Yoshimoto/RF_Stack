@@ -21,7 +21,7 @@ export const RequireAuth = () => {
 /**
  * 認証済みの場合にリダイレクトするガード（ログインページ用）
  * - isAuthN=undefined : null（ローディング中）
- * - isAuthN=true      : /button へリダイレクト
+ * - isAuthN=true      : /button へリダイレクト //ToDo: 適切なパス, Login前に指定したパスへリダイレクト
  * - isAuthN=false     : 子ルートをレンダリング
  */
 export const RedirectIfAuthed = () => {
