@@ -15,7 +15,7 @@ export const AuthNZProvider = ({ children }: { children: ReactNode }) => {
         fetch('/api/auth/session', { credentials: 'include' })
             .then((res) => {
                 if (!res.ok) {
-                    throw new Error('session check failed');
+                    throw new Error(`session check failed: ${res.status} ${res.statusText}`);
                 }
                 return res.json();
             })
@@ -24,7 +24,8 @@ export const AuthNZProvider = ({ children }: { children: ReactNode }) => {
                 setPermissions(Array.isArray(session.permissions) ? session.permissions : undefined);
                 setIsAuthZ(Array.isArray(session.roles) ? session.roles.length > 0 : false);
             })
-            .catch(() => {
+            .catch((error) => {
+                console.error('auth session check failed', error);
                 setIsAuthN(false);
                 setIsAuthZ(false);
             });

@@ -11,7 +11,10 @@ const LoginPage: React.FC = () => {
                     variant="contained"
                     color="primary"
                     fullWidth
-                    onClick={() => { window.location.href = '/api/auth/login'; }}
+                    onClick={() => {
+                        // OIDCフロー開始のため、意図的にフルページ遷移する
+                        window.location.href = '/api/auth/login';
+                    }}
                 >
                     Keycloakでログイン
                 </Button>

@@ -61,6 +61,8 @@ def test_auth_callback_sets_cookie_and_auth_session(monkeypatch):
     assert callback_response.headers["location"] == "/button"
     assert app_module.SESSION_COOKIE_NAME in callback_response.headers.get("set-cookie", "")
 
+    session_id = callback_response.cookies.get(app_module.SESSION_COOKIE_NAME)
+    client.cookies.set(app_module.SESSION_COOKIE_NAME, session_id)
     session_response = client.get("/api/auth/session")
     session_json = session_response.json()
     assert session_json["isAuthN"] is True

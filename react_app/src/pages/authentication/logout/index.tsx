@@ -13,10 +13,14 @@ const LogoutPage: React.FC = () => {
     const navigate = useNavigate();
 
     const logout = async () => {
-        await fetch('/api/auth/logout', {
-            method: 'POST',
-            credentials: 'include',
-        });
+        try {
+            await fetch('/api/auth/logout', {
+                method: 'POST',
+                credentials: 'include',
+            });
+        } catch (error) {
+            console.error('logout request failed', error);
+        }
         authNInfo.setIsAuthN(false);
         navigate('/login');
     };

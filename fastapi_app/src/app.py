@@ -43,7 +43,7 @@ SESSION_TTL_SECONDS = int(os.getenv("SESSION_TTL_SECONDS", "3600"))
 # NOTE: 開発用のインメモリストア。再起動で消えるため本番では永続ストアに置き換える。
 auth_session_store: dict[str, dict] = {}
 auth_pending_state_store: dict[str, dict] = {}
-auth_store_lock = threading.Lock()
+auth_store_lock = threading.RLock()
 AUTH_PENDING_STATE_TTL_SECONDS = int(os.getenv("AUTH_PENDING_STATE_TTL_SECONDS", "300"))
 
 
@@ -82,17 +82,19 @@ def _exchange_authorization_code(code: str) -> dict:
 
 
 def _cleanup_expired_sessions() -> None:
-    now = int(time.time())
-    for session_id in list(auth_session_store.keys()):
-        if auth_session_store[session_id].get("expires_at", 0) <= now:
-            auth_session_store.pop(session_id, None)
+    with auth_store_lock:
+        now = int(time.time())
+        for session_id in list(auth_session_store.keys()):
+            if auth_session_store[session_id].get("expires_at", 0) <= now:
+                auth_session_store.pop(session_id, None)
 
 
 def _cleanup_expired_pending_states() -> None:
-    now = int(time.time())
-    for state in list(auth_pending_state_store.keys()):
-        if (now - auth_pending_state_store[state].get("created_at", now)) > AUTH_PENDING_STATE_TTL_SECONDS:
-            auth_pending_state_store.pop(state, None)
+    with auth_store_lock:
+        now = int(time.time())
+        for state in list(auth_pending_state_store.keys()):
+            if (now - auth_pending_state_store[state].get("created_at", 0)) > AUTH_PENDING_STATE_TTL_SECONDS:
+                auth_pending_state_store.pop(state, None)
 
 
 def _build_keycloak_login_url(state: str, nonce: str) -> str:
@@ -120,10 +122,11 @@ def auth_login(redirect_path: str = Query(default="/")):
         _cleanup_expired_pending_states()
     state = secrets.token_urlsafe(24)
     nonce = secrets.token_urlsafe(24)
+    is_safe_relative_path = redirect_path.startswith("/") and not redirect_path.startswith("//")
     with auth_store_lock:
         auth_pending_state_store[state] = {
             "created_at": int(time.time()),
-            "redirect_path": redirect_path if redirect_path.startswith("/") else "/",
+            "redirect_path": redirect_path if is_safe_relative_path else "/",
         }
     return RedirectResponse(url=_build_keycloak_login_url(state=state, nonce=nonce), status_code=302)
 
@@ -204,7 +207,10 @@ def auth_logout(session_id: str | None = Cookie(default=None, alias=SESSION_COOK
 
 @app.post("/api/login", include_in_schema=False)
 def login():
-    return {"message": "Use /api/auth/login for Keycloak authentication"}
+    return JSONResponse(
+        status_code=410,
+        content={"message": "Deprecated endpoint. Use /api/auth/login for Keycloak authentication."},
+    )
 
 def main():
     # サーバー起動
