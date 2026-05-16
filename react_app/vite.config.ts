@@ -114,9 +114,14 @@ const reverseproxy = () => {
 // RP
 const reverseProxyCache = () => {
   const API_HOST = `http://${process.env.VITE_API_HOST || 'fastapi_app:8000'}/`;
+  const KEYCLOAK_HOST = `http://${process.env.VITE_KEYCLOAK_HOST || 'keycloak_c:8080'}/`;
 
 
   return {
+    '/api/auth': {
+      target: API_HOST,
+      changeOrigin: true,
+    },
     '/api': {
       target: API_HOST,
       changeOrigin: true,
@@ -182,7 +187,11 @@ const reverseProxyCache = () => {
         //   })
         // },
       },
-    }
+    },
+    '/keycloak': {
+      target: KEYCLOAK_HOST,
+      changeOrigin: true,
+    },
   };
 };
 
@@ -250,4 +259,3 @@ const serviceworker = {
   srcDir: 'src',
   filename: 'serviceworker.js',
 }
-

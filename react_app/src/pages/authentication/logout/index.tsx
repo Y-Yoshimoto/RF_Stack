@@ -5,13 +5,20 @@ import { use } from 'react';
 import { AuthNZContext } from '@/store/AuthNZ';
 // MUIのコンポーネント
 import { Typography, Button } from '@mui/material';
+import { useNavigate } from 'react-router-dom';
 
 const LogoutPage: React.FC = () => {
     // 認証認可コンテキストから認証情報を取得
     const { authNInfo } = use(AuthNZContext);
+    const navigate = useNavigate();
 
-    const logout = () => {
+    const logout = async () => {
+        await fetch('/api/auth/logout', {
+            method: 'POST',
+            credentials: 'include',
+        });
         authNInfo.setIsAuthN(false);
+        navigate('/login');
     };
 
     return (
@@ -24,7 +31,7 @@ const LogoutPage: React.FC = () => {
     );
 };
 
-const LogoutForm: React.FC = ({ logout }: any) => {
+const LogoutForm: React.FC<{ logout: () => Promise<void> }> = ({ logout }) => {
 
     return (
         <Button variant="contained" color="primary" fullWidth onClick={() => logout()}>

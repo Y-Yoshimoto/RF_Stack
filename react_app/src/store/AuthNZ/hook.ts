@@ -29,11 +29,11 @@ export interface UseAuthNZReturn {
 }
 // デフォルト値の設定 ////////////////////////////////////////////////////////////
 const defaultAuthNInfo: AuthNInfo = {
-    isAuthN: undefined,
+    isAuthN: false,
     setIsAuthN: () => { },
 };
 const defaultAuthZInfo: AuthZInfo = {
-    isAuthZ: undefined,
+    isAuthZ: false,
     setIsAuthZ: () => { },
     roles: undefined,
     setRoles: () => { },
@@ -41,8 +41,8 @@ const defaultAuthZInfo: AuthZInfo = {
     setPermissions: () => { },
 };
 const defaultStatus: Status = {
-    isAuthN: undefined,
-    isAuthZ: undefined,
+    isAuthN: false,
+    isAuthZ: false,
 };
 export const defaultReturnValue: UseAuthNZReturn = {
     authNInfo: defaultAuthNInfo,

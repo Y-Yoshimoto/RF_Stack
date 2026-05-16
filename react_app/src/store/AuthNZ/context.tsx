@@ -1,5 +1,5 @@
 // 認証認可コンテキストプロバーダー
-import { createContext, ReactNode } from 'react';
+import { createContext, ReactNode, useEffect } from 'react';
 import { useAuthNZ, defaultReturnValue } from './hook';
 
 // 認証認可コンテキストの作成
@@ -8,11 +8,28 @@ export const AuthNZContext = createContext<ReturnType<typeof useAuthNZ>>(default
 // 認証認可プロバイダーコンポーネント
 export const AuthNZProvider = ({ children }: { children: ReactNode }) => {
     const { authNInfo, authZInfo, authStatus } = useAuthNZ();
+    const { setIsAuthN } = authNInfo;
+    const { setIsAuthZ, setRoles, setPermissions } = authZInfo;
 
-    // 暫定的な実装
-    if (authNInfo.isAuthN === undefined) {
-        authNInfo.setIsAuthN(false);
-    }
+    useEffect(() => {
+        fetch('/api/auth/session', { credentials: 'include' })
+            .then((res) => {
+                if (!res.ok) {
+                    throw new Error('session check failed');
+                }
+                return res.json();
+            })
+            .then((session) => {
+                setIsAuthN(!!session.isAuthN);
+                setRoles(Array.isArray(session.roles) ? session.roles.join(',') : undefined);
+                setPermissions(Array.isArray(session.permissions) ? session.permissions : undefined);
+                setIsAuthZ(Array.isArray(session.roles) ? session.roles.length > 0 : false);
+            })
+            .catch(() => {
+                setIsAuthN(false);
+                setIsAuthZ(false);
+            });
+    }, [setIsAuthN, setIsAuthZ, setPermissions, setRoles]);
 
     return (
         <AuthNZContext value={{ authNInfo, authZInfo, authStatus }}>
