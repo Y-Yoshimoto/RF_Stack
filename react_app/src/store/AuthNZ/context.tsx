@@ -9,7 +9,7 @@ export const AuthNZContext = createContext<ReturnType<typeof useAuthNZ>>(default
 export const AuthNZProvider = ({ children }: { children: ReactNode }) => {
     const { authNInfo, authZInfo, authStatus } = useAuthNZ();
     const { setIsAuthN } = authNInfo;
-    const { setIsAuthZ, setRoles, setPermissions } = authZInfo;
+    const { setIsAuthZ, setPermissions } = authZInfo;
 
     useEffect(() => {
         fetch('/api/auth/session', { credentials: 'include' })
@@ -21,7 +21,6 @@ export const AuthNZProvider = ({ children }: { children: ReactNode }) => {
             })
             .then((session) => {
                 setIsAuthN(!!session.isAuthN);
-                setRoles(Array.isArray(session.roles) ? session.roles.join(',') : undefined);
                 setPermissions(Array.isArray(session.permissions) ? session.permissions : undefined);
                 setIsAuthZ(Array.isArray(session.roles) ? session.roles.length > 0 : false);
             })
@@ -29,7 +28,7 @@ export const AuthNZProvider = ({ children }: { children: ReactNode }) => {
                 setIsAuthN(false);
                 setIsAuthZ(false);
             });
-    }, [setIsAuthN, setIsAuthZ, setPermissions, setRoles]);
+    }, [setIsAuthN, setIsAuthZ, setPermissions]);
 
     return (
         <AuthNZContext value={{ authNInfo, authZInfo, authStatus }}>

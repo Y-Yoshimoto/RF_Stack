@@ -4,6 +4,7 @@ import base64
 import json
 import os
 import secrets
+import threading
 import time
 from urllib.parse import urlencode
 
@@ -39,8 +40,11 @@ KEYCLOAK_LOGOUT_REDIRECT_URI = os.getenv("KEYCLOAK_LOGOUT_REDIRECT_URI", "http:/
 SESSION_COOKIE_NAME = os.getenv("SESSION_COOKIE_NAME", "rf_session_id")
 SESSION_TTL_SECONDS = int(os.getenv("SESSION_TTL_SECONDS", "3600"))
 
+# NOTE: 開発用のインメモリストア。再起動で消えるため本番では永続ストアに置き換える。
 auth_session_store: dict[str, dict] = {}
 auth_pending_state_store: dict[str, dict] = {}
+auth_store_lock = threading.Lock()
+AUTH_PENDING_STATE_TTL_SECONDS = int(os.getenv("AUTH_PENDING_STATE_TTL_SECONDS", "300"))
 
 
 def _encode_query(query: dict) -> str:
@@ -84,6 +88,13 @@ def _cleanup_expired_sessions() -> None:
             auth_session_store.pop(session_id, None)
 
 
+def _cleanup_expired_pending_states() -> None:
+    now = int(time.time())
+    for state in list(auth_pending_state_store.keys()):
+        if (now - auth_pending_state_store[state].get("created_at", now)) > AUTH_PENDING_STATE_TTL_SECONDS:
+            auth_pending_state_store.pop(state, None)
+
+
 def _build_keycloak_login_url(state: str, nonce: str) -> str:
     auth_url = f"{KEYCLOAK_PUBLIC_BASE_URL}/realms/{KEYCLOAK_REALM}/protocol/openid-connect/auth"
     query = {
@@ -105,12 +116,15 @@ def read_root():
 
 @app.get("/api/auth/login", include_in_schema=False)
 def auth_login(redirect_path: str = Query(default="/")):
+    with auth_store_lock:
+        _cleanup_expired_pending_states()
     state = secrets.token_urlsafe(24)
     nonce = secrets.token_urlsafe(24)
-    auth_pending_state_store[state] = {
-        "created_at": int(time.time()),
-        "redirect_path": redirect_path if redirect_path.startswith("/") else "/",
-    }
+    with auth_store_lock:
+        auth_pending_state_store[state] = {
+            "created_at": int(time.time()),
+            "redirect_path": redirect_path if redirect_path.startswith("/") else "/",
+        }
     return RedirectResponse(url=_build_keycloak_login_url(state=state, nonce=nonce), status_code=302)
 
 
@@ -121,7 +135,9 @@ def auth_callback(code: str | None = None, state: str | None = None, error: str 
     if not code or not state:
         raise HTTPException(status_code=400, detail="code and state are required")
 
-    state_data = auth_pending_state_store.pop(state, None)
+    with auth_store_lock:
+        _cleanup_expired_pending_states()
+        state_data = auth_pending_state_store.pop(state, None)
     if not state_data:
         raise HTTPException(status_code=400, detail="invalid state")
 
@@ -132,12 +148,13 @@ def auth_callback(code: str | None = None, state: str | None = None, error: str 
 
     expires_in = int(token_data.get("expires_in", SESSION_TTL_SECONDS))
     session_id = secrets.token_urlsafe(32)
-    auth_session_store[session_id] = {
-        "created_at": int(time.time()),
-        "expires_at": int(time.time()) + expires_in,
-        "token_data": token_data,
-    }
-    _cleanup_expired_sessions()
+    with auth_store_lock:
+        auth_session_store[session_id] = {
+            "created_at": int(time.time()),
+            "expires_at": int(time.time()) + expires_in,
+            "token_data": token_data,
+        }
+        _cleanup_expired_sessions()
 
     response = RedirectResponse(url=state_data["redirect_path"], status_code=302)
     response.set_cookie(
@@ -154,11 +171,13 @@ def auth_callback(code: str | None = None, state: str | None = None, error: str 
 
 @app.get("/api/auth/session", include_in_schema=False)
 def auth_session(session_id: str | None = Cookie(default=None, alias=SESSION_COOKIE_NAME)):
-    _cleanup_expired_sessions()
+    with auth_store_lock:
+        _cleanup_expired_sessions()
     if not session_id:
         return JSONResponse({"isAuthN": False, "user": None, "roles": [], "permissions": []})
 
-    session_data = auth_session_store.get(session_id)
+    with auth_store_lock:
+        session_data = auth_session_store.get(session_id)
     if not session_data:
         return JSONResponse({"isAuthN": False, "user": None, "roles": [], "permissions": []})
 
@@ -175,7 +194,8 @@ def auth_session(session_id: str | None = Cookie(default=None, alias=SESSION_COO
 @app.post("/api/auth/logout", include_in_schema=False)
 def auth_logout(session_id: str | None = Cookie(default=None, alias=SESSION_COOKIE_NAME)):
     if session_id:
-        auth_session_store.pop(session_id, None)
+        with auth_store_lock:
+            auth_session_store.pop(session_id, None)
 
     response = JSONResponse({"message": "Logged out"})
     response.delete_cookie(key=SESSION_COOKIE_NAME, path="/")
