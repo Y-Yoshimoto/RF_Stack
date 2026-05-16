@@ -53,6 +53,7 @@ export const defaultReturnValue: UseAuthNZReturn = {
 // 認証認可情報を管理するカスタムフック ///////////////////////////////////////////
 export const useAuthNZ = (): UseAuthNZReturn => {
     // 認証情報の状態管理
+    // const [isAuthN, setIsAuthN] = useState<boolean | undefined>(defaultAuthNInfo.isAuthN);
     const [isAuthN, setIsAuthN] = useState<boolean | undefined>(defaultAuthNInfo.isAuthN);
     // 認可情報の状態管理
     const [isAuthZ, setIsAuthZ] = useState<boolean | undefined>(defaultAuthZInfo.isAuthZ);
