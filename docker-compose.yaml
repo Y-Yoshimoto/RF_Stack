@@ -12,8 +12,10 @@ services:
         APT_CACHE_ID: react_app_apt_cache
     user: vscode
     ports:
+      - "4173:4173"
       - "5173:5173"
       - "9323:9323"
+      - "6006:6006"
     # restart: always
     environment:
       - TZ=${TZ:-Asia/Tokyo}
