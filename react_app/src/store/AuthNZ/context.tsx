@@ -1,21 +1,17 @@
 // 認証認可コンテキストプロバーダー
 import { createContext, ReactNode } from 'react';
 import { useAuthNZ, defaultReturnValue } from './hook';
+import type { UseAuthNZReturn } from './type';
 
 // 認証認可コンテキストの作成
-export const AuthNZContext = createContext<ReturnType<typeof useAuthNZ>>(defaultReturnValue);
+export const AuthNZContext = createContext<UseAuthNZReturn>(defaultReturnValue);
 
 // 認証認可プロバイダーコンポーネント
 export const AuthNZProvider = ({ children }: { children: ReactNode }) => {
-    const { authNInfo, authZInfo, authStatus } = useAuthNZ();
-
-    // 暫定的な実装
-    if (authNInfo.isAuthN === undefined) {
-        authNInfo.setIsAuthN(false);
-    }
+    const authNZ = useAuthNZ();
 
     return (
-        <AuthNZContext value={{ authNInfo, authZInfo, authStatus }}>
+        <AuthNZContext value={authNZ}>
             {children}
         </AuthNZContext>
     );

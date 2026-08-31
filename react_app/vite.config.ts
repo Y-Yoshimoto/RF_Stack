@@ -63,8 +63,8 @@ export default defineConfig(({ mode }) => {
       host: "0.0.0.0",
       port: 5173,
       // リバースプロキシの設定
-      // proxy: reverseproxy(),
-      proxy: reverseProxyCache(),
+      proxy: reverseproxy(),
+      // proxy: reverseProxyCache(),
     }
   }
 });
@@ -103,9 +103,10 @@ const reverseproxy = () => {
   // https://ja.vitejs.dev/config/server-options.html
   const API_HOST = `http://${process.env.VITE_API_HOST || 'fastapi_app:8000'}/`;
   return {
-    '/': {
+    '/api': {
       target: API_HOST,
       changeOrigin: true,
+      cookieDomainRewrite: 'localhost',
       // rewrite: (path: string) => path.replace(/^\/api/, ''),
     },
   };
@@ -120,6 +121,7 @@ const reverseProxyCache = () => {
     '/api': {
       target: API_HOST,
       changeOrigin: true,
+      cookieDomainRewrite: 'localhost',
       configure: (proxy: any) => {
         console.log('Proxy', proxy);
         // リクエスト時の処理

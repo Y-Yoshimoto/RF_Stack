@@ -1,103 +1,71 @@
 // ログイン画面
 import React from 'react';
-import { useState, useEffect } from 'react';
-// ナビゲーション用のフック
-import { useNavigate } from 'react-router-dom';
+import { useState } from 'react';
 
 // MUIのコンポーネント
-import { Container, Typography } from '@mui/material';
-// MUIのコンポーネント
+import { Typography } from '@mui/material';
 import { Box, Button, TextField } from '@mui/material';
 
 // 認証コンテキスト
 import { use } from 'react';
-import { AuthNZContext, AuthNInfo } from '@/store/AuthNZ';
+import { AuthNZContext } from '@/store/AuthNZ';
 
-// Fetchフック
-import { useFetch, generateRequestKey, ResourceObj } from '@/utils/libs/FetchComponents';
 const LoginPage: React.FC = () => {
     // 認証認可コンテキストから認証情報を取得
-    const { authNInfo } = use(AuthNZContext);
+    const { userInfo } = use(AuthNZContext);
 
     return (
         <>
             <Typography variant="h4" align="center" gutterBottom>
                 ログインページ
-                <LoginForm authNInfo={authNInfo} />
             </Typography>
+            <LoginForm />
+            {userInfo?.preferred_username && (
+                <Typography variant="body2" align="center" sx={{ mt: 2 }}>
+                    現在のユーザー: {userInfo.preferred_username}
+                </Typography>
+            )}
         </>
     );
 };
-
-const LoginForm: React.FC<{ authNInfo: AuthNInfo }> = ({ authNInfo }) => {
-    // フォームの状態管理
-    const [username, setUsername] = useState('');
-    const [password, setPassword] = useState('');
-
-
-    // リソースオブジェクト
-    const [resourceObj, setResourceObj] = useState<any>(null);
-    const resourceKey = resourceObj ? generateRequestKey(resourceObj) : '';
-
-    // リソース設定関数
-    const Submit = () => {
-        setResourceObj({
-            url: '/api/login',
-            method: 'POST',
-            body: { username, password },
-        });
-    };
-
-    const formData = { username, setUsername, password, setPassword, Submit };
-
-    // ログイン成功時の処理
-    const SuccessLogin = (response) => {
-        // 認証情報を更新
-        console.log('Login successful:', response);
-        authNInfo.setIsAuthN(true);
-        // navigate('/'); // ログイン成功後の遷移先
-    };
-
-    return (
-        <>
-            {resourceObj
-                ? <LoginFormRequest key={resourceKey} resourceObj={resourceObj} formData={formData} SuccessLogin={SuccessLogin} />
-                : <LoginFormBody formData={formData} loading={false} isError={false} />}
-        </>
-    );
-};
-
-const LoginFormRequest: React.FC<{ resourceObj: ResourceObj; formData: any; SuccessLogin: (response: any) => void }> = ({ resourceObj, formData, SuccessLogin }) => {
-    const { response, loading, error } = useFetch(resourceObj);
-
-    // ログイン成功時の処理, 一度だけ実行するためにuseEffectを使用
-    useEffect(() => {
-        if (response) SuccessLogin(response);
-    }, [response]);
-
-    // エラーステータス
-    // ユーザー名とパスワードが変化しているかを確認する。
-    const isCredentialChanged = (resourceObj.body.username !== formData.username) || (resourceObj.body.password !== formData.password);
-    // エラーが存在し、かつユーザー名またはパスワードが変化していない場合にエラーとする。
-    const isError = error ? !isCredentialChanged : false;
-
-    return (
-        <LoginFormBody formData={formData} loading={loading} isError={isError} />
-    );
-};
-
 
 // ログインフォームコンポーネント
-const LoginFormBody: React.FC<{ formData: any; loading: boolean; isError: boolean }> = ({ formData, loading, isError }) => {
-    const { username, setUsername, password, setPassword, Submit } = formData;
+const LoginForm: React.FC = () => {
+    const [realm, setRealm] = useState('');
+    const [isError, setIsError] = useState(false);
+
+    const submit = () => {
+        const realmName = realm.trim();
+        if (!realmName) {
+            setIsError(true);
+            return;
+        }
+        const url = `/api/auth/login?realm=${encodeURIComponent(realmName)}`;
+        window.location.assign(url);
+    };
+
     return (
-        <Box component="form" noValidate autoComplete="off">
-            <TextField label="ユーザー名" variant="outlined" fullWidth margin="normal" value={username} onChange={(e) => setUsername(e.target.value)} />
-            <TextField label="パスワード" type="password" variant="outlined" fullWidth margin="normal" value={password} onChange={(e) => setPassword(e.target.value)} />
-            <Button variant="contained" color="primary" fullWidth onClick={() => Submit()} disabled={loading || isError}>
+        <Box component="form" noValidate>
+            <TextField
+                label="テナント名 (Realm)"
+                variant="outlined"
+                fullWidth
+                margin="normal"
+                name="realm"
+                autoComplete="on"
+                value={realm}
+                onChange={(e) => {
+                    setRealm(e.target.value);
+                    if (isError) setIsError(false);
+                }}
+                onKeyDown={(e) => {
+                    if (e.key === 'Enter') submit();
+                }}
+            />
+            <Button variant="contained" color="primary" fullWidth onClick={submit}>
                 ログイン
             </Button>
-            {isError && <Typography color="error">ユーザー名またはパスワードが正しくありません</Typography>}
+            {isError && <Typography color="error">テナント名を入力してください</Typography>}
         </Box>
     );
 };

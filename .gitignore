@@ -11,7 +11,9 @@ ToDo.md
 
 # DBデータ保存用ディレクトリ
 db_data/**/*
-
-
-
 !db_data/postgresql/.gitkeep
+!db_data/keycloak/.gitkeep
+
+# ローカルプランナファイル
+.plan/*
+

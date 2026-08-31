@@ -7,9 +7,7 @@ let accessToken = null;
 //FetchEventを中継する
 self.addEventListener("fetch", (event) => {
     if (event.request.url.includes('/api')) {
-        // console.debug("SW fetch API", event.request.url);
-        //console.dir(event.request.headers);
-        event.respondWith(fetch(event.request, { headers: { 'Authorization': accessToken } }));
+        event.respondWith(fetch(event.request));
     }
 });
 

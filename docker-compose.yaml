@@ -58,8 +58,22 @@ services:
       - APP_DB_PASSWORD=${APP_DB_PASSWORD}
       # コントロールプレーン用データベース
       - CONTROL_PLANE_DB_NAME=${CONTROL_PLANE_DB_NAME}
-    # depends_on:
-    #   - postgres_c
+      # KeyCloak認証設定
+      - KEYCLOAK_URL=${KEYCLOAK_URL:-http://keycloak_c:8080}
+      - KEYCLOAK_EXTERNAL_URL=${KEYCLOAK_EXTERNAL_URL:-http://localhost:8080}
+      - KEYCLOAK_HTTP_RELATIVE_PATH=${KEYCLOAK_HTTP_RELATIVE_PATH:-keycloak}
+      - KEYCLOAK_CLIENT_ID=${KEYCLOAK_CLIENT_ID:-fastapi-app}
+      - KEYCLOAK_CLIENT_SECRET=${KEYCLOAK_CLIENT_SECRET:-change-me}
+      - APP_CALLBACK_URL=${APP_CALLBACK_URL:-http://localhost:5173/api/auth/callback}
+      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:5173}
+      # セッション管理
+      - REDIS_URL=${REDIS_URL:-redis://redis_c:6379/0}
+      - SESSION_SECRET_KEY=${SESSION_SECRET_KEY:-change-me-session-secret}
+      - SESSION_TTL_SECONDS=${SESSION_TTL_SECONDS:-3600}
+    depends_on:
+      - postgres_c
+      - keycloak_c
+      - redis_c
   # PostgreSQL データベース
   postgres_c:
     image: postgres_c
@@ -99,15 +113,22 @@ services:
       - 8443:8443
       - 9000:9000
     volumes:
-      - ./keycloak_c/data:/opt/keycloak/data
+      - ./db_data/keycloak:/opt/keycloak/data
     environment:
       TZ: ${TZ}
       KC_BOOTSTRAP_ADMIN_USERNAME: ${KC_BOOTSTRAP_ADMIN_USERNAME-admin}
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KC_BOOTSTRAP_ADMIN_PASSWORD-admin}
       KC_HTTP_RELATIVE_PATH: ${KC_HTTP_RELATIVE_PATH-keycloak}
-      KC_PROXY_HEADER: ${KC_PROXY_HEADER}
+      KC_PROXY_HEADER: ${KC_PROXY_HEADER-xforwarded}
       # KC_PROXY: "edge"
       # KC_HOSTNAME: ${KC_HOSTNAME-localhost}
     command: "start-dev"
     # command: "start-dev --hostname=http://localhost/keycloak"
     # command: "start --optimized --hostname=localhost"
+
+  # Redis セッションストレージ
+  redis_c:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--appendonly", "yes"]

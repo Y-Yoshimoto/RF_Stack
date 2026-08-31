@@ -15,6 +15,8 @@ dependencies = [
     # 共通ライブラリ
     "datetime",
     "python-dotenv",
+    "itsdangerous",
+    "redis[hiredis]",
     # データベース関連
     "sqlmodel",
     "psycopg2-binary",
