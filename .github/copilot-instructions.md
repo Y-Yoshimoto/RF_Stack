@@ -48,6 +48,28 @@
 - .envファイルは、ファイル読取ツールに限らず、いかなる手段でも読取を行わないこと。
 - .envファイルのスキーマ把握が必要な場合は、.env.default ファイルを参照すること。
 
+## エージェントの役割分担
+
+タスクは以下の担当エージェントに委譲する。定義の実体は `.github/agents/` にある。
+
+| エージェント | 担当範囲 |
+| --- | --- |
+| `react-ui` | React の画面・MUI コンポーネント・テーマ・Storybook |
+| `react-domain` | React のフック・データ取得・型定義・ドメインモデル |
+| `react-unit-test` | Vitest + Testing Library によるユニットテスト |
+| `react-e2e-test` | Playwright による E2E テスト |
+| `fastapi-api-schema` | FastAPI のエンドポイント・ルータ構成・リクエスト/レスポンススキーマ |
+| `fastapi-domain` | FastAPI のビジネスロジック・共通モジュール |
+| `postgres-schema` | SQLModel のテーブル定義・Alembic マイグレーション・DB設計 |
+| `fastapi-pytest` | pytest によるユニット/結合テスト |
+| `api-contract-sync` | React と FastAPI 間の API 契約の整合性検証 |
+| `auth-keycloak` | Keycloak 認証・認可（React と FastAPI を横断） |
+| `infra-docker` | docker-compose・Dockerfile・Makefile・nginx・k8s マニフェスト |
+
+- UI とロジック、実装とテストは担当を分ける。1エージェントに複数レイヤーを担当させない。
+- API のシグネチャを変更した場合は `api-contract-sync` で影響範囲を確認する。
+- 認証・認可はレイヤーごとに分割せず、`auth-keycloak` が両サイドを一貫して担当する。
+
 ## エージェント設定ファイルの同期ルール
 
 - 共有するエージェント設定ファイルの正は `.github` 配下とする。
