@@ -28,6 +28,8 @@ model: sonnet
 - **`docker compose`（v2）を使う。`docker-compose`（v1）を使わない。**
 
 ## 作業ルール
+
+環境の初期セットアップ・起動・復旧の手順は `dev-environment` スキルに集約している。
 - `docker compose` / `make` は**ホスト側でのみ実行できる**。コンテナ内（`test -f /.dockerenv` が成功する環境）からは実行しない。
 - **破壊的なターゲットを確認なしに実行しない。** 以下は事前に影響を説明して承認を得る。
   - `make d-down-all` / `make p-down-all` — イメージ・ボリューム・孤立コンテナを削除
@@ -40,6 +42,8 @@ model: sonnet
 - `.devcontainer` の変更は VS Code の再ビルドを要する。ユーザーに再ビルドが必要な旨を伝える。
 
 ## 検証
+
+検証コマンドの一覧と実行範囲の判断は `run-checks` スキルに集約している。迷ったらそちらを参照する。
 変更後は実際に起動確認を行う。
 ```bash
 make d-build

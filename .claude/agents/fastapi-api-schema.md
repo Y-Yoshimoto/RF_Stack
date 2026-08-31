@@ -29,6 +29,8 @@ model: sonnet
 - エンドポイントのシグネチャを変更したら、**必ず `api-contract-sync` への確認を提案する**（React 側の型が追随していない可能性がある）。
 
 ## 検証
+
+検証コマンドの一覧と実行範囲の判断は `run-checks` スキルに集約している。迷ったらそちらを参照する。
 ```bash
 make d-run SERVICE=fastapi_app CMD="uv run ruff check src"
 ```

@@ -31,6 +31,8 @@ model: sonnet
 - テストは日本語の `test.describe` / `test` 名で意図を説明する（既存踏襲）。
 
 ## 実行
+
+検証コマンドの一覧と実行範囲の判断は `run-checks` スキルに集約している。迷ったらそちらを参照する。
 ```bash
 make d-run SERVICE=react_app CMD="npm run playwright"
 make d-run SERVICE=react_app CMD="npm run playwright:report"

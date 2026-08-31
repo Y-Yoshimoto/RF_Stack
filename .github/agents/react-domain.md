@@ -32,6 +32,8 @@ model: opus
 - テストコードの作成は `react-unit-test` に委譲する。ただし**テストしやすいインターフェース**（副作用の注入可能性、純粋関数の切り出し）は設計時点で確保する。
 
 ## 検証
+
+検証コマンドの一覧と実行範囲の判断は `run-checks` スキルに集約している。迷ったらそちらを参照する。
 ```bash
 make d-run SERVICE=react_app CMD="npm run lint"
 ```

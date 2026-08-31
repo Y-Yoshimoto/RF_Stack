@@ -30,6 +30,8 @@ model: sonnet
 - テストを通すために実装の仕様を変えない。実装のバグは報告し、修正は担当エージェントに委ねる。
 
 ## 実行
+
+検証コマンドの一覧と実行範囲の判断は `run-checks` スキルに集約している。迷ったらそちらを参照する。
 ```bash
 make d-run SERVICE=fastapi_app CMD="uv run pytest"
 make d-run SERVICE=fastapi_app CMD="uv run pytest --cov=src --cov-report=term"

@@ -38,6 +38,8 @@ model: opus
 4. Keycloak のレルム設定をコード管理する（realm export の JSON をコミットする）か、手動運用にするか
 
 ## 検証
+
+検証コマンドの一覧と実行範囲の判断は `run-checks` スキルに集約している。迷ったらそちらを参照する。
 ```bash
 make d-run SERVICE=react_app CMD="npm run lint"
 make d-run SERVICE=fastapi_app CMD="uv run ruff check src"

@@ -25,6 +25,8 @@ model: opus
 - Nullable なカラムは `X | None` + `default=None` で明示する。
 
 ## マイグレーション方針
+
+手順の詳細（リビジョン生成・レビュー観点・ロールバック）は `db-migration` スキルに集約している。
 - **`SQLModel.metadata.create_all()`（`DBConnector.create_db_and_tables`）に依存した本番スキーマ変更を行わない**。スキーマ変更は必ず Alembic のリビジョンとして残す。
 - autogenerate 後は**生成されたスクリプトを必ず読み、レビューしてから確定する**。SQLModel の型が意図通りに検出されないケース、および型変更が DROP+ADD に化けるケースがある。
 - `downgrade()` を空のまま残さない。
@@ -32,6 +34,8 @@ model: opus
 - **既存データを破壊しうる操作（カラム削除・型変更・NOT NULL 追加）は、実行前に必ず影響を報告して確認を取る。**
 
 ## 実行
+
+検証コマンドの一覧と実行範囲の判断は `run-checks` スキルに集約している。迷ったらそちらを参照する。
 ```bash
 make d-run SERVICE=fastapi_app CMD="uv run alembic -c alembic/alembic_control_plane.ini revision --autogenerate -m 'メッセージ'"
 make d-run SERVICE=fastapi_app CMD="uv run alembic -c alembic/alembic_control_plane.ini upgrade head"

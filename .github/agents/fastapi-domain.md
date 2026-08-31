@@ -33,6 +33,8 @@ model: opus
 - テストコードは `fastapi-pytest` に委譲する。
 
 ## 検証
+
+検証コマンドの一覧と実行範囲の判断は `run-checks` スキルに集約している。迷ったらそちらを参照する。
 ```bash
 make d-run SERVICE=fastapi_app CMD="uv run ruff check src"
 ```

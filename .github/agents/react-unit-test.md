@@ -31,6 +31,8 @@ model: sonnet
 - テストを通すために実装側の仕様を変えない。実装のバグを見つけた場合は報告し、修正は担当エージェントに委ねる。
 
 ## 実行
+
+検証コマンドの一覧と実行範囲の判断は `run-checks` スキルに集約している。迷ったらそちらを参照する。
 ```bash
 make d-run SERVICE=react_app CMD="npx vitest run"
 make d-run SERVICE=react_app CMD="npm run coverage"
