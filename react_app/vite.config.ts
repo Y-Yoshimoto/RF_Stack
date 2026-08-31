@@ -103,10 +103,10 @@ const reverseproxy = () => {
   // https://ja.vitejs.dev/config/server-options.html
   const API_HOST = `http://${process.env.VITE_API_HOST || 'fastapi_app:8000'}/`;
   return {
-    '/api': {
+    '/': {
       target: API_HOST,
       changeOrigin: true,
-      rewrite: (path: string) => path.replace(/^\/api/, ''),
+      // rewrite: (path: string) => path.replace(/^\/api/, ''),
     },
   };
 };
@@ -194,7 +194,7 @@ const TTL = 300 // 300ms
 const proxyReq = async (proxyReq: any, req: any, res: any) => {
   const key = `${req.method}:${req.url}`
   // console.debug('onProxyReq key:', key)
-  proxyReq.path = req.url.replace(/^\/api/, '')
+  // proxyReq.path = req.url.replace(/^\/api/, '')
   // キャッシュヒット確認
   const cached = cache.get(key)
   // TTL内であればキャッシュを返す

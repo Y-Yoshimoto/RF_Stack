@@ -8,6 +8,9 @@ import FetchPage from '@/sample/pages/FetchPage';
 import IndexedDBPage from '@/sample/pages/IndexdDBPage';
 import LeyoutChildren from '@/sample/pages/LeyoutChildren';
 import ErrorPage from '@/sample/pages/ErrorPage';
+// ログアウトページ
+import LogoutPage from '@/pages/authentication/logout';
+
 
 import FetchLoaderPage from '@/sample/pages/FetchPage/FetchLoder';
 import loader_FetchLoaderPage from '@/sample/pages/FetchPage/FetchLoder/loader';
@@ -23,6 +26,7 @@ import { W_ErrorBoundary_Router } from '@/utils/libs/WrapperComponents/ErrorBoun
  * @returns {list} ルーティングリスト
  */
 const routesList = [
+  { path: 'logout', id: 'logout', element: <LogoutPage /> },
   { path: 'button', id: 'button', element: <ButtonPage /> },
   { path: 'fetch', id: 'fetch', element: <FetchPage /> },
   {
@@ -33,7 +37,7 @@ const routesList = [
   { path: 'indexedDB', id: 'indexedDB', element: <IndexedDBPage /> },
   { path: 'layoutChildren', id: 'layout-children', element: <LeyoutChildren /> },
   { path: 'error', id: 'error', element: <ErrorPage />, ErrorBoundary: W_ErrorBoundary_Router },
-  { path: '*', id: 'not-found', element: <Navigate to={'/button'} replace /> }
+  { path: '*', id: 'not-found', element: <Navigate to={'/logout'} replace /> }
 ];
 
 // DataRouteObjectの型定義に従い、ルーティング設定を行う

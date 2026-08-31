@@ -26,7 +26,7 @@ export const useFetchPromiseMemo = <T>(resourceObj: ResourceObj<T>) => {
     return useMemo(() => requestFetch<T>(resourceObj), [generateRequestKey(resourceObj)]);
 };
 
-const useFetch = <T>({ url, method = 'GET', body, headers, takeData = takeDataDef }: ResourceObj<T>) => {
+export const useFetch = <T>({ url, method = 'GET', body, headers, takeData = takeDataDef }: ResourceObj<T>) => {
     // Fetch状態ステート
     const [response, setResponse] = useState<T | null>(null);
     const [loading, setLoading] = useState<boolean>(false);

@@ -2,6 +2,7 @@
 //// 再エクスポート
 // 共通関数、型定義
 export * from './common';
+export * from './type';
 // Fetch用のカスタムフック
 export * from './hook';
 // Fetch用の表示コンポーネント
