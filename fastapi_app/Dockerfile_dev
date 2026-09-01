@@ -8,9 +8,9 @@ RUN --mount=type=cache,mode=0755,target=/root/.cache/pip \
     pip install uv \
     && mkdir -p /usr/local/uv \
     && uv venv /usr/local/uv \
-    && chmod -R 777 /usr/local \
-    && echo "export UV_PROJECT_ENVIRONMENT=/usr/local/uv" >> /etc/bash.bashrc  \
-    && echo "export PATH=\"/usr/local/uv/bin:\$PATH\"" >> /etc/bash.bashrc 
+    && chmod -R 777 /usr/local
+ENV UV_PROJECT_ENVIRONMENT=/usr/local/uv
+ENV PATH="/usr/local/uv/bin:$PATH" 
 
 # Playwrightインストール
 ## 日本語ロケール、Notoフォントインストール
