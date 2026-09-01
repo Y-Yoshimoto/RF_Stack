@@ -11,7 +11,8 @@ uv sync --locked 2>&1 || uv sync 2>&1 | tee -a ${UVINSTALLLOCK}
 # uv run playwright install chromium | tee -a ${UVINSTALLLOCK}
 # echo "Installation completed." | tee -a ${UVINSTALLLOCK}
 # uv 仮想環境の有効化(source .venv/bin/activate)
-. .venv/bin/activate 2>&1 | tee -a ${UVINSTALLLOCK}
+# . .venv/bin/activate 2>&1 | tee -a ${UVINSTALLLOCK}
+source $UV_PROJECT_ENVIRONMENT/bin/activate 2>&1 | tee -a ${UVINSTALLLOCK}
 rm ${UVINSTALLLOCK}
 echo "End Setup."
 exec "$@"

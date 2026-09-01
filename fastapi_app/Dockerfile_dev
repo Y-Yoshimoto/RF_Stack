@@ -5,8 +5,12 @@ ARG APPNAME=fastapi_app
 # Pythonの実行環境補完
 ## uvインストール
 RUN --mount=type=cache,mode=0755,target=/root/.cache/pip \
-    pip install uv 
-
+    pip install uv \
+    && mkdir -p /usr/local/uv \
+    && uv venv /usr/local/uv \
+    && chmod -R 777 /usr/local \
+    && echo "export UV_PROJECT_ENVIRONMENT=/usr/local/uv" >> /etc/bash.bashrc  \
+    && echo "export PATH=\"/usr/local/uv/bin:\$PATH\"" >> /etc/bash.bashrc 
 
 # Playwrightインストール
 ## 日本語ロケール、Notoフォントインストール
