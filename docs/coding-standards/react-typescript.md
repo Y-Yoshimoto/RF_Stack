@@ -96,6 +96,10 @@ const { camera_id } = res;                 // OK: shorthand（検査対象外）
 const { camera_id: cameraId } = res;       // NG: camelCase へのリネームは違反
 ```
 
+### 型プロパティの関数値（`onClick` 等）が `typeMethod` に分類される点
+
+`onClick: () => void` のようにコロン+関数型で書いたプロパティは、`@typescript-eslint/naming-convention` の内部分類では `typeProperty` ではなく `typeMethod`（`onClick(): void` というメソッド構文と同一視）として扱われる。そのため `naming_rules.js` では `typeProperty`（`types: ['function']` 込み）と `typeMethod` の両方に `camelCase` ルールを定義している。
+
 ### バックエンド API のフィールド名
 
 FastAPI 側は SQLModel のフィールドがそのまま JSON になるため、基本的に `snake_case` で返る（`external_id`, `created_at` 等）。本規約とは自然に一致する。

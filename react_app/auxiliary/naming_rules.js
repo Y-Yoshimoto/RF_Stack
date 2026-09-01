@@ -60,8 +60,13 @@ const FUNCTION_RULES = [
 /** メンバー（型プロパティ・クラスメンバ）に関するルール */
 const MEMBER_RULES = [
     // 型プロパティ・props: データは snake_case、関数値は camelCase（onClick 等）
+    // 注意: `onClick: () => void` のようにコロン+関数型で書かれたプロパティは、
+    // naming-convention 内部では typeProperty ではなく typeMethod として分類される
+    // （`onClick(): void` というメソッド構文と同一視されるため）。
+    // types: ['function'] の typeProperty ルールだけでは効かないため、typeMethod 側にも定義する。
     { selector: 'typeProperty', format: ['snake_case'] },
     { selector: 'typeProperty', types: ['function'], format: ['camelCase'] },
+    { selector: 'typeMethod', format: ['camelCase'] },
 
     // クラスプロパティ: データは snake_case、関数値は camelCase
     { selector: 'classProperty', format: ['snake_case'] },
