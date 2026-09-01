@@ -2,14 +2,16 @@
 # coding:utf-8
 import os
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, APIRouter, HTTPException
+
+from fastapi import APIRouter, FastAPI
 
 # モデルインポート
-from control_plane_app.models.sql_models import * # noqa: F403, F401
+from control_plane_app.models.sql_models import *  # noqa: F403, F401
 
 # DB初期化
 # DB接続用のモジュールをインポート
 from modules.db_connector.engine import DBConnector
+
 # DBコネクタ作成
 control_plane_db_connector = DBConnector(
         dbuser=os.environ["APP_DB_USER"],
@@ -44,7 +46,7 @@ def read_root():
 # テナント一覧取得
 ## ToDo: SessionDepの型指定を修正
 @router.get("/tenants", tags=["tenant"])
-def get_tenants(session: SessionDep) -> list[T_Tenant]:
+def get_tenants(session: SessionDep) -> list[TTenant]:
     """ テナント一覧取得 """
-    tenants = session.exec(select(T_Tenant)).all()
+    tenants = session.exec(select(TTenant)).all()
     return tenants

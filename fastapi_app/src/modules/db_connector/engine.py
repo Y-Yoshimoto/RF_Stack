@@ -1,8 +1,8 @@
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, HTTPException, Query
-from sqlmodel import Field, Session, SQLModel, create_engine, select
-from sqlmodel import text
+from fastapi import Depends
+from sqlmodel import Session, SQLModel, create_engine
+
 # from sqlalchemy import create_engine
 
 class DBConnector:
@@ -28,7 +28,7 @@ class DBConnector:
         """ DBエンジンの作成 """
         # 参考: https://docs.sqlalchemy.org/en/20/core/engines.html#postgresql
         return create_engine(self.endpoint["url"], echo=False)
-    
+
     def create_db_and_tables(self):
         """ DBとテーブルの作成 """
         SQLModel.metadata.create_all(self.engine)
@@ -37,4 +37,3 @@ class DBConnector:
         """ DBセッション取得 """
         with Session(self.engine) as session:
             yield session
-    
