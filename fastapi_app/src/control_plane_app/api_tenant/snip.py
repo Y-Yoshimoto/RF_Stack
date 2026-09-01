@@ -1,8 +1,5 @@
 # snip.py
-from datetime import datetime
-from sqlmodel import Column, DateTime
-from sqlmodel import Field, Session, SQLModel, create_engine, select
-from sqlmodel import text
+from sqlmodel import SQLModel
 
 # DB接続用のモジュールをインポート
 from modules.db_connector.engine import DBConnector
@@ -18,6 +15,7 @@ def create_db_and_tables(engine):
 if __name__ == "__main__":
     # 環境変数読み込み
     import os
+
     from dotenv import load_dotenv
     load_dotenv()
     DB_USER = os.environ["APP_DB_USER"]

@@ -17,3 +17,5 @@ db_data/**/*
 # ローカルプランナファイル
 .plan/*
 
+# エージェント設定(ローカル固有の設定は共有しない)
+.claude/settings.local.json

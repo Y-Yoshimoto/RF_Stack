@@ -22,22 +22,22 @@ const InItem = ({ head }: { head: string }) => {
     );
 };
 
-const WrapItem = ({ children, toggle, keyTag }: { children: React.ReactNode; toggle: boolean; keyTag: string }) => {
+const WrapItem = ({ children, toggle, key_tag }: { children: React.ReactNode; toggle: boolean; key_tag: string }) => {
     const color = toggle ? 'lightblue' : 'lightgreen';
-    const WrapInKey = `WrapInKey_${keyTag}`;
-    const WrapOutKey = `WrapOutKey_${keyTag}`;
+    const wrap_in_key = `wrap_in_key_${key_tag}`;
+    const wrap_out_key = `wrap_out_key_${key_tag}`;
     if (toggle) {
         return (
             <Fragment>
-                <Box key={WrapOutKey}>
-                    <Box key={WrapInKey}>{children}</Box>
+                <Box key={wrap_out_key}>
+                    <Box key={wrap_in_key}>{children}</Box>
                 </Box>
             </Fragment>
         );
     } else {
         return (
-            <Box key={WrapOutKey} sx={{ backgroundColor: color, p: 2, m: 1 }}>
-                <Box key={WrapInKey}>{children}</Box>
+            <Box key={wrap_out_key} sx={{ backgroundColor: color, p: 2, m: 1 }}>
+                <Box key={wrap_in_key}>{children}</Box>
             </Box>
         );
     }
@@ -54,7 +54,7 @@ export const LeyoutChildren: React.FC = () => {
     // eslint-disable-next-line 
     const UseCallbackComp = useCallback((s: any) => InItem(s), []);
 
-    const useMemoComp = useMemo(() => {
+    const use_memo_comp = useMemo(() => {
         return <InItem key={`UseMemoComp`} head={"UseMemoComp"} />;
     }, []);
 
@@ -66,18 +66,18 @@ export const LeyoutChildren: React.FC = () => {
                 onChange={() => setToggle(c => !c)}
             />
             <p>ラップ有り</p>
-            <WrapItem toggle={toggle} keyTag="Comp" key="CompWrap_1">
+            <WrapItem toggle={toggle} key_tag="Comp" key="CompWrap_1">
                 <Comp head="Comp" />
             </WrapItem>
-            <WrapItem toggle={toggle} keyTag="InItem" key="InItemWrap_1">
+            <WrapItem toggle={toggle} key_tag="InItem" key="InItemWrap_1">
                 <InItem head="InItem" />
             </WrapItem>
-            <WrapItem toggle={toggle} keyTag="UseCallbackComp" key="UseCallbackCompWrap_1">
+            <WrapItem toggle={toggle} key_tag="UseCallbackComp" key="UseCallbackCompWrap_1">
                 <UseCallbackComp head="MemoizedComp" />
             </WrapItem>
-            <WrapItem toggle={toggle} keyTag="UseMemoComp" key="UseMemoCompWarp_1">
+            <WrapItem toggle={toggle} key_tag="UseMemoComp" key="UseMemoCompWarp_1">
                 <Box key="UseMemoCompWarp2">
-                    {useMemoComp}
+                    {use_memo_comp}
                 </Box>
             </WrapItem>
         </Container>

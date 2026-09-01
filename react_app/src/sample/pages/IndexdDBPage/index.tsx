@@ -7,7 +7,7 @@ import { Container, Typography, Stack, Button, TextField, LinearProgress } from 
 import { useIndexedDB } from '@/sample/hooks/indexedDBhook';
 
 
-const T_IndexedDB = () => {
+const TIndexedDB = () => {
     // キーステート
     const [key, setKey] = useState('');
     // 登録回数
@@ -17,7 +17,7 @@ const T_IndexedDB = () => {
 
     // IndexedDBのカスタムフックを使用
     const { upsertData, getData, deleteData, clearData, getAllData, isConnected } = useIndexedDB({});
-    const registrationData = {
+    const registration_data = {
         id: count,
         key: key,
         data: `data`,
@@ -34,9 +34,9 @@ const T_IndexedDB = () => {
                 <Button variant='contained'
                     data-testid="add-button"
                     disabled={key === ''}
-                    onClick={() => { upsertData(key, registrationData); setCount(c => c + 1) }}>Add Data</Button>
+                    onClick={() => { upsertData(key, registration_data); setCount(c => c + 1) }}>Add Data</Button>
             </Stack>
-            <pre>{`登録用データ: ${JSON.stringify(registrationData, null, " ")}`}</pre>
+            <pre>{`登録用データ: ${JSON.stringify(registration_data, null, " ")}`}</pre>
             {/* IndexedDB 操作用UI */}
             <Stack spacing={1} direction="row" sx={{ m: 2 }}>
                 <Button variant='contained' data-testid='get-button' onClick={() => { getData(key, setData) }}>Get</Button>
@@ -55,7 +55,7 @@ export const IndexedDBSampleComponent: React.FC = () => {
 
     return (
         <Container>
-            <T_IndexedDB />
+            <TIndexedDB />
         </Container>
     );
 };

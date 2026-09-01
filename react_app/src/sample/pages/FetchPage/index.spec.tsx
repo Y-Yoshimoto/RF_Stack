@@ -9,9 +9,9 @@ import { act } from 'react';
 
 describe('ページユニットテスト', () => {
     // fetchモック
-    const genMockFetch = ({ bodyObj = {}, status = 200, statusText = '' }) => {
-        const body = JSON.stringify(bodyObj);
-        const genResponse = () => (new Response(body, { status, statusText }));
+    const genMockFetch = ({ body_obj = {}, status = 200, status_text = '' }) => {
+        const body = JSON.stringify(body_obj);
+        const genResponse = () => (new Response(body, { status, statusText: status_text }));
         // 次tickで解決するようにして React の更新タイミングと合うようにする
         return vi.spyOn(globalThis, 'fetch').mockImplementation(() =>
             new Promise((resolve) => setTimeout(() => resolve(genResponse()), 0))
@@ -19,11 +19,11 @@ describe('ページユニットテスト', () => {
         // return vi.spyOn(globalThis, 'fetch').mockImplementation(async () => genResponse());
     };
     // テスト用のサンプルデータ
-    const sampleData = { id: 1, type: 'static', name: 'data', };
+    const sample_data = { id: 1, type: 'static', name: 'data', };
 
     it('Fetchコンポーネント1', async () => {
         // モックのFetchを生成
-        const _mockFetch1 = genMockFetch({ bodyObj: sampleData, status: 200, statusText: 'OK' });
+        const _mockFetch1 = genMockFetch({ body_obj: sample_data, status: 200, status_text: 'OK' });
         // コンポーネントをレンダリング
         // render を act でラップして await する
         await act(async () => {
@@ -38,9 +38,9 @@ describe('ページユニットテスト', () => {
 
         // ボタンが存在することを確認
         await waitFor(() => {
-            const requestButton = screen.queryByTestId('request-button');
-            expect(requestButton).toBeInTheDocument();
-            expect(requestButton).toHaveTextContent('Request')
+            const request_button = screen.queryByTestId('request-button');
+            expect(request_button).toBeInTheDocument();
+            expect(request_button).toHaveTextContent('Request')
         }, { timeout: 1000 })
 
         await waitFor(() => {
@@ -53,8 +53,8 @@ describe('ページユニットテスト', () => {
             screen.debug();
         }, { timeout: 1000 });
         // ボタンをクリック
-        const requestButton = screen.queryByTestId('request-button');
-        await act(() => { fireEvent.click(requestButton!); });
+        const request_button = screen.queryByTestId('request-button');
+        await act(() => { fireEvent.click(request_button!); });
         // データ表示箇所が再度表示されることを確認
         await waitFor(() => { expect(screen.getByTestId('response-info')).toBeInTheDocument(); }, { timeout: 1000 });
 
@@ -72,11 +72,11 @@ describe('ページユニットテスト', () => {
     // ToDo: waitFor, act, expectを順番に実行するようなリストでテストを書けるようにする。
     it('Fetchコンポーネントテスト2', async () => {
         // モックのFetchを生成
-        const _mockFetch1 = genMockFetch({ bodyObj: sampleData, status: 200, statusText: 'OK' });
+        const _mockFetch1 = genMockFetch({ body_obj: sample_data, status: 200, status_text: 'OK' });
         // コンポーネントをレンダリング
         // const { getByTestId, queryByTestId } = render(<FetchSampleComponent />);
         // requestボタンを取得
-        // const requestButton = queryByTestId('request-button');
+        // const request_button = queryByTestId('request-button');
 
     });
 });

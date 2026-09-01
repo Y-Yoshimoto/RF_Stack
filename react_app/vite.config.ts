@@ -103,7 +103,7 @@ const reverseproxy = () => {
   // https://ja.vitejs.dev/config/server-options.html
   const API_HOST = `http://${process.env.VITE_API_HOST || 'fastapi_app:8000'}/`;
   return {
-    '/api': {
+    '/': {
       target: API_HOST,
       changeOrigin: true,
       cookieDomainRewrite: 'localhost',

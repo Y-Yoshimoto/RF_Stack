@@ -1,9 +1,11 @@
 #!/usr/bin/env python
 # coding:utf-8
 import os
-from fastapi.responses import JSONResponse
-from fastapi import APIRouter, Request
+
 import httpx
+from fastapi import APIRouter, Request
+from fastapi.responses import JSONResponse
+
 router = APIRouter()
 TARGET_API_BASE_URL = os.getenv("TARGET_API_BASE_URL", "https://api.open-meteo.com/v1/")
 
@@ -14,7 +16,7 @@ async def reverse_proxy(path: str, request: Request):
 
     # HTTPリクエストを別のサーバに転送
     async with httpx.AsyncClient() as client:
-        request_args = await reRequest(path, request)
+        request_args = await re_request(path, request)
         print(f"Request Args: {request_args}")
         response = await client.request(**request_args)
 
@@ -37,18 +39,18 @@ async def reverse_proxy(path: str, request: Request):
     #     status_code=response.status_code,
     #     headers=response.headers
     # )
-    
 
-### ヘルパー関数　
+
+### ヘルパー関数
 # クエリパラメータをURLに追加する関数
-def addQuery_string(query_string: str) -> str:
+def add_query_string(query_string: str) -> str:
     return f"?{query_string}" if query_string else ""
 
 # 再リクエストパラメータに置き換える
-async def reRequest (path: str, request: Request) -> object:
+async def re_request(path: str, request: Request) -> object:
     request_args = {
             "method": request.method,
-            "url": f"{TARGET_API_BASE_URL}/{path}{addQuery_string(request.url.query)}",
+            "url": f"{TARGET_API_BASE_URL}/{path}{add_query_string(request.url.query)}",
             "headers": dict(request.headers),
             "content": await request.body()
         }

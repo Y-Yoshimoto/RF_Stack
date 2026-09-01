@@ -1,6 +1,5 @@
 // 旧版Fetchコンポーネント
-// ESLint無効化, カバレッジ無効化
-/* eslint-disable */
+// カバレッジ無効化
 /* istanbul ignore file */
 
 // Fetchコンポーネント
@@ -38,13 +37,13 @@ const ShowError = <U,>({ error }: { error: U }) => {
  * @returns {JSX.Element} 各状態でコンポーネント
  */
 export const FetchComponentClassic = <T, U>({
-    resourceObj,
+    resource_obj,
     renderSuccess = ShowSuccess,
     // renderSuccess = ({ response }: { response: T }) => <ShowSuccess response={response} />,
     renderLoading = () => <ShowLoading />,
     renderError = ({ error }: { error: U }) => <ShowError error={error} />,
 }: FetchComponentProps<T, U>) => {
-    const { response, loading, error } = useFetch(resourceObj);
+    const { response, loading, error } = useFetch(resource_obj);
     if (loading) return renderLoading();
     if (error) return renderError({ error: error as U });
     if (response) return renderSuccess({ response: response as T });
@@ -55,18 +54,18 @@ export const FetchComponentClassic = <T, U>({
  * use APIを使用して、プロミスを受け取ってレスポンスを扱うコンポーネント
  * PromiseWrapper又は、Suspense, ErrorBoundaryでラップして使用する
 */
-export const FetchComponentAPI = ({ resourceObj, renderSuccess = ShowSuccess }: SuccessProps<T>) => {
-    const [fetchPromise,] = useState(requestFetch(resourceObj));
+export const FetchComponentAPI = ({ resource_obj, renderSuccess = ShowSuccess }: SuccessProps<T>) => {
+    const [fetch_promise,] = useState(requestFetch(resource_obj));
 
-    return (<In_FetchComponentUseAPI promise={fetchPromise} renderSuccess={renderSuccess} />);
+    return (<InFetchComponentUseAPI promise={fetch_promise} renderSuccess={renderSuccess} />);
 };
 // 内部コンポーネントのPropsの型定義
-type In_FetchComponentUseAPIProps<T> = {
+type InFetchComponentUseAPIProps<T> = {
     promise: Promise<T | null>;
     renderSuccess: ({ response }: { response: T }) => React.ReactElement;
 }
 // use APIでプロミスの中身を取り出して扱うコンポーネント
-const In_FetchComponentUseAPI = ({ promise, renderSuccess }: In_FetchComponentUseAPIProps<T>) => {
+const InFetchComponentUseAPI = ({ promise, renderSuccess }: InFetchComponentUseAPIProps<T>) => {
     const data = use(promise) as T;
     return (<>{renderSuccess({ response: data })}</>);
 };

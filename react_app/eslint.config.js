@@ -7,6 +7,8 @@ import reactHooks from 'eslint-plugin-react-hooks'
 import reactRefresh from 'eslint-plugin-react-refresh'
 import tseslint from 'typescript-eslint'
 import eslintConfigPrettier from "eslint-config-prettier";
+// 命名規約のルール本体(単一ソース)。規約: docs/coding-standards/react-typescript.md
+import { NAMING_RULES, STORYBOOK_RULES } from './auxiliary/naming_rules.js'
 
 
 export default tseslint.config({ ignores: ['dist', 'playwright-report'] }, {
@@ -37,5 +39,28 @@ export default tseslint.config({ ignores: ['dist', 'playwright-report'] }, {
     "max-lines": ["warn", 500],
     // React Hooksの依存関係配列の警告をオフ
     "react-hooks/exhaustive-deps": ['off'],
+  },
+},
+// 命名規約(docs/coding-standards/react-typescript.md)
+// データは snake_case / 関数は camelCase の判別に型情報を使うため、
+// tsconfig にカバーされる src/ 配下のみを対象とする。
+// .storybook/ と playwright-test/ は tsconfig の対象外のため含めない(含めると型情報エラーになる)。
+{
+  files: ['src/**/*.{ts,tsx,js,jsx}'],
+  languageOptions: {
+    parserOptions: {
+      projectService: true,
+      tsconfigRootDir: import.meta.dirname,
+    },
+  },
+  rules: {
+    '@typescript-eslint/naming-convention': ['error', ...NAMING_RULES],
+  },
+},
+// Storybook の CSF は named export の PascalCase を許容する
+{
+  files: ['src/**/*.stories.{ts,tsx,js,jsx}'],
+  rules: {
+    '@typescript-eslint/naming-convention': ['error', ...STORYBOOK_RULES],
   },
 }, storybook.configs["flat/recommended"]);

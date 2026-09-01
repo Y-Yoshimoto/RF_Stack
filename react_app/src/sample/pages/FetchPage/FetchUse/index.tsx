@@ -10,7 +10,7 @@ import PromiseWrapper from '@/utils/libs/WrapperComponents/PromiseWrapper';
 const Loading = () => (<p>Loading...</p>)
 
 // レスポンスデータ定義
-type loaderResponseType = {
+type LoaderResponseType = {
     id: number;
     type: string;
     name: string;
@@ -18,7 +18,7 @@ type loaderResponseType = {
 };
 //
 // 成功時の表示コンポーネント
-const SuccessComponent = ({ data }: { data: loaderResponseType }) => {
+const SuccessComponent = ({ data }: { data: LoaderResponseType }) => {
     return (
         <>
             <ul data-testid='response-info'>
@@ -45,14 +45,14 @@ const ShowError = ({ error, resetErrorBoundary }: { error: Error; resetErrorBoun
 };
 
 // プロミスを受け取って、useでレスポンスを扱うコンポーネント
-const PickupDataComponent = ({ response_promise }: { response_promise: Promise<loaderResponseType> }) => {
-    const data = use(response_promise) as loaderResponseType;
+const PickupDataComponent = ({ response_promise }: { response_promise: Promise<LoaderResponseType> }) => {
+    const data = use(response_promise) as LoaderResponseType;
     return (
         <SuccessComponent data={data} />
     );
 };
 
-const getData = (key: boolean): Promise<loaderResponseType> => {
+const getData = (key: boolean): Promise<LoaderResponseType> => {
     return fetch(`/static.json?key=${key}`)
         .then((response) => {
             if (!response.ok) {
@@ -83,7 +83,7 @@ export const FetchUse: React.FC = () => {
         <>
             { /* PromiseWrapper コンポーネントを使用するパターン */}
             <Typography variant='h4' data-testid='fetch-component-title'>PromiseWrapper</Typography>
-            <PromiseWrapper loadingFallback={<Loading />} errorFallback={ShowError} onReset={onClick}>
+            <PromiseWrapper loading_fallback={<Loading />} error_fallback={ShowError} onReset={onClick}>
                 <PickupDataComponent response_promise={getData(key)} />
             </PromiseWrapper>
             <Button color='secondary' variant='contained' onClick={onClick} data-testid='request-button'>

@@ -1,28 +1,44 @@
 # 起動/ビルド用のMakefile
+COMPOSE := docker compose -f ./docker-compose.yaml
+PROD_COMPOSE := docker compose -f ./docker-compose-prod.yaml
 
 ## Devコンテナ用
 d-build:
-	@docker compose build
+	@$(COMPOSE) build
 
+# Devコンテナ操作
 d-up:
-	@docker compose up -d
-	docker compose ps
+	@$(COMPOSE) up -d
+	$(COMPOSE) ps
 
 d-upb:
-	@docker compose up -d --build
-	docker compose ps
+	@$(COMPOSE) up -d --build
+	$(COMPOSE) ps
 
+# Devコンテナの状態確認
 d-ps:
-	@docker compose ps
+	@$(COMPOSE) ps
 
+# 対話シェル
+d-exec:
+	@$(COMPOSE) exec $(SERVICE) bash
+
+# 任意コマンドを非対話で実行
+#   例: make d-run SERVICE=react_app CMD="npm run lint" 
+d-run:
+	@$(COMPOSE) exec -T $(SERVICE) $(CMD)
+
+# Devコンテナ停止
 d-down:
-	@docker compose down
+	@$(COMPOSE) down
 
+# 全コンテナ停止・削除（イメージ・ボリューム・孤立コンテナも含む）
 d-down-all:
-	@docker compose down --rmi all --volumes --remove-orphans
+	@$(COMPOSE) down --rmi all --volumes --remove-orphans
 
+# コンテナ/一時ファイルのクリーンアップ
 d-clean:
-	@docker compose down --rmi all --volumes --remove-orphans 
+	@$(COMPOSE) down --rmi all --volumes --remove-orphans 
 	@rm -rf ./react_app/node_modules
 	@rm -f ./react_app/.npm_install.lock
 	./react_app/auxiliary/clean-temporary-files.sh ./
@@ -31,36 +47,36 @@ d-clean:
 	./fastapi_app/auxiliary/clean-temporary-files.sh ./
 ### PostgreSQLコンテナの再生作成
 d-reset-db:
-	@docker compose down --volumes postgres_c 
-	@docker compose up -d --build postgres_c
+	@$(COMPOSE) down --volumes postgres_c 
+	@$(COMPOSE) up -d --build postgres_c
 
 ## Productionコンテナ用
 p-build:
-	@docker compose -f docker-compose-prod.yaml build
+	@$(PROD_COMPOSE) build
 
 p-up:
-	@docker compose -f docker-compose-prod.yaml up -d
+	@$(PROD_COMPOSE) up -d
 
 p-upb:
-	@docker compose -f docker-compose-prod.yaml up -d --build
+	@$(PROD_COMPOSE) up -d --build
 
 p-ps:
-	@docker compose -f docker-compose-prod.yaml ps
+	@$(PROD_COMPOSE) ps
 
 p-down:
-	@docker compose -f docker-compose-prod.yaml down
+	@$(PROD_COMPOSE) down
 
 p-down-all:
-	@docker compose -f docker-compose-prod.yaml down --rmi all --volumes --remove-orphans
+	@$(PROD_COMPOSE) down --rmi all --volumes --remove-orphans
 
 p-clean:
-	@docker compose -f docker-compose-prod.yaml down --rmi all --volumes --remove-orphans 
+	@$(PROD_COMPOSE) down --rmi all --volumes --remove-orphans 
 	@rm -rf ./react_app/node_modules
 	@rm -f ./.npm_install.lock
 	./react_app/auxiliary/clean-temporary-files.sh ./
 
 p-logs:
-	@docker compose -f docker-compose-prod.yaml logs -f
+	@$(PROD_COMPOSE) logs -f
 
 ## 両方のコンテナ用
 e-build: d-build p-build

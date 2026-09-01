@@ -1,10 +1,11 @@
 
-from rest_sample.apiapp import router as RestSample
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from rest_sample.apiapp import router as rest_sample_router
+
 app = FastAPI()
-app.include_router(RestSample)
+app.include_router(rest_sample_router)
 client = TestClient(app)
 
 

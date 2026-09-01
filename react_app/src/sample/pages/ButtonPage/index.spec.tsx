@@ -22,15 +22,15 @@ describe('ボタンテストサンプル', () => {
     expect(getByText('secondary')).toBeInTheDocument();
     expect(getByText('clear')).toBeInTheDocument();
     // ボタン取得
-    const primaryButton = getByRole('button', { name: /primary/i });
-    const secondaryButton = getByRole('button', { name: /secondary/i });
-    const clearButton = getByRole('button', { name: /clear/i });
+    const primary_button = getByRole('button', { name: /primary/i });
+    const secondary_button = getByRole('button', { name: /secondary/i });
+    const clear_button = getByRole('button', { name: /clear/i });
     // ボタンをクリック(primary, secondary, clear)
-    fireEvent.click(primaryButton);
+    fireEvent.click(primary_button);
     expect(getByTestId('text-label')).toHaveTextContent('primary');
-    fireEvent.click(secondaryButton);
+    fireEvent.click(secondary_button);
     expect(getByTestId('text-label')).toHaveTextContent('secondary');
-    fireEvent.click(clearButton);
+    fireEvent.click(clear_button);
     expect(queryByTestId('text-label')).toBeNull();
   });
 
@@ -53,24 +53,24 @@ describe('ボタンテストサンプル', () => {
     expect(getByText('secondary')).toBeInTheDocument();
     expect(getByText('clear')).toBeInTheDocument();
     // ボタン取得
-    const primaryButton = getByRole('button', { name: /primary/i });
-    const secondaryButton = getByRole('button', { name: /secondary/i });
-    const clearButton = getByRole('button', { name: /clear/i });
+    const primary_button = getByRole('button', { name: /primary/i });
+    const secondary_button = getByRole('button', { name: /secondary/i });
+    const clear_button = getByRole('button', { name: /clear/i });
 
 
     // アクション後のプロミスの中で評価する
-    await user.click(primaryButton).then(() => {
+    await user.click(primary_button).then(() => {
       expect(getByTestId('text-label')).toHaveTextContent('primary');
     });
 
     // await waitForでレンダリングを待つ
-    await user.click(secondaryButton);
+    await user.click(secondary_button);
     await waitFor(() => {
       expect(getByTestId('text-label')).toHaveTextContent('secondary');
     }, { timeout: 100 });
 
     // clearボタンをクリックして、テキストラベルが削除されることを確認
-    await user.click(clearButton).then(() => {
+    await user.click(clear_button).then(() => {
       expect(queryByTestId('text-label')).toBeNull();
     });
 
@@ -84,16 +84,16 @@ describe('ボタンテストサンプル', () => {
     expect(getByText('secondary')).toBeInTheDocument();
     expect(getByText('clear')).toBeInTheDocument();
     // ボタン取得
-    const primaryButton = getByRole('button', { name: /primary/i });
-    const secondaryButton = getByRole('button', { name: /secondary/i });
-    const clearButton = getByRole('button', { name: /clear/i });
+    const primary_button = getByRole('button', { name: /primary/i });
+    const secondary_button = getByRole('button', { name: /secondary/i });
+    const clear_button = getByRole('button', { name: /clear/i });
 
     // ボタンをクリック(primary, secondary, clear)
-    act(() => primaryButton.click());
+    act(() => primary_button.click());
     expect(getByTestId('text-label')).toHaveTextContent('primary');
-    act(() => secondaryButton.click());
+    act(() => secondary_button.click());
     expect(getByTestId('text-label')).toHaveTextContent('secondary');
-    act(() => clearButton.click());
+    act(() => clear_button.click());
     expect(queryByTestId('text-label')).toBeNull();
   });
 

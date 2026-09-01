@@ -1,18 +1,20 @@
 # -*- coding: utf-8 -*-
 # ユニットテストコードサンプル
 # https://docs.pytest.org/en/stable/getting-started.html
-from HttpClient.Client import HttpClient
+import logging
+
 import pytest
 import pytest_check as check
-import logging
+from http_client.client import HttpClient
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 @pytest.fixture(scope="class")
 def re_client():
     print("セットアップを実行します。", flush=True)
-    requestClient = HttpClient(domain="127.0.0.1:8000", base_path="/RestSample")
-    yield requestClient
+    request_client = HttpClient(domain="127.0.0.1:8000", base_path="/RestSample")
+    yield request_client
 
 class TestSampleClass:
     def test_sample(self, re_client):

@@ -1,16 +1,16 @@
-import W_ErrorBoundary from '@/utils/libs/WrapperComponents/ErrorBoundary';
+import WErrorBoundary from '@/utils/libs/WrapperComponents/ErrorBoundary';
 
 // エラーを表示するためのサンプルページ
 const ErrorPage = () => {
     return (
-        <W_ErrorBoundary>
-            <ErrorPage_Internal />
-        </W_ErrorBoundary>
+        <WErrorBoundary>
+            <ErrorPageInternal />
+        </WErrorBoundary>
     );
 };
 export default ErrorPage;
 
-const ErrorPage_Internal = () => {
+const ErrorPageInternal = () => {
     // 意図的なエラーを発生させる
     console.warn("意図的なエラーを発生させます。")
     throw new Error("意図的なエラー");

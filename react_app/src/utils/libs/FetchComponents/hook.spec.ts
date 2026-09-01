@@ -10,15 +10,15 @@ import { renderHook, waitFor } from "@testing-library/react"
 // fetchの成功を返す関数
 // 参考: https://jestjs.io/ja/docs/mock-function-api#mockfnmockresolvedvaluevalue
 type MockFetchParams = {
-    bodyObj?: object;
+    body_obj?: object;
     status?: number;
-    statusText?: string;
+    status_text?: string;
 };
 
-const genMockFetch = ({ bodyObj = {}, status = 200, statusText = "" }: MockFetchParams) => {
-    const body = JSON.stringify(bodyObj);
+const genMockFetch = ({ body_obj = {}, status = 200, status_text = "" }: MockFetchParams) => {
+    const body = JSON.stringify(body_obj);
     return vi.spyOn(globalThis, 'fetch')
-        .mockResolvedValue(new Response(body, { status, statusText }));
+        .mockResolvedValue(new Response(body, { status, statusText: status_text }));
 };
 // fetchのエラーを返す関数(ネットワークエラー)
 const genMockFetchError = (error: Error) => {
@@ -29,7 +29,7 @@ const genMockFetchError = (error: Error) => {
 describe('Fetchモック動作確認', () => {
     it('サンプルテスト 200', async () => {
         const data = { message: 'Hello, World!' };
-        const _ = genMockFetch({ bodyObj: data });
+        const _ = genMockFetch({ body_obj: data });
         const { result } = renderHook(() => useFetch<{ message: string }>({ url: './api/sample' }));
         await waitFor(() => {
             expect(result.current.response).toEqual(data);
@@ -39,7 +39,7 @@ describe('Fetchモック動作確認', () => {
 
     it('サンプルテスト 200-Post', async () => {
         const data = { message: 'Hello, World!' };
-        const _ = genMockFetch({ bodyObj: data, status: 200, statusText: 'OK' });
+        const _ = genMockFetch({ body_obj: data, status: 200, status_text: 'OK' });
         const { result } = renderHook(() => useFetch<{ message: string }>({ url: './api/sample', method: 'POST', body: data }));
         await waitFor(() => {
             expect(result.current.response).toEqual(data);
@@ -48,7 +48,7 @@ describe('Fetchモック動作確認', () => {
     });
 
     it('サンプルテスト 404', async () => {
-        const _ = genMockFetch({ bodyObj: { message: 'No Data' }, status: 404, statusText: 'Not Found' });
+        const _ = genMockFetch({ body_obj: { message: 'No Data' }, status: 404, status_text: 'Not Found' });
         const { result } = renderHook(() => useFetch<object>({ url: './api/sample' }));
         await waitFor(() => {
             //console.log(result.current.error);
@@ -72,12 +72,12 @@ describe('Fetchモック動作確認', () => {
 //// テストサンプル2 ////////////////////////////////////////
 // 複数回のfetchをモックする関数
 // 参考: https://jestjs.io/ja/docs/mock-function-api#mockfnmockimplementationfn
-const genMockFetches = (responseList: MockFetchParams[]) => {
+const genMockFetches = (response_list: MockFetchParams[]) => {
     const generatorResponse = function* () {
-        for (const response of responseList) {
-            yield new Response(JSON.stringify(response.bodyObj), {
+        for (const response of response_list) {
+            yield new Response(JSON.stringify(response.body_obj), {
                 status: response.status,
-                statusText: response.statusText
+                statusText: response.status_text
             });
         };
     };
@@ -94,26 +94,26 @@ describe('Fetchモック動作確認', () => {
     // 200-200でレスポンスが返る場合, 2つのuseFetchを順番に呼び出す
     it('サンプルテスト 200-200', async () => {
         const response = [
-            { bodyObj: { message: 'Data1' }, status: 200, statusText: 'OK' },
-            { bodyObj: { message: 'Data2' }, status: 200, statusText: 'OK' }
+            { body_obj: { message: 'Data1' }, status: 200, status_text: 'OK' },
+            { body_obj: { message: 'Data2' }, status: 200, status_text: 'OK' }
         ];
         const _ = genMockFetches(response);
         // Fetch1回目
         const { result: result1 } = renderHook(() => useFetch<{ message: string }>({ url: './api/1' }));
         await waitFor(() => {
-            expect(result1.current.response).toEqual(response[0].bodyObj);
+            expect(result1.current.response).toEqual(response[0].body_obj);
         });
         const { result: result2 } = renderHook(() => useFetch<{ message: string }>({ url: './api/2' }));
         await waitFor(() => {
-            expect(result2.current.response).toEqual(response[1].bodyObj);
+            expect(result2.current.response).toEqual(response[1].body_obj);
         });
     });
 
     // 404-200でレスポンスが返る場合, 1つのuseFetchをURLを変えて2回呼び出す
     it('サンプルテスト 404-200', async () => {
         const response = [
-            { bodyObj: { message: 'Nodata' }, status: 404, statusText: 'Not Found' },
-            { bodyObj: { message: 'Data' }, status: 200, statusText: 'OK' }
+            { body_obj: { message: 'Nodata' }, status: 404, status_text: 'Not Found' },
+            { body_obj: { message: 'Data' }, status: 200, status_text: 'OK' }
         ];
         const _ = genMockFetches(response);
         // Fetch1回目
@@ -129,7 +129,7 @@ describe('Fetchモック動作確認', () => {
         rerender({ url: './api/1' });
         await waitFor(() => {
             // console.log(result.current);
-            expect(result.current.response).toEqual(response[1].bodyObj);
+            expect(result.current.response).toEqual(response[1].body_obj);
             expect(result.current.error).toBeNull();
         });
     });

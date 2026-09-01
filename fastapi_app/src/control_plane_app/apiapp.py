@@ -1,13 +1,14 @@
 #!/usr/bin/env python
 # coding:utf-8
 # モデル読み込み
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 
 # APIルータ
 router = APIRouter()
 
 # テナント管理API
 from .api_tenant.router import router as router_tenant
+
 router.include_router(router_tenant, prefix="/tenant", tags=["tenant"])
 
 

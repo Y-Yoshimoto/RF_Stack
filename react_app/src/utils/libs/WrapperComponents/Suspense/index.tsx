@@ -4,19 +4,19 @@ import { Suspense } from 'react';
 
 export type SuspenseProps = {
     children: ReactNode; // Suspenseがラップする子コンポーネント
-    loadingFallback?: ReactNode; // 読み込み中に表示するコンポーネント
+    loading_fallback?: ReactNode; // 読み込み中に表示するコンポーネント
 };
 
-export const Loading_default = () => {
+export const LoadingDefault = () => {
     return <div>Loading...</div>;
 };
 
-export const W_Suspense = ({ children, loadingFallback = <Loading_default /> }: SuspenseProps) => {
+export const WSuspense = ({ children, loading_fallback = <LoadingDefault /> }: SuspenseProps) => {
     return (
-        <Suspense fallback={loadingFallback}>
+        <Suspense fallback={loading_fallback}>
             {children}
         </Suspense>
     );
 };
 
-export default W_Suspense;
+export default WSuspense;

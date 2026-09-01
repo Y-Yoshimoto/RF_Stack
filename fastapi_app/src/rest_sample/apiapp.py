@@ -1,12 +1,14 @@
 #!/usr/bin/env python
 # coding:utf-8
 # モデル読み込み
-from .model import SampleData
+# ログ設定
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException
 from modules.auth import get_current_user
 
-# ログ設定
-import logging
+from .model import SampleData
+
 logging.basicConfig(level=logging.DEBUG,
                     format="%(asctime)s %(name)s %(filename)s:%(lineno)d %(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)

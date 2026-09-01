@@ -5,13 +5,14 @@
 # HTTPクライアントのクラス定義
 
 # ユニットテストコードサンプル
-import httpx
 # import asyncio
 from abc import ABCMeta
 
+import httpx
+
 
 # Clientの抽象クラス定義
-class Client_ABC(metaclass=ABCMeta):
+class ClientABC(metaclass=ABCMeta):
     """
     HTTPクライアント基底クラス
     このクラスは、指定されたベースURLに対してHTTPリクエストを送信するためのメソッドを提供
@@ -53,20 +54,20 @@ class Client_ABC(metaclass=ABCMeta):
         self.close()
 
 
-    def _send_request(self, sendClient, method: str, path: str, params: dict = None, data: dict = None):
+    def _send_request(self, send_client, method: str, path: str, params: dict = None, data: dict = None):
         """ メソッドに応じてHTTPリクエストを送信するヘルパーメソッド """
         if method.upper() == "GET":
             if data is None:
-                return sendClient.get(path, params=params)
+                return send_client.get(path, params=params)
             else:
                 # Body付きGETリクエストの処理
-                return sendClient.send(httpx.Request("GET", path, json=data, params=params))
+                return send_client.send(httpx.Request("GET", path, json=data, params=params))
         elif method.upper() == "POST":
-            return sendClient.post(path, json=data, params=params)
+            return send_client.post(path, json=data, params=params)
         elif method.upper() == "PUT":
-            return sendClient.put(path, json=data, params=params)
+            return send_client.put(path, json=data, params=params)
         elif method.upper() == "DELETE":
-            return sendClient.delete(path, params=params)
+            return send_client.delete(path, params=params)
         else:
             raise ValueError(f"Unsupported HTTP method: {method}")
 
@@ -98,8 +99,8 @@ class Client_ABC(metaclass=ABCMeta):
     #     """
     #     return self._send_request(self.async_client, method, path, params, data)
 
-# HttpClient.Client.py
-class HttpClient(Client_ABC):
+# http_client.client.py
+class HttpClient(ClientABC):
     """
     HTTPクライアントクラス。
     このクラスは、指定されたベースURLに対してHTTPリクエストを送信するためのメソッドを提供
