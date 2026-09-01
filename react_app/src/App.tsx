@@ -10,14 +10,21 @@ import WErrorBoundary from '@/utils/libs/WrapperComponents/ErrorBoundary';
 import { ThemeProvider } from '@mui/material/styles';
 import theme from './theme.tsx';
 
+// 認証認可コンテキストプロバイダー
+import { AuthNZProvider } from './store/AuthNZ/index.tsx';
+
+
 // APPコンポーネント
-// アプリケーション全体へのサスペンドとエラーバウンダリー, テーマプロバイダーを設定
+// アプリケーション全体へのサスペンドとエラーバウンダリー, テーマプロバイダー、認証認可プロバイダーを提供
 export default function App() {
+
   return (
     <Suspense fallback={<></>}>
       <WErrorBoundary>
         <ThemeProvider theme={theme}>
-          <AppRoutes />
+          <AuthNZProvider>
+            <AppRoutes />
+          </AuthNZProvider>
         </ThemeProvider>
       </WErrorBoundary>
     </Suspense>
