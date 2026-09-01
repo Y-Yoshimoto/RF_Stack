@@ -82,7 +82,11 @@ const MEMBER_RULES = [
 const EXCEPTIONS = [
     // オブジェクトリテラルのプロパティ: MUI の sx 等、外部ライブラリ境界が機械判別できない。
     // 自前データの形は typeProperty 側の検査で担保する。
+    // 注意: 値が関数（`HydrateFallback: () => null` 等）のプロパティは、typeMethod と同様に
+    // objectLiteralProperty ではなく objectLiteralMethod に分類されるため、こちらにも同じ除外が要る。
+    // （React Router の RouteObject 等、外部 API が定めるキー名を含むため）
     { selector: 'objectLiteralProperty', format: null },
+    { selector: 'objectLiteralMethod', format: null },
 
     // 分割代入の shorthand: 供給側の名前をそのまま受けるため検査しない。
     // ※ リネームを伴う分割代入（const { camera_id: cameraId } = res）は検査対象に残る。
@@ -90,6 +94,12 @@ const EXCEPTIONS = [
 
     // 未使用マーカー（eslint.config.js の no-unused-vars varsIgnorePattern と整合）
     { selector: ['variable', 'parameter'], filter: { regex: '^_mock', match: true }, format: null },
+
+    // アンダースコアのみの変数名（`_` 等）: 「値を意図的に捨てる」ための慣用的なプレースホルダー。
+    // no-unused-vars の varsIgnorePattern（^(_|__.*|_mock.*)$）と揃える。
+    // 型情報上は関数型と判定されることがあり、その場合 FUNCTION_RULES の types:['function'] ルールが
+    // より具体的として優先され camelCase 判定に落ちるため、ここで明示的に除外する。
+    { selector: 'variable', filter: { regex: '^_+$', match: true }, format: null },
 
     // createContext の戻り値は JSX で <Xxx.Provider> として使うため PascalCase
     { selector: 'variable', filter: { regex: 'Context$', match: true }, format: ['PascalCase'] },

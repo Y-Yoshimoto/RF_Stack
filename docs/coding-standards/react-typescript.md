@@ -83,7 +83,8 @@ function isComponentName(node) { return /^[A-Z]/.test(node.name); }
 | `Context` サフィックスの const（`AuthContext` 等） | `createContext` の戻り値は JSX で `<Xxx.Provider>` として使うため `PascalCase` とする |
 | `VITE_*` の型プロパティ（`src/vite-env.d.ts`） | Vite の環境変数命名規約 |
 | クォート必須のプロパティ（`'Content-Type'` 等） | HTTP ヘッダー等の外部仕様 |
-| オブジェクトリテラルのプロパティ | MUI の `sx` 等、外部ライブラリ境界が機械判別できないため検査対象外。自前データの形は型プロパティ側の検査で担保する |
+| オブジェクトリテラルのプロパティ（`HydrateFallback: () => null` のような関数値を含む） | MUI の `sx` 等、外部ライブラリ境界が機械判別できないため検査対象外。自前データの形は型プロパティ側の検査で担保する。関数値のプロパティは `objectLiteralMethod` として別分類されるため、`objectLiteralProperty` とあわせて除外している |
+| アンダースコアのみの変数名（`_` 等） | 値を意図的に捨てるための慣用的なプレースホルダー。`no-unused-vars` の許容パターンと揃える |
 | `import` 名 | 供給側（外部ライブラリ）依存のため検査対象外 |
 | Storybook の CSF named export（`export const Primary: Story`） | Storybook の規約により `PascalCase` を許容 |
 
