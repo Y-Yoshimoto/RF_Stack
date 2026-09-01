@@ -51,7 +51,7 @@ make d-ps
 | コンテナ | 実行内容 | 進行中を示すロックファイル |
 | --- | --- | --- |
 | `react_app` | `npm install --include=dev --force` と Playwright ブラウザ(chromium / chromium-headless-shell / webkit)のインストール | `react_app/.npm_install.lock` |
-| `fastapi_app` | `uv sync --locked`（失敗時は `uv sync`）と `.venv` の有効化 | `fastapi_app/.uv_install.lock` |
+| `fastapi_app` | `uv sync --locked`（失敗時は `uv sync`）と仮想環境の有効化(`$UV_PROJECT_ENVIRONMENT` = `/usr/local/uv`。バインドマウント上の `.venv` ではなくコンテナ内固有の場所に置くことで、依存インストール時のファイルコピー競合を回避している) | `fastapi_app/.uv_install.lock` |
 
 **ロックファイルが存在する間はインストール中。消えるまで待つ。** 特に react_app はブラウザのダウンロードを伴うため初回は時間がかかる。
 
