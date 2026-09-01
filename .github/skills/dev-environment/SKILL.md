@@ -11,12 +11,12 @@ description: Dev Container 開発環境の初期セットアップ、起動・�
 
 | サービス | 用途 | ホスト公開ポート |
 | --- | --- | --- |
-| `react_app` | React 開発サーバ | 5173（dev server）、9323（Playwright レポート） |
+| `react_app` | React 開発サーバ | 5173(dev server)、4173(vite preview)、6006(Storybook)、9323(Playwright レポート) |
 | `fastapi_app` | FastAPI | 8000 |
 | `postgres_c` | PostgreSQL | 5432 |
 | `keycloak_c` | Keycloak | 8080、8443、9000 |
 
-Storybook(6006) と vite preview(4173) は**ポートマッピングが無く、ホストのブラウザからは開けない**。必要なら `docker-compose.yaml` にポート追加が要る。
+`npm run storybook`(6006) と `npm run preview`(4173) はいずれもホストのブラウザから開ける。どちらも常駐プロセスなので、確認が終わったら停止すること。
 
 ---
 
@@ -126,7 +126,7 @@ make d-reset-db   # ★★ 全データが失われる。必ず確認を取る
 | Vitest / Playwright がブラウザ起動に失敗する | Playwright ブラウザが未インストール。`make d-run SERVICE=react_app CMD="npx playwright install chromium"` |
 | FastAPI で `ModuleNotFoundError` | `PYTHONPATH=/work/fastapi_app/src/` に依存している。compose の environment を確認する |
 | DB に接続できない | `postgres_c` の起動と、`DB_HOST=postgres_c` / `DB_PORT=5432` および `APP_DB_*` 環境変数を確認 |
-| ポートが衝突する | 5173 / 8000 / 8080 / 8443 / 9000 / 9323 / 5432 のいずれかをホスト側で他プロセスが使用している |
+| ポートが衝突する | 4173 / 5173 / 6006 / 8000 / 8080 / 8443 / 9000 / 9323 / 5432 のいずれかをホスト側で他プロセスが使用している |
 | Dev Container の設定変更が反映されない | VS Code の再ビルド（Rebuild Container）が必要 |
 
 ---

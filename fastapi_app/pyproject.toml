@@ -34,8 +34,15 @@ dev = [
     "pytest-check",
     # "pytest-playwright",
 ]
+# コーディング規約: docs/coding-standards/python.md
 [tool.ruff]
+line-length = 240
 
+[tool.ruff.lint]
+# ruff の既定 select は ["E4", "E7", "E9", "F"] で pycodestyle の大半と
+# pep8-naming が有効にならないため、明示的に指定する。
+#   E/W: pycodestyle, F: pyflakes, N: pep8-naming, I: isort(import順序)
+select = ["E", "W", "F", "N", "I"]
 ignore = [
     "E402", # E402: Module level import not at top of file
 ]

@@ -48,6 +48,26 @@
 - .envファイルは、ファイル読取ツールに限らず、いかなる手段でも読取を行わないこと。
 - .envファイルのスキーマ把握が必要な場合は、.env.default ファイルを参照すること。
 
+## コーディング規約
+
+- コーディング規約の正は `docs/coding-standards/` 配下とする。
+  + `docs/coding-standards/python.md` — Python(PEP8 準拠)
+  + `docs/coding-standards/react-typescript.md` — React / TypeScript(PEP8 ベース)
+- **インストラクションファイルに規約本文を転記しない。** 参照のみとし、正は常に docs 側とする。
+- TypeScript も PEP8 に寄せ、**データは `snake_case`、関数は `camelCase`** とする。
+  ただし React コンポーネントの `PascalCase` とカスタムフックの `use` + `camelCase` は動作要件のため優先する。
+- 規約は ESLint(`@typescript-eslint/naming-convention`)と ruff(`E`/`W`/`F`/`N`/`I`)により機械的に強制される。
+- 行長は両言語とも 240。
+
+### ディレクトリ単位での適用
+
+アプリケーション(Dev コンテナ)単位で規約が自動的に効くよう、以下を配置している。ツールごとに機構が異なるため、両者は同期せずそれぞれ手で維持する(いずれも数行の参照のみ)。
+
+| ツール | 機構 | 配置 |
+| --- | --- | --- |
+| Claude Code | サブディレクトリの `CLAUDE.md`(配下のファイルにアクセスした時点で読み込まれる) | `react_app/CLAUDE.md`, `fastapi_app/CLAUDE.md` |
+| GitHub Copilot | `.github/instructions/*.instructions.md` の `applyTo` グロブ | `.github/instructions/` |
+
 ## エージェントの役割分担
 
 タスクは以下の担当エージェントに委譲する。定義の実体は `.github/agents/` にある。
@@ -69,6 +89,7 @@
 - UI とロジック、実装とテストは担当を分ける。1エージェントに複数レイヤーを担当させない。
 - API のシグネチャを変更した場合は `api-contract-sync` で影響範囲を確認する。
 - 認証・認可はレイヤーごとに分割せず、`auth-keycloak` が両サイドを一貫して担当する。
+- コーディング規約はディレクトリ単位のインストラクションで自動的に反映されるため、エージェント定義には転記しない。
 
 ## スキル
 
@@ -85,7 +106,10 @@
 ## エージェント設定ファイルの同期ルール
 
 - 共有するエージェント設定ファイルの正は `.github` 配下とする。
-- 例外として `CLAUDE.md` は Claude 固有設定のため `.claude/CLAUDE.md` を正とし、`.github` には設置しない。
+- 例外として `CLAUDE.md` は Claude 固有設定のため設置場所そのものを正とし、`.github` には置かない。
+  リポジトリ全体は `.claude/CLAUDE.md`、アプリ単位は `react_app/CLAUDE.md` / `fastapi_app/CLAUDE.md`。
+- `.github/instructions/` は GitHub Copilot 専用(`applyTo` フロントマター)であり、**同期対象に含めない**。
+  Claude 側の対応機構はサブディレクトリの `CLAUDE.md`。
 - `CLAUDE.md` を除き `.claude` 側を直接編集せず、`.github` 側のみ編集する。
 - 編集後は以下を実行して同期する。
 
@@ -93,7 +117,7 @@
 ./scripts/sync-agent-customizations.sh sync
 ```
 
-- 同期対象は `.github/skills`, `.github/agents`, `.github/instructions` の3ディレクトリ。
+- 同期対象は `.github/skills`, `.github/agents` の2ディレクトリ。
 - 同期漏れの確認は以下を実行する。差分があれば exit 1 となる。
 
 ```bash
@@ -101,4 +125,9 @@
 ```
 
 - 既定では同期先ファイルは `444` (read-only) になる。ディレクトリは `755` のまま維持される。
-- コピーベースの同期のため、`.github` 側で削除・リネームしたファイルは `.claude` 側に残る。不要になったファイルは手動で削除する。
+- コピーベースの同期のため、既定では `.github` 側で削除・リネームしたファイルが `.claude` 側に残る。
+  孤児ファイルを削除する場合は `--prune` を付ける(削除対象は標準出力に列挙される)。
+
+```bash
+./scripts/sync-agent-customizations.sh sync --prune
+```

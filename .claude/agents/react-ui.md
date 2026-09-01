@@ -67,6 +67,13 @@ lint とテストは**レイアウト崩れや配色の誤りを検出できな�
 2. `http://localhost:5173/` を開き、対象の画面へ遷移して描画・操作・コンソールエラーの有無を確認する。
 3. レスポンシブ対応が関係する変更では、ビューポートを変えて確認する。
 
+コンポーネント単位で確認したい場合は Storybook を使う。ホスト側で起動し `http://localhost:6006/` を開く。
+
+```bash
+make d-run SERVICE=react_app CMD="npm run storybook:no-open"
+```
+
 補足:
-- `docker-compose.yaml` で**ホストに公開されているのは 5173（dev server）と 9323（Playwright レポート）のみ**。Storybook(6006) と vite preview(4173) はポートマッピングが無いため、ブラウザから直接確認できない。必要になった場合はポート追加を `infra-docker` に依頼する。
+- ホストに公開されているポートは 5173(dev server) / 4173(vite preview) / 6006(Storybook) / 9323(Playwright レポート)。
+- `npm run storybook` / `storybook:no-open` は常駐プロセスなので、確認が終わったら停止すること。
 - 確認のためにアプリのコードを一時的に書き換えた場合は、**必ず元に戻してから完了報告する**。

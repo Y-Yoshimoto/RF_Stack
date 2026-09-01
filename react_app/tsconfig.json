@@ -38,8 +38,8 @@
     "forceConsistentCasingInFileNames": true
   },
   "include": [
-    "src/*",
-    "auxiliary/*"
+    "src/**/*",
+    "auxiliary/**/*"
   ],
   "exclude": [
     "node_modules",

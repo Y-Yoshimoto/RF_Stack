@@ -53,6 +53,9 @@ make d-run SERVICE=react_app CMD="npm run lint"
 
 - **`npm run test` を使わない。** 中身は `vitest`（ウォッチモード）で、非対話環境では終了せずハングする。単発実行は必ず `npx vitest run`。同様に `npm run test:ui` / `npm run storybook` / `npm run playwright:ui` も常駐するので検証には使わない。
 - `npm run lint` は `--max-warnings 0` 付き。**警告が1件でもあれば失敗する。**
+- `npm run lint` には命名規約(`@typescript-eslint/naming-convention`)の検査が含まれ、`src/` 配下は `error` で判定される。
+  型情報を使うため通常の lint より時間とメモリを要する(スクリプト側で `NODE_OPTIONS=--max-old-space-size=3072` を付与済み)。
+  規約の内容は `docs/coding-standards/react-typescript.md` を参照。
 - Vitest はブラウザモード（chromium, headless）が有効。ブラウザの実体は `PLAYWRIGHT_BROWSERS_PATH` が指す `node_modules/playwright/.local-browsers` にある。ここが未インストールだとテストが起動しない。
 - テスト対象は `src/**/*.{test,spec}.{js,ts,jsx,tsx}`（実装とコロケート）。
 - `npm run playwright` は `playwright.config.ts` の `webServer` 設定により **`npm run preview`（本番ビルド）を先に走らせる**ため時間がかかる。lint やユニットテストで足りる変更では実行しない。
@@ -77,6 +80,7 @@ make d-run SERVICE=react_app CMD="npm run lint"
 ### 注意点
 
 - パッケージ管理は **uv**。`pip` を直接使わない。依存追加は `uv add`。
+- ruff は `E` / `W` / `F` / `N`(pep8-naming) / `I`(isort) を有効化している。規約の内容は `docs/coding-standards/python.md` を参照。`I` の違反は `--fix` で自動修正できる。
 - `pytest.ini` の `testpaths = test` により、**引数なしの `uv run pytest` は `test/` ディレクトリしか実行しない。** `src/` 配下にコロケートされたテスト（`test_ut_*.py` / `test_it_*.py`）を動かすにはパスを明示する。
 - `pytest.ini` の `addopts` により、実行のたびに `pytest_report.html` が生成・上書きされる。これは成果物なのでコミットしない。
 - `test/` 配下は `test_00_` / `test_99_` のように**数値プレフィックスで実行順を制御**している。新規追加時はこの規約に従う。
