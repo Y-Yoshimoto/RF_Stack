@@ -26,7 +26,7 @@ const SuccessComponent = ({ response }: { response: any }) => {
 };
 
 // API用 成功時のコンポーネントサンプル
-const SuccessComponent_API = ({ response }: { response: any }) => {
+const SuccessComponentApi = ({ response }: { response: any }) => {
   // サンプルレスポンス: {"id":123,"name":"sample","date":"2024-02-27"}
   return (
     <>
@@ -53,7 +53,7 @@ export const FetchSampleComponent: React.FC = () => {
           Request
         </Button>
         <br />
-        <FetchComponent key={key} resourceObj={{ url: `/static.json?key=${key}` }} renderSuccess={SuccessComponent} />
+        <FetchComponent key={key} resource_obj={{ url: `/static.json?key=${key}` }} renderSuccess={SuccessComponent} />
       </Box>
     </Container>
   );

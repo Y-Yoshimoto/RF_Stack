@@ -7,8 +7,8 @@ import { renderHook, waitFor } from "@testing-library/react"
 
 describe('useIndexedDB', () => {
     // テスト用のデータ
-    const baseTestData = { key: "testKey", data: { data: "baseTestData" } };
-    const testConfig = {
+    const base_test_data = { key: "testKey", data: { data: "base_test_data" } };
+    const test_config = {
         db_name: "testDB",
         db_version: 1,
         objectStore_name: "cache",
@@ -19,7 +19,7 @@ describe('useIndexedDB', () => {
     // テスト用のフックを含むプロミスを返す関数
     // 解決すると、resultを返すプロミスが返されるため、.then()で使用できる
     const dBHookPromise = async () => {
-        const { result } = renderHook(() => useIndexedDB({ config: testConfig }));
+        const { result } = renderHook(() => useIndexedDB({ config: test_config }));
         return waitFor(() => {
             expect(result.current.isConnected).toBe(true);
             return result;
@@ -28,7 +28,7 @@ describe('useIndexedDB', () => {
 
     afterEach(() => {
         // IndexedDBをクリアする
-        const request = indexedDB.deleteDatabase(testConfig.db_name);
+        const request = indexedDB.deleteDatabase(test_config.db_name);
         request.onsuccess = () => {
             console.log("Database deleted successfully");
         };
@@ -43,14 +43,14 @@ describe('useIndexedDB', () => {
         return dBHookPromise()
             .then((result) => {
                 // データを追加する
-                result.current.upsertData(baseTestData.key, baseTestData.data);
+                result.current.upsertData(base_test_data.key, base_test_data.data);
                 return result;
             })
             .then((result) => {
                 return waitFor(() => {
                     // データを取得し確認する
-                    result.current.getData(baseTestData.key, dispatcherMock);
-                    expect(dispatcherMock).toHaveBeenCalledWith(baseTestData);
+                    result.current.getData(base_test_data.key, dispatcherMock);
+                    expect(dispatcherMock).toHaveBeenCalledWith(base_test_data);
                     return result;
                 }, { timeout: 100 });
             });

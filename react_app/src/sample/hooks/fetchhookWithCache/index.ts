@@ -20,14 +20,14 @@ type ResourceObj<T> = {
 const useRequestObjectMemo = <T>({ url, method = 'GET', body, headers }: ResourceObj<T>) => {
     // リクエストオブジェクトを生成
     return useMemo(() => {
-        const bodyString = JSON.stringify(body);
-        const requestKey = `${url}-${method}-${bodyString}-${JSON.stringify(headers)}`;
+        const body_string = JSON.stringify(body);
+        const request_key = `${url}-${method}-${body_string}-${JSON.stringify(headers)}`;
         const request = new Request(url, {
             method: method,
             headers: { 'Content-Type': 'application/json', ...headers },
-            body: body ? bodyString : undefined,
+            body: body ? body_string : undefined,
         });
-        return { request, requestKey };
+        return { request, request_key };
     }, [url, method, body, headers]);
 };
 
@@ -37,7 +37,7 @@ const useFetch = <T>({ url = './api/sample', method = 'GET', body, headers, take
     const [loading, setLoading] = useState<boolean>(false);
     const [error, setError] = useState<Error | null>(null);
     // リクエストオブジェクトメモを生成
-    const { request, requestKey } = useRequestObjectMemo({ url, method, body, headers });
+    const { request, request_key } = useRequestObjectMemo({ url, method, body, headers });
 
     // useEffectでfetchを実行
     useEffect(() => {
@@ -54,7 +54,7 @@ const useFetch = <T>({ url = './api/sample', method = 'GET', body, headers, take
         return () => {
             controller.abort();
         }
-    }, [requestKey]); // URL, bodyが変わったら再実行
+    }, [request_key]); // URL, bodyが変わったら再実行
 
     // キャッシュの寿命を設定(unmount時も実行される)
     useEffect(() => {
@@ -62,23 +62,23 @@ const useFetch = <T>({ url = './api/sample', method = 'GET', body, headers, take
             caches.open(CACHE_NAME).then((cache) => cache.delete(request))
         }, cachelife); // 指定された時間後にキャッシュを削除
         return () => { };
-    }, [requestKey]); // URL, bodyが変わったら再実行
+    }, [request_key]); // URL, bodyが変わったら再実行
     return { response, loading, error };
 };
 
 // キャッシュを経由してfetchを実行する関数の型定義
-type promiseWrapType<T> = {
+type PromiseWrapType<T> = {
     request: Request;
     takeData?: (response: Response) => Promise<T>;
 };
 
 // キャッシュを経由してfetchを実行する関数
-const promiseWrap = <T>({ request, takeData = (p) => p.json() }: promiseWrapType<T>) => {
+const promiseWrap = <T>({ request, takeData = (p) => p.json() }: PromiseWrapType<T>) => {
     // キャッシュからデータを取得
-    return caches.match(request).then((cachedResponse) => {
-        if (cachedResponse) {
-            // console.log('Cache hit:', cachedResponse);
-            return takeData(cachedResponse);
+    return caches.match(request).then((cached_response) => {
+        if (cached_response) {
+            // console.log('Cache hit:', cached_response);
+            return takeData(cached_response);
         }
         // キャッシュにデータがない場合はfetchを実行
         return fetch(request).then((response) => {

@@ -14,7 +14,7 @@ import loader_FetchLoaderPage from '@/sample/pages/FetchPage/FetchLoder/loader';
 
 import FetchUse from '@/sample/pages/FetchPage/FetchUse';
 
-import { W_ErrorBoundary_Router } from '@/utils/libs/WrapperComponents/ErrorBoundary';
+import { WErrorBoundaryRouter } from '@/utils/libs/WrapperComponents/ErrorBoundary';
 
 /**
  * ルーティングの設定関数
@@ -22,7 +22,7 @@ import { W_ErrorBoundary_Router } from '@/utils/libs/WrapperComponents/ErrorBoun
  * @param {Object} props - React props
  * @returns {list} ルーティングリスト
  */
-const routesList = [
+const routes_list = [
   { path: 'button', id: 'button', element: <ButtonPage /> },
   { path: 'fetch', id: 'fetch', element: <FetchPage /> },
   {
@@ -32,7 +32,7 @@ const routesList = [
   { path: 'fetch-use', id: 'fetch-use', element: <FetchUse /> },
   { path: 'indexedDB', id: 'indexedDB', element: <IndexedDBPage /> },
   { path: 'layoutChildren', id: 'layout-children', element: <LeyoutChildren /> },
-  { path: 'error', id: 'error', element: <ErrorPage />, ErrorBoundary: W_ErrorBoundary_Router },
+  { path: 'error', id: 'error', element: <ErrorPage />, ErrorBoundary: WErrorBoundaryRouter },
   { path: '*', id: 'not-found', element: <Navigate to={'/button'} replace /> }
 ];
 
@@ -42,8 +42,8 @@ const routes = [{
   id: 'root',
   path: "/",
   element: <><Outlet /></>,
-  ErrorBoundary: W_ErrorBoundary_Router,
-  children: routesList,
+  ErrorBoundary: WErrorBoundaryRouter,
+  children: routes_list,
   // クライアントサイド用のHydrateFallbacの設定
   HydrateFallback: () => null,
 }];
