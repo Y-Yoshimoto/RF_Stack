@@ -13,7 +13,7 @@ const SampleSuccess = ({ response }: { response: any }): React.ReactElement => {
   return <>{response.message}</>;
 };
 const SampleComponent = () => {
-  return <FetchComponent resourceObj={{ url: 'https://example.com' }} renderSuccess={SampleSuccess} />;
+  return <FetchComponent resource_obj={{ url: 'https://example.com' }} renderSuccess={SampleSuccess} />;
 };
 
 // Fetchのモックを生成する関数

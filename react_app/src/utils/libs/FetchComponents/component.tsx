@@ -7,7 +7,7 @@ import { requestFetch } from './common'
 import { useFetchPromiseMemo } from './hook.ts';
 
 // ErrorBoundary及びSuspenseのラッパーコンポーネント
-import { W_ErrorBoundary, W_Suspense } from '../WrapperComponents';
+import { WErrorBoundary, WSuspense } from '../WrapperComponents';
 
 //////// デフォルト表示コンポーネント ////////
 //成功時デフォルト表示コンポーネント
@@ -35,7 +35,7 @@ const ShowError = <U,>({ error }: { error: U }) => {
  * @returns {JSX.Element} 各状態でコンポーネント
  */
 export const FetchComponent = <T, U>({
-    resourceObj,
+    resource_obj,
     renderSuccess = ShowSuccess,
     renderLoading = () => <ShowLoading />,
     renderError = ShowError,
@@ -43,24 +43,24 @@ export const FetchComponent = <T, U>({
     onReset
 }: FetchComponentProps<T, U>) => {
     // メモ化したFetchプロミスを取得
-    const fetchPromise = useFetchPromiseMemo(resourceObj);
+    const fetch_promise = useFetchPromiseMemo(resource_obj);
     // エラーバウンダリとサスペンスでラップレスポンス結果を表示
     return (
-        <W_ErrorBoundary errorFallback={renderError} onError={onError} onReset={onReset}>
-            <W_Suspense loadingFallback={renderLoading()}>
-                <In_F<T> promise={fetchPromise} renderSuccess={renderSuccess} />
-            </W_Suspense>
-        </W_ErrorBoundary>
+        <WErrorBoundary error_fallback={renderError} onError={onError} onReset={onReset}>
+            <WSuspense loading_fallback={renderLoading()}>
+                <InF<T> promise={fetch_promise} renderSuccess={renderSuccess} />
+            </WSuspense>
+        </WErrorBoundary>
     );
 };
 
 // 内部コンポーネントのPropsの型定義
-type In_F_Props<T> = { promise: Promise<T | null>; renderSuccess: ({ response }: { response: T }) => React.ReactElement; };
+type InFProps<T> = { promise: Promise<T | null>; renderSuccess: ({ response }: { response: T }) => React.ReactElement; };
 // use APIでプロミスの中身を取り出して扱うコンポーネント
-const In_F = <T,>({ promise, renderSuccess }: In_F_Props<T>) => {
-    console.log('In_F promise:', promise);
+const InF = <T,>({ promise, renderSuccess }: InFProps<T>) => {
+    console.log('InF promise:', promise);
     const response = use(promise) as T;
-    console.log('In_F response:', response);
+    console.log('InF response:', response);
     return (<>{renderSuccess({ response })}</>);
 };
 

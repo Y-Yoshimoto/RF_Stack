@@ -9,21 +9,21 @@ import { takeDataDef, generateRequestObject, generateRequestKey, requestFetch } 
 
 /** 
  * リクエストオブジェクトメモを生成するカスタムフック
- * @param {ResourceObj<T>} resourceObj リクエスト情報
+ * @param {ResourceObj<T>} resource_obj リクエスト情報
  * @returns {Request} リクエストオブジェクト
 */
-const useRequestObjectMemo = <T>(resourceObj: ResourceObj<T>) => {
+const useRequestObjectMemo = <T>(resource_obj: ResourceObj<T>) => {
     // リクエストオブジェクトを生成
-    return useMemo(() => generateRequestObject(resourceObj), [generateRequestKey(resourceObj)]);
+    return useMemo(() => generateRequestObject(resource_obj), [generateRequestKey(resource_obj)]);
 };
 /** 
  * Fetchプロミスメモを生成するカスタムフック
- * @param {ResourceObj<T>} resourceObj リクエスト情報
+ * @param {ResourceObj<T>} resource_obj リクエスト情報
  * @returns {Promise<T>} Fetchプロミスオブジェクト
 */
-export const useFetchPromiseMemo = <T>(resourceObj: ResourceObj<T>) => {
+export const useFetchPromiseMemo = <T>(resource_obj: ResourceObj<T>) => {
     // リクエストプロミスを生成
-    return useMemo(() => requestFetch<T>(resourceObj), [generateRequestKey(resourceObj)]);
+    return useMemo(() => requestFetch<T>(resource_obj), [generateRequestKey(resource_obj)]);
 };
 
 const useFetch = <T>({ url, method = 'GET', body, headers, takeData = takeDataDef }: ResourceObj<T>) => {

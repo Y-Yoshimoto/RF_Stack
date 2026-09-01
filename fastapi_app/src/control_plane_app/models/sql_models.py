@@ -1,13 +1,14 @@
 # SQLモデル定義
 from datetime import datetime
-from sqlmodel import Column, DateTime
-from sqlmodel import Field, Session, SQLModel, create_engine, select
-from sqlmodel import text
+
+from sqlmodel import Column, DateTime, Field, SQLModel, text
+
 # ユーティリティモジュールをインポート
 from modules.utils import generate_uuid
 
+
 # テナント情報テーブルモデル
-class T_Tenant(SQLModel, table=True):
+class TTenant(SQLModel, table=True):
     """ テナント情報テーブル """
     __table_args__ = {"comment": "テナント情報テーブル"}
     __tablename__ = "t_tenant"

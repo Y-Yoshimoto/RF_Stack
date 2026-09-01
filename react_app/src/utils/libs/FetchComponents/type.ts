@@ -9,7 +9,7 @@ export type ResourceObj<T> = {
 };
 // FetchコンポーネントのPropsの型定義
 export type FetchComponentProps<T, U> = {
-    resourceObj: ResourceObj<T>;
+    resource_obj: ResourceObj<T>;
     renderSuccess?: ({ response }: { response: T }) => React.ReactElement;
     renderLoading?: () => React.ReactElement;
     renderError?: ({ error }: { error: U }) => React.ReactElement;
@@ -20,7 +20,7 @@ export type FetchComponentProps<T, U> = {
 // FetchコンポーネントのPropsの型定義
 //// リクエスト及び成功時レンダリングコンポーネント
 export type SuccessProps<T> = {
-    resourceObj: ResourceObj<T>;
+    resource_obj: ResourceObj<T>;
     renderSuccess?: ({ response }: { response: T }) => React.ReactElement;
 };
 

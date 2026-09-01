@@ -4,7 +4,7 @@ import { AppRoutes } from './routes';
 import { Suspense } from 'react';
 
 // 全体のエラーバウンダリー
-import W_ErrorBoundary from '@/utils/libs/WrapperComponents/ErrorBoundary';
+import WErrorBoundary from '@/utils/libs/WrapperComponents/ErrorBoundary';
 
 // MUIのテーマプロバイダー
 import { ThemeProvider } from '@mui/material/styles';
@@ -15,11 +15,11 @@ import theme from './theme.tsx';
 export default function App() {
   return (
     <Suspense fallback={<></>}>
-      <W_ErrorBoundary>
+      <WErrorBoundary>
         <ThemeProvider theme={theme}>
           <AppRoutes />
         </ThemeProvider>
-      </W_ErrorBoundary>
+      </WErrorBoundary>
     </Suspense>
   );
 }

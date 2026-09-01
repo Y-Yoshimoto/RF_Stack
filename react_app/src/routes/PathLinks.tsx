@@ -12,27 +12,27 @@ import { IndexRouteObject } from 'react-router';
  * @param routes.path - ルートのパス
  * @param routes.id - ルートのID
  * @param routes.element - ルートの要素
- * @param additionalPath - 追加上位のパス
+ * @param additional_path - 追加上位のパス
  * @description
  * 開発環境向けのルーティング情報をリストにして表示するコンポーネント
- * @returns 
+ * @returns
  */
-const PathLinks = ({ routes, additionalPath = '' }: { routes: Array<IndexRouteObject>, additionalPath?: string }) => {
+const PathLinks = ({ routes, additional_path = '' }: { routes: Array<IndexRouteObject>, additional_path?: string }) => {
   if (!routes || routes.length === 0) return <></>;
-  const inRoute = routes[0].children as Array<IndexRouteObject>;
+  const in_route = routes[0].children as Array<IndexRouteObject>;
 
   return (
     <>
       <h4>Path Links</h4>
-      <ul>{inRoute.map(route => _PathLink({ ...route, path: `${additionalPath}/${route.path}` }))}</ul>
+      <ul>{in_route.map(route => PathLink({ ...route, path: `${additional_path}/${route.path}` }))}</ul>
     </>
   );
 };
 
-// _PathLinkコンポーネント
+// PathLinkコンポーネント
 // ルーティング情報をリンクアイテムとして表示するコンポーネント
-const _PathLink = (route: IndexRouteObject) => {
-  console.log(`_PathLink: ${route.path}`);
+const PathLink = (route: IndexRouteObject) => {
+  console.log(`PathLink: ${route.path}`);
   return (<li key={route.id}><Link href={route.path}>{route.id}</Link></li>);
 };
 

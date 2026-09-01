@@ -49,8 +49,8 @@ services:
       - PYTHONPATH=/work/fastapi_app/src/
       - UID=${USER_ID:-1000}
       - GID=${GROUP_ID:-1000}
-      # PlayWrightブラウザインストールディレクトリ
-      - PLAYWRIGHT_BROWSERS_PATH=/work/fastapi_app/.venv
+      # PlayWrightブラウザインストールディレクトリ(uvの仮想環境は/usr/local/uvに配置)
+      - PLAYWRIGHT_BROWSERS_PATH=/usr/local/uv
       # DB接続情報
       - DB_HOST=postgres_c
       - DB_PORT=5432

@@ -85,7 +85,7 @@ make d-run SERVICE=react_app CMD="npm run lint"
 - `pytest.ini` の `addopts` により、実行のたびに `pytest_report.html` が生成・上書きされる。これは成果物なのでコミットしない。
 - `test/` 配下は `test_00_` / `test_99_` のように**数値プレフィックスで実行順を制御**している。新規追加時はこの規約に従う。
 - DB に接続するテストは開発用 PostgreSQL に触れる。**データを壊す可能性がある操作を含むテストは、事前に影響を確認する。**
-- コンテナ起動時に entrypoint が `uv sync` と `.venv` の有効化を済ませているが、コマンドは `uv run` を付けて実行する方が確実。
+- コンテナ起動時に entrypoint が `uv sync` と仮想環境(`/usr/local/uv`)の有効化を済ませているが、コマンドは `uv run` を付けて実行する方が確実。
 
 ---
 

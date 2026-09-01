@@ -83,7 +83,8 @@ function isComponentName(node) { return /^[A-Z]/.test(node.name); }
 | `Context` サフィックスの const（`AuthContext` 等） | `createContext` の戻り値は JSX で `<Xxx.Provider>` として使うため `PascalCase` とする |
 | `VITE_*` の型プロパティ（`src/vite-env.d.ts`） | Vite の環境変数命名規約 |
 | クォート必須のプロパティ（`'Content-Type'` 等） | HTTP ヘッダー等の外部仕様 |
-| オブジェクトリテラルのプロパティ | MUI の `sx` 等、外部ライブラリ境界が機械判別できないため検査対象外。自前データの形は型プロパティ側の検査で担保する |
+| オブジェクトリテラルのプロパティ（`HydrateFallback: () => null` のような関数値を含む） | MUI の `sx` 等、外部ライブラリ境界が機械判別できないため検査対象外。自前データの形は型プロパティ側の検査で担保する。関数値のプロパティは `objectLiteralMethod` として別分類されるため、`objectLiteralProperty` とあわせて除外している |
+| アンダースコアのみの変数名（`_` 等） | 値を意図的に捨てるための慣用的なプレースホルダー。`no-unused-vars` の許容パターンと揃える |
 | `import` 名 | 供給側（外部ライブラリ）依存のため検査対象外 |
 | Storybook の CSF named export（`export const Primary: Story`） | Storybook の規約により `PascalCase` を許容 |
 
@@ -95,6 +96,14 @@ shorthand は検査対象外だが、**リネームを伴う分割代入は検�
 const { camera_id } = res;                 // OK: shorthand（検査対象外）
 const { camera_id: cameraId } = res;       // NG: camelCase へのリネームは違反
 ```
+
+### 型プロパティの関数値（`onClick` 等）が `typeMethod` に分類される点
+
+`onClick: () => void` のようにコロン+関数型で書いたプロパティは、`@typescript-eslint/naming-convention` の内部分類では `typeProperty` ではなく `typeMethod`（`onClick(): void` というメソッド構文と同一視）として扱われる。そのため `naming_rules.js` では `typeProperty`（`types: ['function']` 込み）と `typeMethod` の両方に `camelCase` ルールを定義している。
+
+### 関数型のパラメータ（`onError`, `onReset`, `takeData` 等）
+
+分割代入されたパラメータの値が関数型（コールバックや `React.ComponentType` 等）の場合も `camelCase` とする。`variable` / `typeProperty` には `types: ['function']` の判別ルールがあったが `parameter` には無く、既定の `snake_case` ルールに落ちて誤検出していた。`naming_rules.js` に `{ selector: 'parameter', types: ['function'], format: ['camelCase'] }` を追加して解消している。
 
 ### バックエンド API のフィールド名
 

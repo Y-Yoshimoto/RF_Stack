@@ -16,13 +16,13 @@ describe('IndexedDBPageのテスト', () => {
         }, { timeout: 100 });
     }
 
-    const testMehthod_addDeta = async (page, setKey: string) => {
+    const testMehthodAddDeta = async (page, set_key: string) => {
         // キー入力フィールドの取得
-        const keyInput = page.getByTestId('set-key-input').querySelector('input');
+        const key_input = page.getByTestId('set-key-input').querySelector('input');
         // キー入力が存在することを確認して値を設定
         await act(async () => {
-            if (!keyInput) throw new Error('Key input not found');
-            fireEvent.change(keyInput, { target: { value: setKey } });
+            if (!key_input) throw new Error('Key input not found');
+            fireEvent.change(key_input, { target: { value: set_key } });
         });
         // データ登録ボタンをクリック
         fireEvent.click(page.getByRole('button', { name: 'Add Data' }));
@@ -58,7 +58,7 @@ describe('IndexedDBPageのテスト', () => {
         await waitConnected(page);
 
         // データ登録
-        await testMehthod_addDeta(page, 'testKey');
+        await testMehthodAddDeta(page, 'testKey');
         // データ取得ボタンをクリック
         fireEvent.click(page.getByRole('button', { name: 'Get' }));
         // 取得したデータの確認

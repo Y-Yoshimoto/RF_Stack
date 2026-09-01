@@ -4,10 +4,13 @@
 # from playwright.sync_api import Page
 # ロギング設定
 import logging
+
 logger = logging.getLogger(__name__)
 # 環境変数読み込み
 import os
+
 from dotenv import load_dotenv
+
 load_dotenv()
 
 class TestRuntime:
@@ -34,14 +37,14 @@ class TestRuntime:
         # 接続用モジュールのインポート
         from sqlmodel import Session, create_engine, text
         # DB接続情報を環境変数から取得(DB_USERは、Postgres用のデフォルト値を設定)
-        DB_USER = os.getenv("DB_USER", "postgres")
-        DB_PASSWORD = os.environ["POSTGRES_PASSWORD"]
-        DB_HOST = os.environ["DB_HOST"]
-        DB_PORT = os.environ["DB_PORT"]
-        DB_NAME = "runtime_db"
+        db_user = os.getenv("DB_USER", "postgres")
+        db_password = os.environ["POSTGRES_PASSWORD"]
+        db_host = os.environ["DB_HOST"]
+        db_port = os.environ["DB_PORT"]
+        db_name = "runtime_db"
         # URLを組み立ててDBエンジンを作成
-        logger.info(f'PostgreSQLへの接続を確認: {DB_USER}:_password_@{DB_HOST}:{DB_PORT}/{DB_NAME}')
-        engine = create_engine(f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}", echo=True)
+        logger.info(f'PostgreSQLへの接続を確認: {db_user}:_password_@{db_host}:{db_port}/{db_name}')
+        engine = create_engine(f"postgresql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}", echo=True)
         with Session(engine) as session:
             query = text("SELECT * FROM runtime_table;")
             logger.info(f'クエリを実行: {query}')
