@@ -27,11 +27,11 @@ export interface AuthStatusResponse {
  */
 export interface AuthNInfo {
     /** 認証状態。 */
-    isAuthN: boolean | undefined;
+    is_auth_n: boolean | undefined;
     /** 認証状態の更新関数。 */
     setIsAuthN: React.Dispatch<React.SetStateAction<boolean | undefined>>;
     /** ユーザー情報。 */
-    userInfo: AuthUserInfo | undefined;
+    user_info: AuthUserInfo | undefined;
     /** ユーザー情報の更新関数。 */
     setUserInfo: React.Dispatch<React.SetStateAction<AuthUserInfo | undefined>>;
 }
@@ -41,7 +41,7 @@ export interface AuthNInfo {
  */
 export interface AuthZInfo {
     /** 認可状態。 */
-    isAuthZ: boolean | undefined;
+    is_auth_z: boolean | undefined;
     /** 認可状態の更新関数。 */
     setIsAuthZ: React.Dispatch<React.SetStateAction<boolean | undefined>>;
     /** ロール情報。 */
@@ -59,9 +59,9 @@ export interface AuthZInfo {
  */
 export interface Status {
     /** 認証状態。 */
-    isAuthN: boolean | undefined;
+    is_auth_n: boolean | undefined;
     /** 認可状態。 */
-    isAuthZ: boolean | undefined;
+    is_auth_z: boolean | undefined;
 }
 
 /**
@@ -82,13 +82,13 @@ export interface CommandInfo {
  */
 export interface UseAuthNZReturn {
     /** 認証情報。 */
-    authNInfo: AuthNInfo;
+    auth_n_info: AuthNInfo;
     /** 認可情報。 */
-    authZInfo: AuthZInfo;
+    auth_z_info: AuthZInfo;
     /** 認証認可ステータス。 */
-    authStatus: Status;
+    auth_status: Status;
     /** ユーザー情報。 */
-    userInfo: AuthUserInfo | undefined;
+    user_info: AuthUserInfo | undefined;
     /** 操作用コマンド。 */
     command: CommandInfo;
 }

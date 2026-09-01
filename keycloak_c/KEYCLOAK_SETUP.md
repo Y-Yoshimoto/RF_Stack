@@ -51,6 +51,21 @@ bash keycloak_c/setup_realm_client_user.sh tenant-a fastapi-app user001
 
 スクリプト実行後、標準出力に `KEYCLOAK_CLIENT_SECRET` が表示されるため、`.env` に設定する。
 
+`.env` を更新したら、**`docker compose restart` ではなく `docker compose up -d` で入れ直す**こと。
+`restart` は既存コンテナを再起動するだけで `.env` を読み直さないため、古い値のまま起動する。
+
+```bash
+docker compose up -d fastapi_app
+```
+
+反映できたかは、FastAPI の起動ログで判定できる。既定値のままだと次の警告が出る。
+
+```text
+WARNING: 開発用の既定値のままの環境変数があります: KEYCLOAK_CLIENT_SECRET, SESSION_SECRET_KEY
+```
+
+なお `.env` はリポジトリ**ルート**のものを compose が読む。`react_app/.env` は Vite 用であり別物なので注意する。
+
 ## 3. テナント用Realm作成
 
 各テナントごとにRealmを作成する。
@@ -151,6 +166,77 @@ FRONTEND_URL=http://localhost:5173
 - ブラウザで Cookie が保存されているか確認。
 - Vite proxy (`/api` -> FastAPI) が有効か確認。
 - `REDIS_URL` と `SESSION_SECRET_KEY` が設定されているか確認。
+
+### D. 作成したはずの Realm が消えている
+
+KeyCloak のデータ保存先 (`keycloak_c` のボリューム) が**ブランチによって異なる**場合がある。
+ブランチを切り替えてから `docker compose up -d` すると、別のデータディレクトリを参照する
+コンテナが作り直され、以前作成した Realm が見えなくなることがある。
+
+確認方法:
+
+```bash
+docker inspect rf_stack-keycloak_c-1 --format '{{range .Mounts}}{{.Source}} -> {{.Destination}}{{"\n"}}{{end}}'
+```
+
+Realm 一覧は管理 API でも確認できる。
+
+```bash
+TOKEN=$(curl -s http://localhost:8080/keycloak/realms/master/protocol/openid-connect/token \
+  -d grant_type=password -d client_id=admin-cli -d username=admin -d password=admin \
+  | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])')
+curl -s -H "Authorization: Bearer $TOKEN" http://localhost:8080/keycloak/admin/realms \
+  | python3 -c 'import json,sys; print([r["realm"] for r in json.load(sys.stdin)])'
+```
+
+消えていた場合は `setup_realm_client_user.sh` を再実行する。**client secret は再発行される**ため、
+`.env` の `KEYCLOAK_CLIENT_SECRET` も必ず更新すること。
+
+### E. ログアウトしても KeyCloak のセッションが残る / `Invalid token issuer`
+
+KeyCloak はトークンの `iss` とアクセスされた URL の一致を検証する。本構成では
+**ブラウザが外部 URL (`http://localhost:8080`) で認可する**ため、発行されるトークンの
+`iss` は外部 URL になる。
+
+このため、サーバーから**内部 URL (`http://keycloak_c:8080`) にログアウトを要求すると失敗する**。
+
+```json
+{"error":"invalid_grant","error_description":"Invalid token issuer. Expected 'http://keycloak_c:8080/keycloak/realms/tenant-a'"}
+```
+
+このため `docker-compose.yaml` では **`KC_HOSTNAME` を設定して issuer を固定**している。
+
+```yaml
+KC_HOSTNAME: ${KC_HOSTNAME-http://localhost:8080/keycloak}
+```
+
+これがないと、access token のリフレッシュ (`grant_type=refresh_token`) も同じ理由で
+失敗する。**`KC_HTTP_RELATIVE_PATH` のパスまで含めて指定する**こと。パスを省くと
+issuer から `/keycloak` が欠落し、ブラウザからのアクセスと食い違う。
+
+issuer は discovery で確認できる。
+
+```bash
+curl -s http://localhost:8080/keycloak/realms/tenant-a/.well-known/openid-configuration \
+  | python3 -c 'import json,sys; print(json.load(sys.stdin)["issuer"])'
+# → http://localhost:8080/keycloak/realms/tenant-a
+```
+
+なおログアウト自体は**フロントチャネル (RP-Initiated Logout)** で行っている。
+`POST /api/auth/logout` はリダイレクトではなく遷移先 URL を JSON で返すので、
+呼び出し側 (SPA) が `window.location.href` でトップレベル遷移する必要がある。
+`fetch` のままではブラウザ側の KeyCloak セッション Cookie が消えない。
+
+確認方法 — ログアウト前後で SSO セッション数が減ることを見る。
+
+```bash
+CID=$(curl -s -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8080/keycloak/admin/realms/tenant-a/clients?clientId=fastapi-app" \
+  | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["id"])')
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8080/keycloak/admin/realms/tenant-a/clients/$CID/user-sessions" \
+  | python3 -c 'import json,sys; print(len(json.load(sys.stdin)), "件")'
+```
 
 ## 10. テナント追加時の最小作業
 

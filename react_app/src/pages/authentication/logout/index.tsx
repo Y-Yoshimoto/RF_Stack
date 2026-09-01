@@ -9,17 +9,29 @@ import { Typography, Button } from '@mui/material';
 
 const LogoutPage: React.FC = () => {
     // 認証認可コンテキストから認証情報を取得
-    const { authNInfo, command } = use(AuthNZContext);
+    const { auth_n_info, command } = use(AuthNZContext);
     const navigate = useNavigate();
 
     const logout = async () => {
-        await fetch('/api/auth/logout', {
+        // FastAPI 側はリダイレクトではなく KeyCloak のログアウト URL を JSON で返す。
+        // KeyCloak の SSO セッション終了はフロントチャネル (RP-Initiated Logout) で行うため、
+        // fetch ではなく window.location によるトップレベル遷移が必要になる。
+        const logout_url = await fetch('/api/auth/logout', {
             method: 'POST',
             credentials: 'include',
-        }).catch(() => {
-            // ネットワークエラー時もローカル状態は確実にクリアする
-        });
+        })
+            .then(res => (res.ok ? res.json() : null))
+            .then(body => body?.logout_url ?? null)
+            .catch(() => null);
+
+        // ローカルの認証状態は遷移前に必ずクリアする
         command.logout();
+
+        if (logout_url) {
+            window.location.href = logout_url;
+            return;
+        }
+        // ログアウト URL を取得できなかった場合はローカル遷移のみ行う
         navigate('/login');
     };
 

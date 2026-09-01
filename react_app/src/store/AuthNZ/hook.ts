@@ -16,29 +16,29 @@ import type {
     UseAuthNZReturn,
 } from './type';
 // デフォルト値の設定 ////////////////////////////////////////////////////////////
-const defaultAuthNInfo: AuthNInfo = {
-    isAuthN: undefined,
+const default_auth_n_info: AuthNInfo = {
+    is_auth_n: undefined,
     setIsAuthN: () => { },
-    userInfo: undefined,
+    user_info: undefined,
     setUserInfo: () => { },
 };
-const defaultAuthZInfo: AuthZInfo = {
-    isAuthZ: undefined,
+const default_auth_z_info: AuthZInfo = {
+    is_auth_z: undefined,
     setIsAuthZ: () => { },
     roles: undefined,
     setRoles: () => { },
     permissions: undefined,
     setPermissions: () => { },
 };
-const defaultStatus: Status = {
-    isAuthN: undefined,
-    isAuthZ: undefined,
+const default_status: Status = {
+    is_auth_n: undefined,
+    is_auth_z: undefined,
 };
-export const defaultReturnValue: UseAuthNZReturn = {
-    authNInfo: defaultAuthNInfo,
-    authZInfo: defaultAuthZInfo,
-    userInfo: defaultAuthNInfo.userInfo,
-    authStatus: defaultStatus,
+export const default_return_value: UseAuthNZReturn = {
+    auth_n_info: default_auth_n_info,
+    auth_z_info: default_auth_z_info,
+    user_info: default_auth_n_info.user_info,
+    auth_status: default_status,
     command: {
         login: () => { },
         logout: () => { },
@@ -48,16 +48,16 @@ export const defaultReturnValue: UseAuthNZReturn = {
 // 認証認可情報を管理するカスタムフック ///////////////////////////////////////////
 export const useAuthNZ = (): UseAuthNZReturn => {
     // 認証情報の状態管理
-    // const [isAuthN, setIsAuthN] = useState<boolean | undefined>(defaultAuthNInfo.isAuthN);
-    const [isAuthN, setIsAuthN] = useState<boolean | undefined>(defaultAuthNInfo.isAuthN);
+    // const [is_auth_n, setIsAuthN] = useState<boolean | undefined>(default_auth_n_info.is_auth_n);
+    const [is_auth_n, setIsAuthN] = useState<boolean | undefined>(default_auth_n_info.is_auth_n);
     // ユーザー情報
-    const [userInfo, setUserInfo] = useState<AuthUserInfo | undefined>(defaultAuthNInfo.userInfo);
+    const [user_info, setUserInfo] = useState<AuthUserInfo | undefined>(default_auth_n_info.user_info);
     // 認可情報の状態管理
-    const [isAuthZ, setIsAuthZ] = useState<boolean | undefined>(defaultAuthZInfo.isAuthZ);
+    const [is_auth_z, setIsAuthZ] = useState<boolean | undefined>(default_auth_z_info.is_auth_z);
     // ロール情報の状態管理
-    const [roles, setRoles] = useSessionStorage<string | undefined>(STORAGE_KEY.ROLES, defaultAuthZInfo.roles);
+    const [roles, setRoles] = useSessionStorage<string | undefined>(STORAGE_KEY.ROLES, default_auth_z_info.roles);
     // パーミッション情報の状態管理
-    const [permissions, setPermissions] = useSessionStorage<string[] | undefined>(STORAGE_KEY.PERMISSIONS, defaultAuthZInfo.permissions);
+    const [permissions, setPermissions] = useSessionStorage<string[] | undefined>(STORAGE_KEY.PERMISSIONS, default_auth_z_info.permissions);
 
     // ログイン処理の関数
     const login = (response: AuthStatusResponse) => {
@@ -74,7 +74,7 @@ export const useAuthNZ = (): UseAuthNZReturn => {
     };
 
     // ステータス確認のリソースオブジェクトを定義
-    const authStatusResource: ResourceObj<AuthStatusResponse> = {
+    const auth_status_resource: ResourceObj<AuthStatusResponse> = {
         url: '/api/auth/status',
         method: 'GET',
         credentials: 'include',
@@ -82,7 +82,7 @@ export const useAuthNZ = (): UseAuthNZReturn => {
 
 
     useEffect(() => {
-        requestFetch(authStatusResource).then((data: AuthStatusResponse | null) => {
+        requestFetch(auth_status_resource).then((data: AuthStatusResponse | null) => {
             if (!data) throw new Error('認証ステータスの取得に失敗');
             setIsAuthN(Boolean(data.authenticated));
             setUserInfo(data.user);
@@ -93,12 +93,12 @@ export const useAuthNZ = (): UseAuthNZReturn => {
     }, []);
 
     // 認証情報と認可情報をまとめて返す
-    const authNInfo = { isAuthN, setIsAuthN } as AuthNInfo;
-    const authZInfo = { isAuthZ, setIsAuthZ, roles, setRoles, permissions, setPermissions } as AuthZInfo;
-    const authStatus = { isAuthN, isAuthZ } as Status;
+    const auth_n_info = { is_auth_n, setIsAuthN } as AuthNInfo;
+    const auth_z_info = { is_auth_z, setIsAuthZ, roles, setRoles, permissions, setPermissions } as AuthZInfo;
+    const auth_status = { is_auth_n, is_auth_z } as Status;
     const command = { login, logout };
 
-    return { authNInfo, authZInfo, authStatus, userInfo, command };
+    return { auth_n_info, auth_z_info, auth_status, user_info, command };
 };
 
 export default useAuthNZ;

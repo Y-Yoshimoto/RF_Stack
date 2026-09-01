@@ -22,7 +22,7 @@ import uncertifiedRoutes from './uncertified';
 import { RequireAuth, RedirectIfAuthed } from './guards';
 
 // 開発環境のみ: ルーティング情報表示ルート
-const devRoutes: RouteObject[] = IS_DEVELOPMENT
+const dev_routes: RouteObject[] = IS_DEVELOPMENT
   ? [{ path: '/link', id: 'loopback', element: <PathLinks routes={routes as unknown as IndexRouteObject[]} /> }]
   : [];
 
@@ -31,7 +31,7 @@ const router = createBrowserRouter([
   {
     // 認証済みルートグループ: 未認証の場合 /login へリダイレクト
     element: <RequireAuth />,
-    children: [...routes, ...devRoutes] as RouteObject[],
+    children: [...routes, ...dev_routes] as RouteObject[],
   },
   {
     // 未認証ルートグループ: 認証済みの場合 /button へリダイレクト

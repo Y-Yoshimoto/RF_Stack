@@ -12,9 +12,9 @@ import { AuthNZContext } from '@/store/AuthNZ';
  * - isAuthN=true      : 子ルートをレンダリング
  */
 export const RequireAuth = () => {
-    const { authStatus } = use(AuthNZContext);
-    if (authStatus.isAuthN === undefined) return null;
-    if (!authStatus.isAuthN) return <Navigate to="/login" replace />;
+    const { auth_status } = use(AuthNZContext);
+    if (auth_status.is_auth_n === undefined) return null;
+    if (!auth_status.is_auth_n) return <Navigate to="/login" replace />;
     return <Outlet />;
 };
 
@@ -25,8 +25,8 @@ export const RequireAuth = () => {
  * - isAuthN=false     : 子ルートをレンダリング
  */
 export const RedirectIfAuthed = () => {
-    const { authStatus } = use(AuthNZContext);
-    if (authStatus.isAuthN === undefined) return null;
-    if (authStatus.isAuthN) return <Navigate to="/button" replace />;
+    const { auth_status } = use(AuthNZContext);
+    if (auth_status.is_auth_n === undefined) return null;
+    if (auth_status.is_auth_n) return <Navigate to="/button" replace />;
     return <Outlet />;
 };

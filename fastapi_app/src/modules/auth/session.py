@@ -11,6 +11,8 @@
       改ざんを検知できる。
     - OIDC の state パラメータも同じ Redis インスタンスで一時保存し、
       リプレイアタック対策として読み出し時に自動削除 (pop) する。
+      state には PKCE の ``code_verifier`` と id_token 検証用の ``nonce`` を
+      同梱し、いずれもブラウザには渡さない。
 
 環境変数:
     REDIS_URL: Redis 接続 URL。デフォルト ``redis://redis_c:6379/0``。
@@ -20,23 +22,44 @@
 import json
 import os
 import secrets
+from functools import lru_cache
 from typing import Any
 
 from itsdangerous import BadSignature, URLSafeSerializer
 from redis import Redis
+from redis.exceptions import ResponseError
 
 SESSION_COOKIE_NAME = "rf_sid"
 SESSION_SIGNING_SALT = "rf-stack-session"
 
 
-def _redis_client() -> Redis:
-    """環境変数 ``REDIS_URL`` から Redis クライアントを生成して返す。
+@lru_cache(maxsize=1)
+def _redis_client_for(redis_url: str) -> Redis:
+    """接続 URL ごとに Redis クライアントを生成してキャッシュする。
+
+    ``Redis.from_url`` は呼び出しのたびに新しいコネクションプールを作るため、
+    セッション読み書きのたびに呼ぶと接続が増え続ける。URL 単位でキャッシュして
+    プールを再利用する。
+
+    Args:
+        redis_url: Redis の接続 URL。
 
     Returns:
         Redis: 文字列デコード済みの Redis クライアントインスタンス。
     """
-    redis_url = os.getenv("REDIS_URL", "redis://redis_c:6379/0")
     return Redis.from_url(redis_url, decode_responses=True)
+
+
+def _redis_client() -> Redis:
+    """環境変数 ``REDIS_URL`` に対応する Redis クライアントを返す。
+
+    インスタンスは :func:`_redis_client_for` によりキャッシュされ、
+    コネクションプールが再利用される。
+
+    Returns:
+        Redis: 文字列デコード済みの Redis クライアントインスタンス。
+    """
+    return _redis_client_for(os.getenv("REDIS_URL", "redis://redis_c:6379/0"))
 
 
 def _serializer() -> URLSafeSerializer:
@@ -105,6 +128,34 @@ def get_session(session_id: str) -> dict[str, Any] | None:
     return json.loads(raw)
 
 
+def update_session(session_id: str, data: dict[str, Any]) -> bool:
+    """既存セッションの内容を **残り TTL を維持したまま** 更新する。
+
+    トークン更新時に使用する。``setex`` で書き直すと TTL がリセットされてしまい、
+    アクセスがある限りセッションが無期限に延命されてしまうため、
+    現在の残り TTL を取得して同じ値で書き戻す。
+
+    Args:
+        session_id: 更新対象のセッション ID (署名なし)。
+        data: 保存し直すセッションデータ全体。
+
+    Returns:
+        bool: 更新できた場合は ``True``。セッションが存在しない場合は ``False``。
+    """
+    key = f"session:{session_id}"
+    client = _redis_client()
+    remaining_ttl = client.ttl(key)
+    # -2: キーが存在しない / -1: TTL 未設定
+    if remaining_ttl == -2:
+        return False
+    payload = json.dumps(data, ensure_ascii=True)
+    if remaining_ttl and remaining_ttl > 0:
+        client.setex(key, remaining_ttl, payload)
+    else:
+        client.set(key, payload)
+    return True
+
+
 def delete_session(session_id: str) -> None:
     """Redis からセッションを明示的に削除する。
 
@@ -161,7 +212,10 @@ def save_auth_state(state: str, payload: dict[str, Any], ttl_seconds: int = 300)
 
     Args:
         state: 認可リクエスト時に生成した URL-safe なランダム文字列。
-        payload: state に紐づけるデータ。``{"realm": "<realm_name>"}`` を想定。
+        payload: state に紐づけるデータ。
+                 ``{"realm": ..., "code_verifier": ..., "nonce": ...}`` を想定。
+                 ``code_verifier`` (PKCE) と ``nonce`` はサーバー側にのみ保持し、
+                 ブラウザには渡さない。
         ttl_seconds: 一時データの有効期限 (秒)。デフォルト 300 秒 (5 分)。
     """
     key = f"auth_state:{state}"
@@ -171,7 +225,8 @@ def save_auth_state(state: str, payload: dict[str, Any], ttl_seconds: int = 300)
 def pop_auth_state(state: str) -> dict[str, Any] | None:
     """Redis から state に紐づくペイロードを取り出し、同時に削除する。
 
-    「読んだら消す」ことでリプレイアタックを防ぐ。
+    「読んだら消す」ことでリプレイアタックを防ぐ。取得と削除は ``GETDEL`` で
+    アトミックに行うため、同時に同じ state が届いても片方しか成功しない。
     コールバックエンドポイントでのみ呼び出すこと。
 
     Args:
@@ -183,8 +238,17 @@ def pop_auth_state(state: str) -> dict[str, Any] | None:
     """
     key = f"auth_state:{state}"
     client = _redis_client()
-    raw = client.get(key)
+    try:
+        # GETDEL は取得と削除を 1 コマンドで行う (Redis 6.2 以降)。
+        # GET + DELETE の 2 段構えだと、同一 state での同時コールバックが
+        # どちらも取得に成功しうる。
+        raw = client.getdel(key)
+    except ResponseError:
+        # GETDEL 非対応の Redis へのフォールバック。トランザクションで原子性を確保する。
+        pipeline = client.pipeline()
+        pipeline.get(key)
+        pipeline.delete(key)
+        raw = pipeline.execute()[0]
     if not raw:
         return None
-    client.delete(key)
     return json.loads(raw)

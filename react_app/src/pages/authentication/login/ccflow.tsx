@@ -18,27 +18,27 @@ import { AuthNZContext, AuthNInfo } from '@/store/AuthNZ';
 import { useFetch, generateRequestKey, ResourceObj } from '@/utils/libs/FetchComponents';
 const LoginPage: React.FC = () => {
     // 認証認可コンテキストから認証情報を取得
-    const { authNInfo } = use(AuthNZContext);
+    const { auth_n_info } = use(AuthNZContext);
 
     return (
         <>
             <Typography variant="h4" align="center" gutterBottom>
                 ログインページ
-                <LoginForm authNInfo={authNInfo} />
+                <LoginForm auth_n_info={auth_n_info} />
             </Typography>
         </>
     );
 };
 
-const LoginForm: React.FC<{ authNInfo: AuthNInfo }> = ({ authNInfo }) => {
+const LoginForm: React.FC<{ auth_n_info: AuthNInfo }> = ({ auth_n_info }) => {
     // フォームの状態管理
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
 
 
     // リソースオブジェクト
-    const [resourceObj, setResourceObj] = useState<any>(null);
-    const resourceKey = resourceObj ? generateRequestKey(resourceObj) : '';
+    const [resource_obj, setResourceObj] = useState<any>(null);
+    const resource_key = resource_obj ? generateRequestKey(resource_obj) : '';
 
     // リソース設定関数
     const Submit = () => {
@@ -49,56 +49,56 @@ const LoginForm: React.FC<{ authNInfo: AuthNInfo }> = ({ authNInfo }) => {
         });
     };
 
-    const formData = { username, setUsername, password, setPassword, Submit };
+    const form_data = { username, setUsername, password, setPassword, Submit };
 
     // ログイン成功時の処理
-    const SuccessLogin = (response) => {
+    const successLogin = (response) => {
         // 認証情報を更新
         console.log('Login successful:', response);
-        authNInfo.setIsAuthN(true);
+        auth_n_info.setIsAuthN(true);
         // navigate('/'); // ログイン成功後の遷移先
     };
 
     return (
         <>
-            {resourceObj
-                ? <LoginFormRequest key={resourceKey} resourceObj={resourceObj} formData={formData} SuccessLogin={SuccessLogin} />
-                : <LoginFormBody formData={formData} loading={false} isError={false} />}
+            {resource_obj
+                ? <LoginFormRequest key={resource_key} resource_obj={resource_obj} form_data={form_data} successLogin={successLogin} />
+                : <LoginFormBody form_data={form_data} loading={false} is_error={false} />}
         </>
     );
 };
 
-const LoginFormRequest: React.FC<{ resourceObj: ResourceObj; formData: any; SuccessLogin: (response: any) => void }> = ({ resourceObj, formData, SuccessLogin }) => {
-    const { response, loading, error } = useFetch(resourceObj);
+const LoginFormRequest: React.FC<{ resource_obj: ResourceObj; form_data: any; successLogin: (response: any) => void }> = ({ resource_obj, form_data, successLogin }) => {
+    const { response, loading, error } = useFetch(resource_obj);
 
     // ログイン成功時の処理, 一度だけ実行するためにuseEffectを使用
     useEffect(() => {
-        if (response) SuccessLogin(response);
+        if (response) successLogin(response);
     }, [response]);
 
     // エラーステータス
     // ユーザー名とパスワードが変化しているかを確認する。
-    const isCredentialChanged = (resourceObj.body.username !== formData.username) || (resourceObj.body.password !== formData.password);
+    const is_credential_changed = (resource_obj.body.username !== form_data.username) || (resource_obj.body.password !== form_data.password);
     // エラーが存在し、かつユーザー名またはパスワードが変化していない場合にエラーとする。
-    const isError = error ? !isCredentialChanged : false;
+    const is_error = error ? !is_credential_changed : false;
 
     return (
-        <LoginFormBody formData={formData} loading={loading} isError={isError} />
+        <LoginFormBody form_data={form_data} loading={loading} is_error={is_error} />
     );
 };
 
 
 // ログインフォームコンポーネント
-const LoginFormBody: React.FC<{ formData: any; loading: boolean; isError: boolean }> = ({ formData, loading, isError }) => {
-    const { username, setUsername, password, setPassword, Submit } = formData;
+const LoginFormBody: React.FC<{ form_data: any; loading: boolean; is_error: boolean }> = ({ form_data, loading, is_error }) => {
+    const { username, setUsername, password, setPassword, Submit } = form_data;
     return (
         <Box component="form" noValidate autoComplete="off">
             <TextField label="ユーザー名" variant="outlined" fullWidth margin="normal" value={username} onChange={(e) => setUsername(e.target.value)} />
             <TextField label="パスワード" type="password" variant="outlined" fullWidth margin="normal" value={password} onChange={(e) => setPassword(e.target.value)} />
-            <Button variant="contained" color="primary" fullWidth onClick={() => Submit()} disabled={loading || isError}>
+            <Button variant="contained" color="primary" fullWidth onClick={() => Submit()} disabled={loading || is_error}>
                 ログイン
             </Button>
-            {isError && <Typography color="error">ユーザー名またはパスワードが正しくありません</Typography>}
+            {is_error && <Typography color="error">ユーザー名またはパスワードが正しくありません</Typography>}
         </Box>
     );
 };

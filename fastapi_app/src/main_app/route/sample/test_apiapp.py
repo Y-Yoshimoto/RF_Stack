@@ -6,7 +6,6 @@ from fastapi.testclient import TestClient
 from main_app.route.sample.apiapp import router as sample_router
 from modules.auth import get_current_user
 
-
 app = FastAPI()
 app.include_router(sample_router)
 client = TestClient(app)
@@ -39,6 +38,9 @@ def test_sample_todos_get_with_auth_override():
     body = response.json()
     assert "todos" in body
     assert isinstance(body["todos"], list)
+    # 認証済みユーザーがハンドラまで渡っていること
+    assert body["owner"]["sub"] == "sample-user"
+    assert body["owner"]["realm"] == "sample"
 
 
 def test_sample_todos_post_put_delete_with_auth_override():
@@ -58,10 +60,16 @@ def test_sample_todos_post_put_delete_with_auth_override():
     app.dependency_overrides.clear()
 
     assert post_response.status_code == 200
-    assert post_response.json() == {"status": "success"}
+    assert post_response.json()["status"] == "success"
+    assert post_response.json()["todo"]["title"] == "New TODO"
+    assert post_response.json()["todo"]["created_by"] == "sample-user"
 
     assert put_response.status_code == 200
-    assert put_response.json() == {"status": "success"}
+    assert put_response.json()["status"] == "success"
+    assert put_response.json()["todo"]["id"] == 1
+    assert put_response.json()["todo"]["updated_by"] == "sample-user"
 
     assert delete_response.status_code == 200
-    assert delete_response.json() == {"status": "success"}
+    assert delete_response.json()["status"] == "success"
+    assert delete_response.json()["id"] == 1
+    assert delete_response.json()["deleted_by"] == "sample-user"

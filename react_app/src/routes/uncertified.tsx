@@ -10,16 +10,16 @@ import AuthLayout from '../pages/authentication';
 import LoginPage from '../pages/authentication/login';
 
 // エラーバウンダリーコンポーネント
-import { W_ErrorBoundary_Router } from '@/utils/libs/WrapperComponents/ErrorBoundary';
+import { WErrorBoundaryRouter } from '@/utils/libs/WrapperComponents/ErrorBoundary';
 
 
 // 未認証ルートの定義
-const uncertifiedRoutes = [
+const uncertified_routes = [
     {
         id: 'auth:layout',
         path: '/',
         element: <AuthLayout />,
-        ErrorBoundary: W_ErrorBoundary_Router,
+        ErrorBoundary: WErrorBoundaryRouter,
         children: [
             { index: true, element: <Navigate to="login" replace /> },
             {
@@ -36,4 +36,4 @@ const uncertifiedRoutes = [
     }
 ];
 
-export default uncertifiedRoutes;
+export default uncertified_routes;

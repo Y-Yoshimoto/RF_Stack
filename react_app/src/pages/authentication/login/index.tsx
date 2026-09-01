@@ -12,7 +12,7 @@ import { AuthNZContext } from '@/store/AuthNZ';
 
 const LoginPage: React.FC = () => {
     // 認証認可コンテキストから認証情報を取得
-    const { userInfo } = use(AuthNZContext);
+    const { user_info } = use(AuthNZContext);
 
     return (
         <>
@@ -20,9 +20,9 @@ const LoginPage: React.FC = () => {
                 ログインページ
             </Typography>
             <LoginForm />
-            {userInfo?.preferred_username && (
+            {user_info?.preferred_username && (
                 <Typography variant="body2" align="center" sx={{ mt: 2 }}>
-                    現在のユーザー: {userInfo.preferred_username}
+                    現在のユーザー: {user_info.preferred_username}
                 </Typography>
             )}
         </>
@@ -32,15 +32,15 @@ const LoginPage: React.FC = () => {
 // ログインフォームコンポーネント
 const LoginForm: React.FC = () => {
     const [realm, setRealm] = useState('');
-    const [isError, setIsError] = useState(false);
+    const [is_error, setIsError] = useState(false);
 
     const submit = () => {
-        const realmName = realm.trim();
-        if (!realmName) {
+        const realm_name = realm.trim();
+        if (!realm_name) {
             setIsError(true);
             return;
         }
-        const url = `/api/auth/login?realm=${encodeURIComponent(realmName)}`;
+        const url = `/api/auth/login?realm=${encodeURIComponent(realm_name)}`;
         window.location.assign(url);
     };
 
@@ -56,7 +56,7 @@ const LoginForm: React.FC = () => {
                 value={realm}
                 onChange={(e) => {
                     setRealm(e.target.value);
-                    if (isError) setIsError(false);
+                    if (is_error) setIsError(false);
                 }}
                 onKeyDown={(e) => {
                     if (e.key === 'Enter') submit();
@@ -65,7 +65,7 @@ const LoginForm: React.FC = () => {
             <Button variant="contained" color="primary" fullWidth onClick={submit}>
                 ログイン
             </Button>
-            {isError && <Typography color="error">テナント名を入力してください</Typography>}
+            {is_error && <Typography color="error">テナント名を入力してください</Typography>}
         </Box>
     );
 };

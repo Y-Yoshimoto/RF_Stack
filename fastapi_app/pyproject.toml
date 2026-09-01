@@ -21,6 +21,7 @@ dependencies = [
     "sqlmodel",
     "psycopg2-binary",
     "alembic",
+    "pyjwt[crypto]>=2.10.1",
 ]
 [dependency-groups]
 dev = [
