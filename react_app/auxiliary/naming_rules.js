@@ -48,6 +48,10 @@ const FUNCTION_RULES = [
     // 関数（const への代入を含む）は camelCase
     { selector: 'function', format: ['camelCase'] },
     { selector: 'variable', types: ['function'], format: ['camelCase'] },
+    // 関数型のパラメータ（onError, onReset, takeData 等のコールバック/コンポーネント型 props）も camelCase。
+    // variable/typeProperty には types:['function'] ルールがあるが、parameter には無かったため
+    // 既定の snake_case ルールに落ちて誤検出していた。
+    { selector: 'parameter', types: ['function'], format: ['camelCase'] },
     // モジュールレベルの const 関数（BASE_RULES の定数ルールより具体的にする）
     { selector: 'variable', modifiers: ['const', 'global'], types: ['function'], format: ['camelCase'] },
 

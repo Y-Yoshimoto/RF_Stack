@@ -101,6 +101,10 @@ const { camera_id: cameraId } = res;       // NG: camelCase へのリネーム�
 
 `onClick: () => void` のようにコロン+関数型で書いたプロパティは、`@typescript-eslint/naming-convention` の内部分類では `typeProperty` ではなく `typeMethod`（`onClick(): void` というメソッド構文と同一視）として扱われる。そのため `naming_rules.js` では `typeProperty`（`types: ['function']` 込み）と `typeMethod` の両方に `camelCase` ルールを定義している。
 
+### 関数型のパラメータ（`onError`, `onReset`, `takeData` 等）
+
+分割代入されたパラメータの値が関数型（コールバックや `React.ComponentType` 等）の場合も `camelCase` とする。`variable` / `typeProperty` には `types: ['function']` の判別ルールがあったが `parameter` には無く、既定の `snake_case` ルールに落ちて誤検出していた。`naming_rules.js` に `{ selector: 'parameter', types: ['function'], format: ['camelCase'] }` を追加して解消している。
+
 ### バックエンド API のフィールド名
 
 FastAPI 側は SQLModel のフィールドがそのまま JSON になるため、基本的に `snake_case` で返る（`external_id`, `created_at` 等）。本規約とは自然に一致する。
