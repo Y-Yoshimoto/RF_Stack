@@ -4,6 +4,7 @@ import os
 from contextlib import asynccontextmanager
 
 from fastapi import APIRouter, FastAPI
+from sqlmodel import select
 
 # モデルインポート
 from control_plane_app.models.sql_models import *  # noqa: F403, F401
