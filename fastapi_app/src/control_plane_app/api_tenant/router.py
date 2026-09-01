@@ -7,7 +7,7 @@ from fastapi import APIRouter, FastAPI
 from sqlmodel import select
 
 # モデルインポート
-from control_plane_app.models.sql_models import *  # noqa: F403, F401
+from control_plane_app.models.sql_models import TTenant
 
 # DB初期化
 # DB接続用のモジュールをインポート
