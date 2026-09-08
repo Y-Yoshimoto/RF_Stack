@@ -8,6 +8,8 @@
 - :func:`validate_realm_name` — 外部入力の Realm 名を検証する。
 - :meth:`KeyCloakEnvironmentVariables.validate_secrets` — 既定のままの秘密鍵で
   本番環境が起動することを防ぐ (fail fast)。
+- :meth:`KeyCloakEnvironmentVariables.is_dev_login_enabled` — 開発用ログインバイパスの
+  有効可否を判定する。
 """
 import logging
 import os
@@ -173,6 +175,42 @@ class KeyCloakEnvironmentVariables:
             bool: 本番環境 (``APP_ENV`` が ``development`` 以外) の場合は ``True``。
         """
         return self.is_production()
+
+    def is_dev_login_enabled(self) -> bool:
+        """開発用ログインバイパスを有効にするかどうかを返す。
+
+        このバイパスは**認証済みセッションを無条件に発行する**ため、
+        誤って本番で有効化されないよう二重の条件を課す。
+
+        1. ``APP_ENV`` が ``development`` であること
+        2. ``AUTH_DEV_LOGIN_ENABLED`` が明示的に真であること
+
+        Returns:
+            bool: 両方を満たす場合のみ ``True``。
+        """
+        if self.is_production():
+            return False
+        return os.getenv("AUTH_DEV_LOGIN_ENABLED", "").strip().lower() in ("1", "true", "yes", "on")
+
+    def validate_dev_login(self) -> None:
+        """開発用ログインバイパスが本番で有効化されていないことを検証する。
+
+        :meth:`is_dev_login_enabled` は本番では常に ``False`` を返すが、
+        「本番のつもりで有効化した」という設定ミスを黙って無視すると
+        バイパスが効かない理由が分からなくなる。明示的に停止して気づけるようにする。
+
+        Raises:
+            RuntimeError: 本番環境で ``AUTH_DEV_LOGIN_ENABLED`` が真の場合。
+        """
+        requested = os.getenv("AUTH_DEV_LOGIN_ENABLED", "").strip().lower() in ("1", "true", "yes", "on")
+        if requested and self.is_production():
+            raise RuntimeError(
+                f"AUTH_DEV_LOGIN_ENABLED は APP_ENV=development でのみ使用できます。APP_ENV={self.app_env} では起動できません。"
+            )
+        if self.is_dev_login_enabled():
+            logger.warning(
+                "開発用ログインバイパスが有効です (/api/auth/dev-login)。認証済みセッションを無条件に発行するため、開発環境でのみ使用してください。"
+            )
 
     def validate_secrets(self) -> None:
         """秘密鍵が開発用の既定値のままでないことを検証する。

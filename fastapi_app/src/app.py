@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 # from proxy.apiapp import router as proxy
 from control_plane_app.apiapp import router as router_control_plane
 from main_app.route.auth.apiapp import router as router_auth
+from main_app.route.auth.dev_login import router as router_dev_login
 from main_app.route.sample.apiapp import router as router_sample
 from modules.auth.environment import KeyCloakEnvironmentVariables
 
@@ -20,7 +21,10 @@ app = FastAPI()
 
 # 秘密鍵が開発用の既定値のままでないことを起動時に検証する。
 # APP_ENV=development では警告のみ、それ以外では RuntimeError で起動を止める。
-KeyCloakEnvironmentVariables().validate_secrets()
+_auth_config = KeyCloakEnvironmentVariables()
+_auth_config.validate_secrets()
+# 開発用ログインバイパスが本番で有効化されていないことを検証する。
+_auth_config.validate_dev_login()
 # CORS 設定
 # 通常運用ではブラウザからのアクセスは Vite の proxy 経由で同一オリジンになるため、
 # CORS は不要であり既定では無効。ブラウザから FastAPI に直接アクセスする構成でのみ、
@@ -39,6 +43,9 @@ if cors_allow_origins:
 # 参考: https://fastapi.tiangolo.com/tutorial/bigger-applications/#import-fastapi
 app.include_router(rest_sample_router)
 app.include_router(router_auth, prefix="/api/auth", tags=["auth"])
+# 開発用ログインバイパス。有効時のみ登録し、無効時はルート自体が存在しない(404)。
+if _auth_config.is_dev_login_enabled():
+    app.include_router(router_dev_login, prefix="/api/auth", tags=["auth"])
 app.include_router(router_sample, tags=["sample"])
 # コントロールプレーン
 app.include_router(

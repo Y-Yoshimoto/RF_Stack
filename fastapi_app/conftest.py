@@ -37,7 +37,10 @@ def pytest_html_results_table_header(cells):
 @pytest.hookimpl(tryfirst=True)
 def pytest_html_results_table_row(report, cells):
     """ HTMLレポートの各行にpydocからの説明列を追加 """
-    cells.insert(1, f'<td>{report.description}</td>')
+    # CollectReport には description が無い(pytest_runtest_makereport はテスト実行時のみ動くため)。
+    # getattr で退避しないと、コレクションエラー時にこのフック自体が落ちて
+    # 本来のエラーが見えなくなる。
+    cells.insert(1, f'<td>{getattr(report, "description", "")}</td>')
 ## HTMLレポートのテスト結果の詳細にカスタム情報を追加
 @pytest.hookimpl(hookwrapper=True)
 def pytest_runtest_makereport(item, call):

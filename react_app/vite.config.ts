@@ -22,6 +22,10 @@ export default defineConfig(({ mode }) => {
     VITE_ENABLE_PWA: JSON.parse(env.VITE_ENABLE_PWA) || false,
     VITE_ENABLE_STRICTMODE: JSON.parse(env.VITE_ENABLE_STRICTMODE) || false,
   };
+  // 開発用ログインバイパス(/dev-login)の導線は import.meta.env.MODE で出し分ける。
+  //   npm run dev / build / preview  -> mode=development のため有効
+  //   npm run build:production       -> mode=production  のため除去される
+  // アプリ側は AppRoutes.tsx の IS_DEVELOPMENT で判定している。
   console.debug('APP_ENV:', APP_ENV);
   return {
     // ベースパスを指定
@@ -102,12 +106,14 @@ const manifest = {
 const reverseproxy = () => {
   // https://ja.vitejs.dev/config/server-options.html
   const API_HOST = `http://${process.env.VITE_API_HOST || 'fastapi_app:8000'}/`;
+  // '/' を対象にすると SPA の HTML やアセットまで FastAPI へ転送され、画面が表示できない。
+  // Vite のマッチ判定は url.startsWith(context) のため '/' は全 URL に一致する。
+  // FastAPI 側は prefix="/api/auth" でマウントしているため、パスの書き換えは行わない。
   return {
-    '/': {
+    '/api': {
       target: API_HOST,
       changeOrigin: true,
       cookieDomainRewrite: 'localhost',
-      // rewrite: (path: string) => path.replace(/^\/api/, ''),
     },
   };
 };

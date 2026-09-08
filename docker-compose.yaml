@@ -72,6 +72,8 @@ services:
       - FRONTEND_URL=${FRONTEND_URL:-http://localhost:5173}
       # セッション管理
       - APP_ENV=${APP_ENV:-development}
+      # 開発用ログインバイパス。APP_ENV=development でのみ有効
+      - AUTH_DEV_LOGIN_ENABLED=${AUTH_DEV_LOGIN_ENABLED:-true}
       # 空の場合 CORS は無効(Vite proxy 経由の同一オリジン運用では不要)
       - CORS_ALLOW_ORIGINS=${CORS_ALLOW_ORIGINS:-}
       - REDIS_URL=${REDIS_URL:-redis://redis_c:6379/0}

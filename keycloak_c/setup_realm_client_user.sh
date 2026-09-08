@@ -135,7 +135,7 @@ if [[ -z "$CLIENT_INTERNAL_ID" ]]; then
   "protocol": "openid-connect",
   "publicClient": false,
   "standardFlowEnabled": true,
-  "directAccessGrantsEnabled": false,
+  "directAccessGrantsEnabled": true,
   "serviceAccountsEnabled": false,
   "redirectUris": ["${APP_CALLBACK_URL}"],
   "webOrigins": ["${APP_WEB_ORIGIN}"],
@@ -162,6 +162,34 @@ JSON
   CLIENT_INTERNAL_ID="$(cat "$TMP_BODY" | json_extract "(data[0].get('id') if data else '')")"
 else
   echo "  - Client already exists"
+fi
+
+# 既存クライアントにも設定を反映する。
+# directAccessGrantsEnabled は開発用ログインバイパス(パスワードグラント)に必要だが、
+# 「already exists」でスキップすると古い設定のまま残るため、毎回明示的に更新する。
+echo "  - Ensure client settings (directAccessGrants / redirect URIs)"
+UPDATE_CLIENT_PAYLOAD="$(cat <<JSON
+{
+  "clientId": "${CLIENT_ID}",
+  "enabled": true,
+  "protocol": "openid-connect",
+  "publicClient": false,
+  "standardFlowEnabled": true,
+  "directAccessGrantsEnabled": true,
+  "serviceAccountsEnabled": false,
+  "redirectUris": ["${APP_CALLBACK_URL}"],
+  "webOrigins": ["${APP_WEB_ORIGIN}"],
+  "attributes": {
+    "post.logout.redirect.uris": "${APP_POST_LOGOUT_REDIRECT_URI}"
+  }
+}
+JSON
+)"
+UPDATE_CLIENT_STATUS="$(http_call PUT "${ADMIN_REALMS_URL}/${REALM_NAME}/clients/${CLIENT_INTERNAL_ID}" "$UPDATE_CLIENT_PAYLOAD")"
+if [[ "$UPDATE_CLIENT_STATUS" != "204" ]]; then
+  echo "ERROR: Failed to update client. HTTP ${UPDATE_CLIENT_STATUS}"
+  cat "$TMP_BODY"
+  exit 1
 fi
 
 if [[ -z "$CLIENT_INTERNAL_ID" ]]; then

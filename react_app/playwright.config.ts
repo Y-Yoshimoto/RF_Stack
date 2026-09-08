@@ -1,6 +1,10 @@
 import { defineConfig, devices } from '@playwright/test';
 // テスト対象のURL
-const BASEURL = 'http://127.0.0.1:4173';
+// Vite proxy が cookieDomainRewrite: 'localhost' を設定しているため、
+// Cookie が一致するようホスト名も localhost を使う (127.0.0.1 では送信されない)。
+const BASEURL = 'http://localhost:4173';
+// 認証状態の保存先 (playwright-test/auth.setup.ts が出力する)
+const AUTH_STATE = './playwright-test/.auth/default.json';
 
 /**
  * @see https://playwright.dev/docs/test-configuration
@@ -36,16 +40,21 @@ export default defineConfig({
         video: 'on', //https://playwright.dev/docs/videos
     },
     projects: [
+        // 開発用ログインで認証状態を作る。他の project はこれに依存する。
+        { name: 'setup', testMatch: /.*\.setup\.ts/ },
         {
             name: 'Chrome Desktop',
             use: {
                 ...devices['Desktop Chrome'],
                 channel: 'chromium',
                 isMobile: false,
+                // setup が保存した認証済みセッションから開始する
+                storageState: AUTH_STATE,
                 launchOptions: {
                     args: ['--disable-web-security'],
                 },
             },
+            dependencies: ['setup'],
         },
         {
             name: 'Chrome Mobile',
@@ -53,10 +62,12 @@ export default defineConfig({
                 ...devices['Pixel 5'],
                 channel: 'chromium',
                 isMobile: true,
+                storageState: AUTH_STATE,
                 launchOptions: {
                     args: ['--disable-web-security'],
                 },
             },
+            dependencies: ['setup'],
         },/*
         {
             name: 'Safari',

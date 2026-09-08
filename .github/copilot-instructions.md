@@ -20,10 +20,22 @@
 - fastapi_app: FastAPIバックエンドアプリケーション
 - keycloak_c: Keycloak認証サーバー
 - postgres_c: PostgreSQLデータベース
+- redis_c: セッションストア(Redis)
 
 本番構成(docker-compose-prod.yaml)には以下のサービスが存在する。
 - rproxy: リバースプロキシ
 - rsync_dist: ビルド成果物の配布用
+
+## 開発用ログインバイパス
+
+認証後の画面を確認する場合は、KeyCloak のログイン画面を経由せず `http://localhost:5173/dev-login` を開く。
+あらかじめ用意された認証情報でログインした状態になる。Playwright も同じ経路で認証状態を作る。
+
+- 手順・クエリパラメータ(`as` / `next`)・前提条件の正は `run-checks` スキルの「認証後の画面を確認する」とする。
+- **開発専用の機能である。** `APP_ENV=development` かつ `AUTH_DEV_LOGIN_ENABLED=true` のときのみ
+  FastAPI 側にルートが登録される。それ以外では 404 となり、有効化を要求すると起動時にエラーになる。
+- フロントエンドの導線も Vite のモードで出し分ける。`npm run dev` / `build` / `preview` は有効、
+  `npm run build:production` ではバンドルから除去される。
 
 ## Git
 - デフォルトブランチはdevelopを設定する。指示がない場合developからブランチを作成し、プルリクエストもdevelopに対して行う。

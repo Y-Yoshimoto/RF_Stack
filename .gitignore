@@ -19,3 +19,6 @@ db_data/**/*
 
 # エージェント設定(ローカル固有の設定は共有しない)
 .claude/settings.local.json
+
+# Playwright の認証状態(セッションCookieを含むため共有しない)
+/react_app/playwright-test/.auth/
