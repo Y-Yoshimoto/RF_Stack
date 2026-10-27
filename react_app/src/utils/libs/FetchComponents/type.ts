@@ -5,6 +5,7 @@ export type ResourceObj<T> = {
     method?: "GET" | "POST" | "PUT" | "DELETE";
     body?: object | undefined;
     headers?: HeadersInit;
+    credentials?: RequestCredentials;
     takeData?: (response: Response) => Promise<T>;
 };
 // FetchコンポーネントのPropsの型定義

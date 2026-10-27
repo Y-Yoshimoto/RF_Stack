@@ -7,9 +7,9 @@
   "license": "MIT",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build --mode development",
     "build:production": "vite build --mode production",
-    "preview": "npm run build:production && vite preview",
+    "preview": "npm run build && vite preview",
     "lint": "NODE_OPTIONS=--max-old-space-size=3072 eslint . --max-warnings 0 --config eslint.config.js",
     "lint:complexity": "eslint . --config ./auxiliary/eslint_CC.config.js",
     "lint:report": "NODE_OPTIONS=--max-old-space-size=3072 eslint . --format html --output-file eslint-report.html --config eslint.config.js",

@@ -58,7 +58,11 @@ make d-run SERVICE=react_app CMD="npm run lint"
   規約の内容は `docs/coding-standards/react-typescript.md` を参照。
 - Vitest はブラウザモード（chromium, headless）が有効。ブラウザの実体は `PLAYWRIGHT_BROWSERS_PATH` が指す `node_modules/playwright/.local-browsers` にある。ここが未インストールだとテストが起動しない。
 - テスト対象は `src/**/*.{test,spec}.{js,ts,jsx,tsx}`（実装とコロケート）。
-- `npm run playwright` は `playwright.config.ts` の `webServer` 設定により **`npm run preview`（本番ビルド）を先に走らせる**ため時間がかかる。lint やユニットテストで足りる変更では実行しない。
+- `npm run playwright` は `playwright.config.ts` の `webServer` 設定により **`npm run preview`（ビルド）を先に走らせる**ため時間がかかる。lint やユニットテストで足りる変更では実行しない。
+- Playwright は `setup` project が開発用ログインバイパスで認証状態を作り、`storageState` として各テストに引き継ぐ。
+  そのため**実行には `fastapi_app` / `keycloak_c` / `redis_c` の起動が必要**（§5 参照）。認証に失敗した場合は setup が原因を示すエラーを出す。
+- ビルドのモードで開発用機能の有無が変わる。`npm run dev` / `build` / `preview` は `mode=development`（バイパス有効）、
+  `npm run build:production` は `mode=production`（無効）。
 - カバレッジ対象からは `src/main.tsx` / `App.tsx` / `theme.tsx` / `serviceworker.js` / `src/routes/**` が除外されている。
 
 ---
@@ -102,7 +106,42 @@ make d-run SERVICE=react_app CMD="npm run lint"
 | 見た目・レイアウトの変更 | 上記 + ブラウザでの目視確認（dev server は `http://localhost:5173/`） |
 | DB スキーマの変更 | 上記 + マイグレーションの適用確認 |
 
-## 5. 結果の報告
+## 5. 認証後の画面を確認する（開発用ログインバイパス）
+
+認証が必要な画面は、KeyCloak のログイン画面を経由せずに確認できる。次の URL を開くだけで、
+あらかじめ用意された認証情報でログインした状態になる。
+
+```
+http://localhost:5173/dev-login
+```
+
+| クエリ | 内容 |
+| --- | --- |
+| `as` | 使用するプロファイル名。既定は `default`(tenant-a / user001) |
+| `next` | ログイン後の遷移先パス。既定は `/button`。例: `/dev-login?next=/fetch` |
+
+FastAPI に直接アクセスして Cookie だけ得ることもできる。
+
+```bash
+curl -i "http://localhost:8000/api/auth/dev-login?as=default"
+```
+
+前提:
+
+- `docker compose up -d` で `fastapi_app` / `keycloak_c` / `redis_c` が起動していること
+- `APP_ENV=development` かつ `AUTH_DEV_LOGIN_ENABLED=true` であること
+  （どちらかを満たさない場合、エンドポイントは登録されず **404** になる）
+- KeyCloak の Realm / クライアント / ユーザーが作成済みであること
+  （未作成なら `keycloak_c/setup_realm_client_user.sh` を実行する。詳細は `keycloak_c/KEYCLOAK_SETUP.md`）
+
+プロファイルは `fastapi_app/src/main_app/route/auth/dev_login.py` の `DEV_LOGIN_PROFILES` に定義する。
+権限の異なるユーザーを追加する場合はここにプロファイルを足す。
+
+> **この機能は開発専用。** 認証済みセッションを無条件に発行するため、`APP_ENV` が
+> `development` 以外のときは有効化できず、有効化を要求すると起動時にエラーになる。
+> フロントエンドの `/dev-login` も `npm run build:production` ではバンドルから除去される。
+
+## 6. 結果の報告
 
 - **失敗した場合は出力をそのまま示す。** 「テストが通った」と要約する前に、実際の exit code と出力を確認する。
 - 検証を実行しなかった場合は「実行していない」と明示する。実行したかのように書かない。

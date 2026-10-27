@@ -4,7 +4,9 @@
 # ログ設定
 import logging
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+
+from modules.auth import get_current_user
 
 from .model import SampleData
 
@@ -15,15 +17,18 @@ logger = logging.getLogger(__name__)
 # APIルータ
 router = APIRouter()
 
+# 各エンドポイントの ``_current_user`` は認証を強制するための依存であり、
+# ハンドラ内では使用しない。使用する例は main_app/route/sample/apiapp.py を参照。
+
 
 @router.get("/RestSample/", include_in_schema=False)
-def read_root():
+def read_root(_current_user: dict = Depends(get_current_user)):
     # Rootパス用
     return {"Path": "/RestSample/"}
 
 
 @router.get("/RestSample/{id}")
-def sample_get(id: int):
+def sample_get(id: int, _current_user: dict = Depends(get_current_user)):
     """
     Getメソッドのサンプル
 
@@ -37,7 +42,7 @@ def sample_get(id: int):
 
 
 @router.post("/RestSample/")
-def sample_post(data: SampleData):
+def sample_post(data: SampleData, _current_user: dict = Depends(get_current_user)):
     """
     Postメソッドのサンプル
     bodyで受け取ったnameで、デフォルト値を上書きして返す
@@ -53,7 +58,7 @@ def sample_post(data: SampleData):
 
 
 @router.put("/RestSample/{id}")
-def sample_put(data: SampleData):
+def sample_put(data: SampleData, _current_user: dict = Depends(get_current_user)):
     """
     Putメソッドのサンプル
     bodyで受け取ったnameで、デフォルト値を上書きして返す
@@ -73,7 +78,7 @@ def sample_put(data: SampleData):
 
 
 @router.delete("/RestSample/{id}")
-def sample_delete(id: int):
+def sample_delete(id: int, _current_user: dict = Depends(get_current_user)):
     """
     Deleteメソッドのサンプル
 

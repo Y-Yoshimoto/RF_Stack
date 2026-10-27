@@ -15,10 +15,13 @@ dependencies = [
     # 共通ライブラリ
     "datetime",
     "python-dotenv",
+    "itsdangerous",
+    "redis[hiredis]",
     # データベース関連
     "sqlmodel",
     "psycopg2-binary",
     "alembic",
+    "pyjwt[crypto]>=2.10.1",
 ]
 [dependency-groups]
 dev = [

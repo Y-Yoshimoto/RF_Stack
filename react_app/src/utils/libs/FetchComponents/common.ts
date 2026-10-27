@@ -14,8 +14,9 @@ export const takeDataDef = (r: Response) => r.json();
 export const generateRequestObject = <T>({ url, method = 'GET', body, headers }: ResourceObj<T>) => {
     return new Request(url, {
         method: method,
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json', ...headers },
-        body: JSON.stringify(body),
+        body: (body === undefined) ? undefined : JSON.stringify(body),
     });
 };
 
