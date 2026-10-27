@@ -1,0 +1,124 @@
+---
+name: tenant-isolation
+description: マルチテナントのテナント分離の実装規則とテスト方法。app_db のテナントスコープのテーブル（tenant_id・複合外部キー・RLS）、テナントコンテキスト（modules/tenancy）の使い方、DB ロールの使い分け、クロステナントテストの観点とフィクスチャを扱う。「テナントスコープのテーブルを追加したい」「RLS を設定して」「他テナントのデータが見えないことをテストして」「テナントコンテキストの使い方」といった依頼や、AP のデータを扱う API・リポジトリを追加/変更したときに使用する。
+---
+
+# テナント分離の実装とテスト
+
+仕様の正は `docs/architecture/01-platform-concepts.md`（§9）と `docs/architecture/02-platform-implementation.md`（§4, §5.3）。本スキルは実装・テスト時の手順と確認項目をまとめる。
+
+## 1. 守ること（不変条件）
+
+1. **テナントはセッション（認証結果）からのみ導出する。** リクエストボディ・クエリ・ヘッダーの `tenant_id` を信用しない。
+2. **AP の DB アクセスは `app_runtime` ロール + テナントコンテキスト下で行う。** コンテキスト無しのクエリは RLS で 0 件になる（エラーにならないので気づきにくい）。
+3. **RLS をバイパスするロールを作らない・使わない。** テナント横断の処理（CP の集計・物理削除）も、テナント毎にコンテキストを切り替えて行う。
+4. **プレーン間の依存は 2 つだけ。** AP → CP は `v_tenant_registry` の参照（`cp_registry_reader`）、CP → AP は集計・物理削除（`app_cp_agent`）。それ以外の接続を作らない。
+5. **閲覧範囲（テーマ固有の公開範囲）の判定はアプリ層で行う。** RLS はテナント境界の最終防衛線であり、閲覧範囲の代わりにしない。
+6. **他テナントや閲覧範囲外のリソースは 404 を返す**（存在を明かさない）。
+
+## 2. DB ロールの使い分け
+
+| 処理 | DB | ロール |
+| --- | --- | --- |
+| マイグレーション（CP） | control_plane_db | `cp_owner` |
+| CP API・定期ジョブ | control_plane_db | `cp_runtime` |
+| AP からテナントレジストリ参照 | control_plane_db | `cp_registry_reader` |
+| マイグレーション（AP） | app_db | `app_owner` |
+| AP API | app_db | `app_runtime` |
+| CP からの集計・物理削除 | app_db | `app_cp_agent` |
+
+接続情報の環境変数は `.env.default` を参照する（`.env` は読まない）。
+
+## 3. テナントスコープのテーブルを追加する
+
+1. モデルは `modules/tenancy/models.py` のテナントスコープの基底を使い、AP 用の MetaData に載せる（CP 用に載せない）。置き場所は `src/main_app/models/`。
+2. 主キーは `uuid`（UUIDv7）。参照される側に `UNIQUE (tenant_id, id)` を置き、外部キーは `(tenant_id, <fk>)` → `(tenant_id, id)` の複合キーにする。
+3. リビジョンは `alembic/alembic_app.ini` で作る（`db-migration` スキル）。
+4. **autogenerate は RLS を検出しない。** 生成されたリビジョンの `upgrade()` に `enable_tenant_rls("<table>")`、`downgrade()` に `disable_tenant_rls("<table>")` を手で追加する（`modules/tenancy/rls.py`）。
+5. 一覧の性能のため、検索条件のインデックスは `tenant_id` を先頭にする。
+
+レビュー時の確認:
+
+- [ ] `tenant_id` が NOT NULL か
+- [ ] `ENABLE` と `FORCE ROW LEVEL SECURITY` の両方が設定されるか
+- [ ] 外部キーが複合キーか
+- [ ] 一意制約に `tenant_id` が含まれるか（テナント内で一意）
+- [ ] 論理削除を使う場合、一意制約が部分インデックスか
+
+## 4. テナントコンテキストを使う
+
+| 場面 | 使うもの |
+| --- | --- |
+| AP のルーター | `modules/tenancy/dependency.py` の `create_tenant_context_dependency(resolver)` で作った依存関数をルーター単位で適用する |
+| AP の DB セッション | `app_db` 用の Session に `install_tenant_guc_listener()` を登録する（Session クラス全体には登録しない） |
+| サービス層・ロガー | `get_tenant_context()` / `require_tenant_context()` |
+| CP からの集計・削除 | `tenant_guc_scope(bind, tenant_id)` または `run_per_tenant(bind, tenant_ids, func)` |
+| バッチ・CLI | `tenant_scope(TenantContext(...))` で明示的に設定する |
+
+- FastAPI の依存関数は async の yield 依存にする（同期の yield 依存では contextvar がエンドポイントに伝わらない）。
+- サービス層の関数の引数に `tenant_id` を取らない。コンテキストから得る。
+
+## 5. クロステナントテスト
+
+### 5.1 観点（API・リポジトリを追加/変更したら必ず確認する）
+
+| 観点 | 期待 |
+| --- | --- |
+| テナント A のユーザーがテナント B のリソースを ID 指定で取得 | 404 |
+| テナント A のユーザーがテナント B のリソースを更新・削除 | 404。B のデータが変わっていない |
+| 一覧・検索・集計 | B のデータが含まれない（件数も） |
+| A のリソースに B のユーザー・組織を関連付け | 422 または 404。DB の複合外部キーでも拒否される |
+| リクエストボディ・クエリに B の `tenant_id` を混ぜる | 無視される（A として処理される） |
+| コンテキスト無しで `app_runtime` からクエリ | 0 件 |
+| 停止中（SUSPENDED）・削除要求中のテナントのセッション | 403 |
+
+### 5.2 テストの層
+
+| 層 | 確認すること | DB |
+| --- | --- | --- |
+| ユニット | コンテキストの設定・復元、リゾルバの判定、レジストリのキャッシュ | 不要 |
+| RLS 結合 | `app_runtime` でテナントを切り替えたときの可視性、WITH CHECK による書き込み拒否、GUC がプールに残らない | 必要（`app_db`） |
+| API | 5.1 の観点を 2 テナント分のデータで確認 | 必要 |
+| E2E | 開発用ログイン（`alpha-member` / `beta-member`）で画面上の分離を確認 | 必要 |
+
+### 5.3 フィクスチャと実行
+
+フィクスチャとテストの雛形は `fastapi_app/test/tenancy/`（`conftest.py`、RLS 結合テストの例は `test_50_rls_integration.py`）にある。新しいテストはこれを使う。
+
+| フィクスチャ | 内容 |
+| --- | --- |
+| `tenant_a` / `tenant_b` | 2 テナント分の `TenantContext`（`user_id` 付き） |
+| `app_owner_engine` / `app_runtime_engine` / `app_cp_agent_engine` | セッションスコープのエンジン。接続できない・ロールが無い場合は skip（理由にパスワードは出さない） |
+| `single_connection_runtime_engine` | `pool_size=1` の `app_runtime`。接続の再利用で GUC が残らないことの検証用 |
+| `rls_table_factory(extra_ddl="", apply_rls=True)` | `app_owner` で一時テーブル（UUIDv7 の PK + `tenant_id` + `title`）を作り RLS を適用。終了時に `DROP ... CASCADE` |
+| `rls_table` / `seeded_rls_table` | RLS 適用済みの空テーブル / A に 2 行・B に 1 行を投入済み |
+
+- `RlsTable` の補助: `.qualified`（クォート済みの名前）、`.insert(engine, tenant, title)`（GUC を設定してコミット）、`.titles(engine, tenant or None)`
+- 新しいテナントスコープのテーブルは `rls_table_factory(extra_ddl="...")` で同等のテーブルを作って検証する（複合外部キーの例: `TestCompositeForeignKey`）
+- Session への自動適用は、`sessionmaker(bind=app_runtime_engine)` に `install_tenant_guc_listener` を登録し、`tenant_scope(ctx)` の中でセッションを開始して確認する（後始末は `uninstall_tenant_guc_listener`）
+- 全テストに autouse の `_tenant_context_is_clean` が付き、コンテキストの漏れを検知する
+- 接続情報: `DB_HOST`, `DB_PORT`, `APP_DB_NAME`, `APP_DB_{OWNER,RUNTIME,CP_AGENT}_{USER,PASSWORD}`
+
+**実行**（コマンド全般は `run-checks` スキル）:
+
+```bash
+make d-run SERVICE=fastapi_app CMD="uv run pytest test/tenancy"
+```
+
+開発用の `postgres_c` が旧構成の initdb のまま（新ロールが無い）だと結合テストは skip される。DB を初期化せずに結合テストを流す場合は、使い捨てコンテナを使う:
+
+```bash
+docker build -t rf_stack_pg_test ./postgres_c
+docker run -d --rm --name rf_stack_pg_rlstest --network rf_stack_default \
+  -e POSTGRES_PASSWORD=postgres -e APP_DB_NAME=app_db -e CONTROL_PLANE_DB_NAME=control_plane_db \
+  -e CP_DB_OWNER_USER=cp_owner -e CP_DB_OWNER_PASSWORD=cp_owner_password \
+  -e CP_DB_RUNTIME_USER=cp_runtime -e CP_DB_RUNTIME_PASSWORD=cp_runtime_password \
+  -e CP_DB_REGISTRY_READER_USER=cp_registry_reader -e CP_DB_REGISTRY_READER_PASSWORD=cp_registry_reader_password \
+  -e APP_DB_OWNER_USER=app_owner -e APP_DB_OWNER_PASSWORD=app_owner_password \
+  -e APP_DB_RUNTIME_USER=app_runtime -e APP_DB_RUNTIME_PASSWORD=app_runtime_password \
+  -e APP_DB_CP_AGENT_USER=app_cp_agent -e APP_DB_CP_AGENT_PASSWORD=app_cp_agent_password \
+  rf_stack_pg_test
+# ログに "PostgreSQL init process complete" が出て pg_isready が通るまで待つ
+docker compose exec -T -e DB_HOST=rf_stack_pg_rlstest fastapi_app uv run pytest test/tenancy
+docker stop rf_stack_pg_rlstest
+```

@@ -132,7 +132,7 @@ curl -i "http://localhost:8000/api/auth/dev-login?as=default"
 - `APP_ENV=development` かつ `AUTH_DEV_LOGIN_ENABLED=true` であること
   （どちらかを満たさない場合、エンドポイントは登録されず **404** になる）
 - KeyCloak の Realm / クライアント / ユーザーが作成済みであること
-  （未作成なら `keycloak_c/setup_realm_client_user.sh` を実行する。詳細は `keycloak_c/KEYCLOAK_SETUP.md`）
+  （未作成なら `tenant-provisioning` スキルの手順で `python -m modules.keycloak_admin.cli` を実行する）
 
 プロファイルは `fastapi_app/src/main_app/route/auth/dev_login.py` の `DEV_LOGIN_PROFILES` に定義する。
 権限の異なるユーザーを追加する場合はここにプロファイルを足す。

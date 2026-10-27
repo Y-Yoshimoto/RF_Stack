@@ -4,6 +4,17 @@
 
 Keycloakのカスタムイメージを作成するためのDockerfile設定及びデータ永続化領域
 
+## Realm / Client / User の作成
+
+テナント用の Realm・Client・User は、`fastapi_app` コンテナ内の CLI で冪等に作成する。
+詳細 (環境変数・出力される `KEYCLOAK_CLIENT_SECRET` の扱い) は [KEYCLOAK_SETUP.md](./KEYCLOAK_SETUP.md) の「2. 自動化 CLI で作成する方法」を参照。
+
+```bash
+make d-run SERVICE=fastapi_app CMD="uv run python -m modules.keycloak_admin.cli tenant-a fastapi-app user001"
+```
+
+実装は `fastapi_app/src/modules/keycloak_admin/` にあり、コントロールプレーンからのテナント払い出しでも同じ部品を使う。
+
 ## 永続化データのクリア
 
 ```bash

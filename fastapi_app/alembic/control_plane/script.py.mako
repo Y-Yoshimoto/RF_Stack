@@ -7,8 +7,10 @@ Create Date: ${create_date}
 """
 from typing import Sequence, Union
 
-from alembic import op
 import sqlalchemy as sa
+import sqlmodel  # noqa: F401 # autogenerate が sqlmodel.sql.sqltypes.AutoString を出力するため
+
+from alembic import op
 ${imports if imports else ""}
 
 # revision identifiers, used by Alembic.

@@ -125,7 +125,7 @@ make d-reset-db   # ★★ 全データが失われる。必ず確認を取る
 | `npm install` が終わらない・コマンドが見つからない | entrypoint のインストールが進行中。`.npm_install.lock` が消えるまで待つ |
 | Vitest / Playwright がブラウザ起動に失敗する | Playwright ブラウザが未インストール。`make d-run SERVICE=react_app CMD="npx playwright install chromium"` |
 | FastAPI で `ModuleNotFoundError` | `PYTHONPATH=/work/fastapi_app/src/` に依存している。compose の environment を確認する |
-| DB に接続できない | `postgres_c` の起動と、`DB_HOST=postgres_c` / `DB_PORT=5432` および `APP_DB_*` 環境変数を確認 |
+| DB に接続できない | `postgres_c` の起動と、`DB_HOST=postgres_c` / `DB_PORT=5432` および `CP_DB_*` / `APP_DB_*` 環境変数を確認。`role ... does not exist` なら旧構成の initdb のままなので `make d-reset-db`（要確認） |
 | ポートが衝突する | 4173 / 5173 / 6006 / 8000 / 8080 / 8443 / 9000 / 9323 / 5432 のいずれかをホスト側で他プロセスが使用している |
 | Dev Container の設定変更が反映されない | VS Code の再ビルド（Rebuild Container）が必要 |
 

@@ -1,40 +1,32 @@
 #!/usr/bin/env python
 # coding:utf-8
 import os
-from contextlib import asynccontextmanager
 
-from fastapi import APIRouter, FastAPI
+from fastapi import APIRouter
 from sqlmodel import select
 
 # モデルインポート
 from control_plane_app.models.sql_models import TTenant
 
-# DB初期化
 # DB接続用のモジュールをインポート
 from modules.db_connector.engine import DBConnector
 
 # DBコネクタ作成
+# 実行時はマイグレーション用の所有者ロール(CP_DB_OWNER_*)ではなく、DML 権限のみのランタイムロールで接続する。
+# テーブルの作成・変更は Alembic(alembic/alembic_control_plane.ini)で行い、アプリ起動時には行わない。
 control_plane_db_connector = DBConnector(
-        dbuser=os.environ["APP_DB_USER"],
-        dbpassword=os.environ["APP_DB_PASSWORD"],
+        dbuser=os.environ["CP_DB_RUNTIME_USER"],
+        dbpassword=os.environ["CP_DB_RUNTIME_PASSWORD"],
         dbhost=os.environ["DB_HOST"],
         dbport=os.environ["DB_PORT"],
         dbname=os.environ["CONTROL_PLANE_DB_NAME"]
 )
 c_db = control_plane_db_connector
 SessionDep = control_plane_db_connector.SessionDep
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # アプリ起動時処理, DBとテーブル作成
-    # 最適な場所を検討する/一階層上のapiapp.py
-    print("Creating control_plane DB and tables...")
-    control_plane_db_connector.create_db_and_tables()
-    yield
-    pass
 
 
 # APIルータ
-router = APIRouter(lifespan=lifespan)
+router = APIRouter()
 
 # エンドポイント
 ## ヘルスチェック

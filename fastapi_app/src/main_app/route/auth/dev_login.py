@@ -20,7 +20,7 @@ Playwright テストや手動での動作確認時に、KeyCloak のログイン
     ログアウトが本番と同じコードパスを通るため、テストが実装を検証できる。
 
     KeyCloak 側のクライアントで ``directAccessGrantsEnabled`` が有効である必要がある
-    (``keycloak_c/setup_realm_client_user.sh`` が設定する)。
+    (``python -m modules.keycloak_admin.cli`` が設定する。手順は ``tenant-provisioning`` スキル)。
 """
 import logging
 

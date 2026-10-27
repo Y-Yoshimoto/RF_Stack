@@ -17,39 +17,55 @@
    - ユーザー名: `KC_BOOTSTRAP_ADMIN_USERNAME`
    - パスワード: `KC_BOOTSTRAP_ADMIN_PASSWORD`
 
-## 2. 自動化スクリプトで作成する方法
+## 2. 自動化 CLI で作成する方法
 
-手動手順の代わりに、以下のスクリプトで Realm / Client / User を一括作成できる。
+手動手順の代わりに、以下の CLI で Realm / Client / User を一括作成できる。
+存在するものは作り直さない (冪等)。既存クライアントの設定は毎回反映し、ユーザーのパスワードは毎回上書きする。
 
-- スクリプト: `./setup_realm_client_user.sh`
+- CLI: `python -m modules.keycloak_admin.cli` (実体は `fastapi_app/src/modules/keycloak_admin/`)
+- **`fastapi_app` コンテナ内で実行する。** コンテナ内からは `http://keycloak_c:8080` で Keycloak に接続する。
 
 引数:
 
-1. `realm_name` (作成するRealm名)
+1. `realm_name` (作成するRealm名。英数字・`-`・`_` のみ、64 文字以内)
 2. `client_id` (作成するClient ID)
 3. `username` (作成するユーザー名)
 4. `user_password` (任意。省略時は `KEYCLOAK_INIT_USER_PASSWORD` または `ChangeMe123!`)
 
-実行例:
+実行例 (ホストから):
 
 ```bash
-bash keycloak_c/setup_realm_client_user.sh tenant-a fastapi-app user001 ChangeMe123!
+make d-run SERVICE=fastapi_app CMD="uv run python -m modules.keycloak_admin.cli tenant-a fastapi-app user001"
 ```
 
-管理者接続情報を環境変数で指定する例:
+コンテナ内のシェルからは `uv run python -m modules.keycloak_admin.cli tenant-a fastapi-app user001`。
+`-v` を付けると実行した Admin API リクエストを標準エラーに出力する (トークン・パスワードは出力しない)。
+
+接続情報は `fastapi_app` コンテナの環境変数から読む。主なもの (一覧は `--help`):
+
+| 環境変数 | 既定値 | 備考 |
+| --- | --- | --- |
+| `KEYCLOAK_URL` | `http://keycloak_c:8080` | 旧スクリプトの `KEYCLOAK_BASE_URL` に相当 |
+| `KEYCLOAK_HTTP_RELATIVE_PATH` | `keycloak` | |
+| `KEYCLOAK_ADMIN_USERNAME` / `KEYCLOAK_ADMIN_PASSWORD` | `admin` / `admin` | パスワードの既定値は `APP_ENV=development` のときのみ使用 |
+| `APP_CALLBACK_URL` | `http://localhost:5173/api/auth/callback` | |
+| `APP_POST_LOGOUT_REDIRECT_URI` | `${FRONTEND_URL}/*` | |
+| `APP_WEB_ORIGIN` | `${FRONTEND_URL}` | |
+| `KEYCLOAK_ADMIN_TIMEOUT_SECONDS` / `KEYCLOAK_ADMIN_DEADLINE_SECONDS` | `10` / `30` | 1 リクエスト / 実行全体のタイムアウト |
+
+一時的に値を変える場合は `docker compose exec -e` で渡す。
 
 ```bash
-KEYCLOAK_BASE_URL=http://localhost:8080 \
-KEYCLOAK_HTTP_RELATIVE_PATH=keycloak \
-KEYCLOAK_ADMIN_USERNAME=admin \
-KEYCLOAK_ADMIN_PASSWORD=admin \
-APP_CALLBACK_URL=http://localhost:5173/api/auth/callback \
-APP_POST_LOGOUT_REDIRECT_URI=http://localhost:5173/* \
-APP_WEB_ORIGIN=http://localhost:5173 \
-bash keycloak_c/setup_realm_client_user.sh tenant-a fastapi-app user001
+docker compose exec -T -e APP_WEB_ORIGIN=http://localhost:5173 fastapi_app \
+  uv run python -m modules.keycloak_admin.cli tenant-a fastapi-app user001
 ```
 
-スクリプト実行後、標準出力に `KEYCLOAK_CLIENT_SECRET` が表示されるため、`.env` に設定する。
+CLI 実行後、標準出力に `KEYCLOAK_CLIENT_SECRET` が表示されるため、`.env` に設定する。
+
+**作成したユーザーで開発用ログインバイパス (パスワードグラント) を使う場合は、ユーザーのプロフィールを埋めておく。**
+CLI はユーザー名のみでユーザーを作成する。Keycloak の既定のユーザープロフィールでは
+メールアドレス・姓・名が必須のため、未入力のままだとトークン取得が
+`invalid_grant: Account is not fully set up` で失敗する (トラブルシュート F 参照)。
 
 `.env` を更新したら、**`docker compose restart` ではなく `docker compose up -d` で入れ直す**こと。
 `restart` は既存コンテナを再起動するだけで `.env` を読み直さないため、古い値のまま起動する。
@@ -189,7 +205,7 @@ curl -s -H "Authorization: Bearer $TOKEN" http://localhost:8080/keycloak/admin/r
   | python3 -c 'import json,sys; print([r["realm"] for r in json.load(sys.stdin)])'
 ```
 
-消えていた場合は `setup_realm_client_user.sh` を再実行する。**client secret は再発行される**ため、
+消えていた場合は 2. の CLI (`python -m modules.keycloak_admin.cli`) を再実行する。**Realm を作り直すと client secret も新しくなる**ため、
 `.env` の `KEYCLOAK_CLIENT_SECRET` も必ず更新すること。
 
 ### E. ログアウトしても KeyCloak のセッションが残る / `Invalid token issuer`
@@ -238,9 +254,17 @@ curl -s -H "Authorization: Bearer $TOKEN" \
   | python3 -c 'import json,sys; print(len(json.load(sys.stdin)), "件")'
 ```
 
+### F. 開発用ログインバイパスが `Account is not fully set up` で失敗する
+
+Keycloak の既定のユーザープロフィールでは、メールアドレス・姓・名が必須になっている。
+2. の CLI はユーザー名だけでユーザーを作成するため、そのままではパスワードグラントが
+`invalid_grant` / `Account is not fully set up` で失敗する (ブラウザでのログインでは入力画面が出るので気づきにくい)。
+
+管理画面の `Users` → 対象ユーザー → `Details` でメールアドレス・姓・名を入力して保存する。
+
 ## 10. テナント追加時の最小作業
 
-新規テナント追加時は、以下のみ実施すればよい。
+新規テナント追加時は、以下を実施すればよい (1-4 は 2. の CLI で一括実行できる)。
 
 1. 新しいRealm作成
 2. `fastapi-app` client作成

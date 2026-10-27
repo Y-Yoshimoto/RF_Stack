@@ -60,6 +60,11 @@
 - .envファイルは、ファイル読取ツールに限らず、いかなる手段でも読取を行わないこと。
 - .envファイルのスキーマ把握が必要な場合は、.env.default ファイルを参照すること。
 
+## アーキテクチャ・仕様
+
+- マルチテナント SaaS の共通基盤の正は `docs/architecture/` とする(技術非依存の基盤仕様・技術依存の実装方針・共通規約・監視の観点・決定事項)。
+- テーマ固有の要件は `docs/spec/`(例: `docs/spec/ToDoApp.md`)に置き、共通基盤の内容を転記しない。
+
 ## コーディング規約
 
 - コーディング規約の正は `docs/coding-standards/` 配下とする。
@@ -112,6 +117,8 @@
 | `run-checks` | lint・テスト・カバレッジの実行方法（React / FastAPI、コンテナ内外の判定を含む） |
 | `db-migration` | Alembic によるマイグレーションの生成・レビュー・適用・ロールバック |
 | `dev-environment` | Dev Container の初期セットアップ、起動・停止、依存の再インストール、復旧手順 |
+| `tenant-isolation` | テナントスコープのテーブル(tenant_id・複合外部キー・RLS)、テナントコンテキスト、DB ロールの使い分け、クロステナントテスト |
+| `tenant-provisioning` | Keycloak のレルム・クライアント・ユーザーの作成(Python の `modules.keycloak_admin`)、テナント払い出しの手順 |
 
 - 検証コマンドやマイグレーション手順を各エージェント定義に転記せず、スキル側を正とする。
 

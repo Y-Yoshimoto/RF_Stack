@@ -1,7 +1,7 @@
 from typing import Annotated
 
 from fastapi import Depends
-from sqlmodel import Session, SQLModel, create_engine
+from sqlmodel import Session, create_engine
 
 # from sqlalchemy import create_engine
 
@@ -28,10 +28,6 @@ class DBConnector:
         """ DBエンジンの作成 """
         # 参考: https://docs.sqlalchemy.org/en/20/core/engines.html#postgresql
         return create_engine(self.endpoint["url"], echo=False)
-
-    def create_db_and_tables(self):
-        """ DBとテーブルの作成 """
-        SQLModel.metadata.create_all(self.engine)
 
     def get_session(self):
         """ DBセッション取得 """

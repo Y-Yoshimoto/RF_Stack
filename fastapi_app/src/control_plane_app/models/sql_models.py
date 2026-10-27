@@ -1,14 +1,17 @@
 # SQLモデル定義
 from datetime import datetime
 
-from sqlmodel import Column, DateTime, Field, SQLModel, text
+from sqlmodel import Column, DateTime, Field, text
+
+# コントロールプレーン用のベース(MetaData をプレーン毎に分離する)
+from control_plane_app.models.base import ControlPlaneBase
 
 # ユーティリティモジュールをインポート
 from modules.utils import generate_uuid
 
 
 # テナント情報テーブルモデル
-class TTenant(SQLModel, table=True):
+class TTenant(ControlPlaneBase, table=True):
     """ テナント情報テーブル """
     __table_args__ = {"comment": "テナント情報テーブル"}
     __tablename__ = "t_tenant"
