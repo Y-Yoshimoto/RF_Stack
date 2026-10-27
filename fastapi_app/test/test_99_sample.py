@@ -10,6 +10,10 @@ from http_client.client import HttpClient
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# 書き方の参考用サンプルのため実行対象外とする。
+# 起動中のサーバーへ認証なしで HTTP を送るが、RestSample は認証必須になっており成功しない。
+pytestmark = pytest.mark.skip(reason="参考用サンプル(起動中のサーバーに認証なしで接続するため実行しない)")
+
 @pytest.fixture(scope="class")
 def re_client():
     print("セットアップを実行します。", flush=True)
