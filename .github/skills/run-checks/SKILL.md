@@ -117,13 +117,13 @@ http://localhost:5173/dev-login
 
 | クエリ | 内容 |
 | --- | --- |
-| `as` | 使用するプロファイル名。既定は `default`(tenant-a / user001) |
+| `as` | 使用するプロファイル名。既定は `alpha-admin`。`cp-admin` / `cp-viewer` / `alpha-admin` / `alpha-member` / `beta-member`（02 §7.2） |
 | `next` | ログイン後の遷移先パス。既定は `/button`。例: `/dev-login?next=/fetch` |
 
 FastAPI に直接アクセスして Cookie だけ得ることもできる。
 
 ```bash
-curl -i "http://localhost:8000/api/auth/dev-login?as=default"
+curl -i "http://localhost:8000/api/auth/dev-login?as=alpha-admin"
 ```
 
 前提:
@@ -132,10 +132,11 @@ curl -i "http://localhost:8000/api/auth/dev-login?as=default"
 - `APP_ENV=development` かつ `AUTH_DEV_LOGIN_ENABLED=true` であること
   （どちらかを満たさない場合、エンドポイントは登録されず **404** になる）
 - KeyCloak の Realm / クライアント / ユーザーが作成済みであること
-  （未作成なら `tenant-provisioning` スキルの手順で `python -m modules.keycloak_admin.cli` を実行する）
+  （未作成ならシードを実行する。シードは開発用テナント `alpha` / `beta` と `control-plane` を払い出しと同じ関数で作る。`tenant-provisioning` スキル参照）
 
-プロファイルは `fastapi_app/src/main_app/route/auth/dev_login.py` の `DEV_LOGIN_PROFILES` に定義する。
-権限の異なるユーザーを追加する場合はここにプロファイルを足す。
+プロファイルと開発用の認証情報は `fastapi_app/src/modules/auth/dev_profiles.py` に 1 箇所で定義し、シードと共有する（`DEV_PROFILES` / `DEV_TENANTS` / `DEV_TENANT_USERS`、要素は `DevUser`）。開発用パスワードは `APP_ENV=development` 以外では読めない。
+AP のプロファイルは Cookie `rf_sid_app`、CP のプロファイルは `rf_sid_cp` のセッションを作る（状態確認は `/api/auth/app/status` / `/api/auth/cp/status`）。
+権限の異なるユーザーを追加する場合は `dev_profiles.py` にユーザーを足し、シードを再実行する。
 
 > **この機能は開発専用。** 認証済みセッションを無条件に発行するため、`APP_ENV` が
 > `development` 以外のときは有効化できず、有効化を要求すると起動時にエラーになる。

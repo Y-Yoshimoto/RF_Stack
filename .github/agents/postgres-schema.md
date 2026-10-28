@@ -27,7 +27,7 @@ model: opus
 - テーブル名は `t_` 接頭辞・単数形・スネークケース（`t_tenant`）。ビューは `v_` 接頭辞。
 - `__table_args__ = {"comment": "..."}` でテーブルコメントを日本語で付ける。
 - 各カラムの `Field(description="...")` に日本語の説明を必ず書く。
-- 新しいテーブルの主キーは PostgreSQL の `uuid` 型 + UUIDv7（`uuid.uuid7()`。`TenantScopedBase` が提供する）。既存の `t_tenant` は `str` の UUIDv4 のまま（改訂時に移行する）。
+- 新しいテーブルの主キーは PostgreSQL の `uuid` 型 + UUIDv7（`uuid.uuid7()`。`TenantScopedBase` が提供する）。CP の `t_tenant` も 0002 で `uuid` + UUIDv7 に移行済み。
 - タイムスタンプは `sa_column=Column(DateTime(timezone=True), server_default=text("CURRENT_TIMESTAMP"))`、更新側は `onupdate` を付ける。**タイムゾーン付きで統一する**。
 - Nullable なカラムは `X | None` + `default=None` で明示する。
 - 論理削除・楽観ロック・ID・日時の共通規約は `docs/architecture/03-conventions.md` に従う。

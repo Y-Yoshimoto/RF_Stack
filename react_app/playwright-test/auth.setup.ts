@@ -17,8 +17,8 @@ import { test as setup, expect } from '@playwright/test';
  */
 export const AUTH_STATE_FILE = './playwright-test/.auth/default.json';
 
-/** 使用するプロファイル名。FastAPI 側の DEV_LOGIN_PROFILES と対応する。 */
-const PROFILE = 'default';
+/** 使用するプロファイル名。FastAPI 側の DEV_PROFILES (modules/auth/dev_profiles.py) と対応する。 */
+const PROFILE = 'alpha-admin';
 
 setup('開発用ログインで認証状態を作成する', async ({ browser, baseURL }) => {
     const context = await browser.newContext({ baseURL });
@@ -38,13 +38,15 @@ setup('開発用ログインで認証状態を作成する', async ({ browser, b
                 '  - docker compose up -d で fastapi_app / keycloak_c / redis_c が起動しているか',
                 '  - AUTH_DEV_LOGIN_ENABLED=true かつ APP_ENV=development か',
                 '  - KeyCloak の client で directAccessGrantsEnabled が有効か',
+                '  - シードで tenant-alpha レルムと alpha-admin ユーザーが作成済みか',
                 `応答: ${body.slice(0, 200)}`,
             ].join('\n'),
         );
     }
 
     // セッションが実際に有効であることを確認してから保存する
-    const status_response = await context.request.get('/api/auth/status');
+    // alpha-admin プロファイルはアプリケーションプレーン (Cookie rf_sid_app) のセッションを作る
+    const status_response = await context.request.get('/api/auth/app/status');
     expect(status_response.ok()).toBeTruthy();
     const status = await status_response.json();
     expect(status.authenticated).toBe(true);

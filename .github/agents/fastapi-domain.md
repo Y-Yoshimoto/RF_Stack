@@ -25,7 +25,7 @@ model: opus
 - 設定値は `os.environ` から読む。**`.env` ファイルを直接読み取らない**（スキーマ確認が必要な場合のみ `.env.default` を参照する）。
 - 型ヒントを必ず付ける。`from __future__ import annotations` は不要（Python 3.14）。
 - docstring は日本語で書く（既存踏襲）。
-- 現状のコードには「ToDo:」コメントや責務が曖昧な箇所（`api_tenant/router.py` の lifespan での `create_db_and_tables` 等）がある。触れる場合は改善を提案してよいが、**依頼範囲を超えた大規模な再設計は事前に確認する**。
+- 現状のコードには「ToDo:」コメントや責務が曖昧な箇所がある。触れる場合は改善を提案してよいが、**依頼範囲を超えた大規模な再設計は事前に確認する**。
 
 ## 責務の境界
 - HTTP のエンドポイント定義とスキーマは `fastapi-api-schema` に委譲する。

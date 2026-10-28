@@ -28,7 +28,7 @@ def _ignore_progress(message: str) -> None:
     """
 
 
-def build_app_client_spec(client_id: str, app_settings: AppClientSettings) -> ClientSpec:
+def build_app_client_spec(client_id: str, app_settings: AppClientSettings, *, secret: str | None = None) -> ClientSpec:
     """BFF (FastAPI) 用の confidential クライアントの仕様を作る。
 
     旧シェルスクリプトと同じ設定 (認可コードフロー + パスワードグラント有効、サービスアカウント無効)。
@@ -37,6 +37,9 @@ def build_app_client_spec(client_id: str, app_settings: AppClientSettings) -> Cl
     Args:
         client_id: クライアント ID。
         app_settings: リダイレクト URI 等の設定。
+        secret: クライアントに設定するシークレット。BFF は
+            :func:`~modules.keycloak_admin.client_secret.derive_client_secret` で導出した値を使うため、
+            払い出し・CLI では同じ導出値を渡す。``None`` の場合は Keycloak の生成値のままにする。
 
     Returns:
         ClientSpec: クライアントの仕様。
@@ -50,6 +53,7 @@ def build_app_client_spec(client_id: str, app_settings: AppClientSettings) -> Cl
         standard_flow_enabled=True,
         direct_access_grants_enabled=True,
         service_accounts_enabled=False,
+        secret=secret,
     )
 
 
@@ -60,6 +64,9 @@ def setup_realm_client_user(
     client_spec: ClientSpec,
     username: str,
     password: str,
+    email: str | None = None,
+    first_name: str | None = None,
+    last_name: str | None = None,
     report: ProgressReporter = _ignore_progress,
 ) -> SetupResult:
     """レルム・クライアント・ユーザーを冪等に作成し、クライアントシークレットを返す。
@@ -67,12 +74,19 @@ def setup_realm_client_user(
     旧シェルスクリプトと同じ手順・同じ進捗メッセージ。既存のリソースは作り直さず、
     クライアントの設定のみ毎回反映する。ユーザーのパスワードは毎回上書きする (一時パスワードではない)。
 
+    ``email`` / ``first_name`` / ``last_name`` を渡すと、ユーザー作成時に設定し、既存ユーザーでは
+    空の項目だけを補う (Keycloak の既定のユーザープロフィールではいずれも必須で、欠けていると
+    ログインが ``Account is not fully set up`` で失敗するため)。メールを渡した場合は確認済みとして扱う。
+
     Args:
         admin: Admin API クライアント。
         realm: レルム名。
         client_spec: クライアントのあるべき状態。
         username: ユーザー名。
         password: ユーザーに設定するパスワード。
+        email: ユーザーのメールアドレス。
+        first_name: ユーザーの名。
+        last_name: ユーザーの姓。
         report: 進捗メッセージの出力先 (CLI では ``print``)。
 
     Returns:
@@ -99,7 +113,8 @@ def setup_realm_client_user(
     client_secret = get_client_secret(admin, realm, client_result.id)
 
     report(f"[5/6] Ensure user exists: {username}")
-    user_result = ensure_user(admin, realm, UserSpec(username=username, enabled=True, email_verified=False))
+    user_spec = UserSpec(username=username, enabled=True, email=email, email_verified=bool(email), first_name=first_name, last_name=last_name)
+    user_result = ensure_user(admin, realm, user_spec, fill_missing_profile=True)
     report("  - User created" if user_result.created else "  - User already exists")
 
     report("[6/6] Set user password")

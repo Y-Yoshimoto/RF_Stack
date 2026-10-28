@@ -11,9 +11,11 @@ model: sonnet
 
 ## アプリケーション構成
 - エントリポイント: `src/app.py`。サブアプリを `app.include_router()` でマウントする。
-- サブアプリは `src/<subapp>/apiapp.py` に `router = APIRouter()` を定義し、さらに機能単位のルータ（`src/control_plane_app/api_tenant/router.py` 等）を `include_router` で束ねる二段構成。
-- 既存: `rest_sample`（サンプル）、`control_plane_app`（prefix=`/control_plane`, tags=`control_plane`）、`proxy`（現在コメントアウト）。
-- 参考実装: `src/control_plane_app/apiapp.py`, `src/control_plane_app/api_tenant/router.py`
+- サブアプリは `src/<subapp>/apiapp.py` に `router = APIRouter()` を定義し、さらに機能単位のルータ（`src/control_plane_app/api_tenants/router.py` 等）を `include_router` で束ねる二段構成。
+- ルーティングの正は `docs/architecture/01-platform-concepts.md` §10 と `02-platform-implementation.md` §5.6。登録順は `/api/v1/cp`（`control_plane_app`）→ `/api/v1/public`（`main_app/route/public`）→ `/api/v1`（AP、`main_app/route/v1`）。`/api/auth/*` は auth-keycloak の担当。
+- エラーは `modules/errors` の Problem Details（RFC 9457）に変換する。ルーターで独自のエラー形式を作らない。
+- 既存のサンプル: `rest_sample`、`main_app/route/sample`、`/api/demo/login`（基盤の実装が進んだ段階で削除予定）。
+- 参考実装: `src/control_plane_app/apiapp.py`, `src/control_plane_app/api_tenants/router.py`
 
 ## 実装方針
 - 新しい機能単位のルータを作る場合は `src/<subapp>/api_<feature>/router.py` の構成に合わせ、`apiapp.py` から `prefix` と `tags` を付けて include する。

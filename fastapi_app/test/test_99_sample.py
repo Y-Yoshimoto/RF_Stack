@@ -63,9 +63,8 @@ def test_request(caplog, request):
     caplog.set_level(logging.INFO)
     logger.info("ユニットテストを実行します。")
 
-    # 環境変数の表示
-    for key, value in request.config.env.items():
-        print(f"{key}={value}", flush=True)
+    # 環境変数は秘密の値を含むため表示しない(件数のみ)
+    print(f"環境変数: {len(request.config.env)} 件", flush=True)
 
     test_instance = TestSampleClass(baseURL="http://127.0.0.1:8000/RestSample")
     test_instance.test_sample()

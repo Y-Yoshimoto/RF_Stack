@@ -2,7 +2,7 @@
 //// リクエスト情報の型定義
 export type ResourceObj<T> = {
     url: string;
-    method?: "GET" | "POST" | "PUT" | "DELETE";
+    method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
     body?: object | undefined;
     headers?: HeadersInit;
     credentials?: RequestCredentials;

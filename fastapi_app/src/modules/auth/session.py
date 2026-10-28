@@ -6,9 +6,13 @@
 セッション ID のみを HttpOnly Cookie として渡す。
 
 設計方針:
+    - セッションは **プレーン毎に分ける** (Cookie 名 ``rf_sid_app`` / ``rf_sid_cp``、
+      Redis のキー ``session:app:{sid}`` / ``session:cp:{sid}``)。同一ブラウザで AP と CP に
+      同時ログインしても混在しない。
     - セッション本体（トークン・ユーザー情報）はすべて Redis に保存する。
     - クライアントに渡す Cookie 値は ``itsdangerous.URLSafeSerializer`` で署名し、
-      改ざんを検知できる。
+      改ざんを検知できる。署名の salt と署名対象にプレーンを含め、他プレーンの Cookie 値を
+      流用できないようにする。
     - OIDC の state パラメータも同じ Redis インスタンスで一時保存し、
       リプレイアタック対策として読み出し時に自動削除 (pop) する。
       state には PKCE の ``code_verifier`` と id_token 検証用の ``nonce`` を
@@ -28,8 +32,10 @@ from typing import Any
 from itsdangerous import BadSignature, URLSafeSerializer
 from redis import Redis
 from redis.exceptions import ResponseError
+from starlette.responses import Response
 
-SESSION_COOKIE_NAME = "rf_sid"
+from .plane import SESSION_COOKIE_NAMES, Plane
+
 SESSION_SIGNING_SALT = "rf-stack-session"
 
 
@@ -62,14 +68,32 @@ def _redis_client() -> Redis:
     return _redis_client_for(os.getenv("REDIS_URL", "redis://redis_c:6379/0"))
 
 
-def _serializer() -> URLSafeSerializer:
+def _serializer(plane: Plane) -> URLSafeSerializer:
     """環境変数 ``SESSION_SECRET_KEY`` を使った HMAC シリアライザーを返す。
+
+    salt をプレーン毎に変え、AP の Cookie 値を CP の Cookie として (またはその逆に) 使えないようにする。
+
+    Args:
+        plane: プレーン。
 
     Returns:
         URLSafeSerializer: Cookie 署名・検証に使用するシリアライザー。
     """
     secret_key = os.getenv("SESSION_SECRET_KEY", "change-me-session-secret")
-    return URLSafeSerializer(secret_key, salt=SESSION_SIGNING_SALT)
+    return URLSafeSerializer(secret_key, salt=f"{SESSION_SIGNING_SALT}:{plane.value}")
+
+
+def _session_key(plane: Plane, session_id: str) -> str:
+    """セッションの Redis キーを返す。
+
+    Args:
+        plane: プレーン。
+        session_id: セッション ID (署名なし)。
+
+    Returns:
+        str: ``session:{plane}:{session_id}``。
+    """
+    return f"session:{plane.value}:{session_id}"
 
 
 def get_session_ttl_seconds() -> int:
@@ -89,15 +113,16 @@ def get_session_ttl_seconds() -> int:
     return max(ttl, 60)
 
 
-def create_session(data: dict[str, Any], ttl_seconds: int | None = None) -> str:
+def create_session(plane: Plane, data: dict[str, Any], ttl_seconds: int | None = None) -> str:
     """新しいセッションを Redis に作成し、セッション ID を返す。
 
-    セッションデータは ``session:{session_id}`` キーで Redis に保存される。
+    セッションデータは ``session:{plane}:{session_id}`` キーで Redis に保存される。
     セッション ID は暗号論的乱数 (32 バイト URL-safe) で生成される。
 
     Args:
+        plane: プレーン。
         data: セッションに保存するデータ。
-              ``realm``, ``tokens``, ``user`` をキーに持つ dict を想定。
+              ``plane``, ``realm``, ``tokens``, ``user`` (AP は ``tenant_id``, ``tenant_code`` も) を想定。
         ttl_seconds: セッションの有効期限 (秒)。``None`` の場合は
                      :func:`get_session_ttl_seconds` の値を使用する。
 
@@ -106,29 +131,28 @@ def create_session(data: dict[str, Any], ttl_seconds: int | None = None) -> str:
     """
     session_id = secrets.token_urlsafe(32)
     ttl = ttl_seconds or get_session_ttl_seconds()
-    key = f"session:{session_id}"
-    _redis_client().setex(key, ttl, json.dumps(data, ensure_ascii=True))
+    _redis_client().setex(_session_key(plane, session_id), ttl, json.dumps(data, ensure_ascii=True))
     return session_id
 
 
-def get_session(session_id: str) -> dict[str, Any] | None:
+def get_session(plane: Plane, session_id: str) -> dict[str, Any] | None:
     """Redis からセッションデータを取得する。
 
     Args:
+        plane: プレーン。
         session_id: :func:`create_session` が返した署名なしセッション ID。
 
     Returns:
         dict | None: セッションデータの dict。セッションが存在しない場合
                      (未作成・期限切れを含む) は ``None`` を返す。
     """
-    key = f"session:{session_id}"
-    raw = _redis_client().get(key)
+    raw = _redis_client().get(_session_key(plane, session_id))
     if not raw:
         return None
     return json.loads(raw)
 
 
-def update_session(session_id: str, data: dict[str, Any]) -> bool:
+def update_session(plane: Plane, session_id: str, data: dict[str, Any]) -> bool:
     """既存セッションの内容を **残り TTL を維持したまま** 更新する。
 
     トークン更新時に使用する。``setex`` で書き直すと TTL がリセットされてしまい、
@@ -136,13 +160,14 @@ def update_session(session_id: str, data: dict[str, Any]) -> bool:
     現在の残り TTL を取得して同じ値で書き戻す。
 
     Args:
+        plane: プレーン。
         session_id: 更新対象のセッション ID (署名なし)。
         data: 保存し直すセッションデータ全体。
 
     Returns:
         bool: 更新できた場合は ``True``。セッションが存在しない場合は ``False``。
     """
-    key = f"session:{session_id}"
+    key = _session_key(plane, session_id)
     client = _redis_client()
     remaining_ttl = client.ttl(key)
     # -2: キーが存在しない / -1: TTL 未設定
@@ -156,52 +181,88 @@ def update_session(session_id: str, data: dict[str, Any]) -> bool:
     return True
 
 
-def delete_session(session_id: str) -> None:
+def delete_session(plane: Plane, session_id: str) -> None:
     """Redis からセッションを明示的に削除する。
 
     ログアウト時など、TTL 期限を待たずにセッションを無効化したい場合に使用する。
     存在しないセッション ID を渡した場合は何もしない。
 
     Args:
+        plane: プレーン。
         session_id: 削除対象のセッション ID (署名なし)。
     """
-    key = f"session:{session_id}"
-    _redis_client().delete(key)
+    _redis_client().delete(_session_key(plane, session_id))
 
 
-def sign_session_id(session_id: str) -> str:
+def sign_session_id(plane: Plane, session_id: str) -> str:
     """セッション ID を HMAC 署名して Cookie に格納できる文字列に変換する。
 
-    署名には ``SESSION_SECRET_KEY`` 環境変数の値を使用する。
+    署名には ``SESSION_SECRET_KEY`` 環境変数の値と、プレーン毎の salt を使用する。
     Cookie への格納前に必ずこの関数を通すこと。
 
     Args:
+        plane: プレーン。
         session_id: 署名対象のセッション ID (生の文字列)。
 
     Returns:
         str: HMAC 署名済みの URL-safe 文字列。
     """
-    return _serializer().dumps({"sid": session_id})
+    return _serializer(plane).dumps({"sid": session_id, "plane": plane.value})
 
 
-def unsign_session_id(signed_value: str) -> str | None:
+def unsign_session_id(plane: Plane, signed_value: str) -> str | None:
     """署名済み Cookie 値を検証し、元のセッション ID を取り出す。
 
-    署名が不正・改ざんされている場合は ``None`` を返すことで、
-    上位レイヤーが安全にエラー処理を行えるようにする。
+    署名が不正・改ざんされている場合、または別プレーン向けに署名された値の場合は
+    ``None`` を返すことで、上位レイヤーが安全にエラー処理を行えるようにする。
 
     Args:
+        plane: 期待するプレーン。
         signed_value: :func:`sign_session_id` が生成した署名済み文字列。
 
     Returns:
-        str | None: 検証成功時は元のセッション ID。
-                    署名不正・改ざん検知時は ``None``。
+        str | None: 検証成功時は元のセッション ID。失敗時は ``None``。
     """
     try:
-        payload = _serializer().loads(signed_value)
+        payload = _serializer(plane).loads(signed_value)
     except BadSignature:
         return None
-    return payload.get("sid")
+    if not isinstance(payload, dict) or payload.get("plane") != plane.value:
+        return None
+    session_id = payload.get("sid")
+    return session_id if isinstance(session_id, str) and session_id else None
+
+
+def set_session_cookie(response: Response, plane: Plane, session_id: str, *, secure: bool) -> None:
+    """プレーンのセッション Cookie をレスポンスに設定する。
+
+    ``HttpOnly``、``SameSite=Lax``、``Path=/``。``Secure`` は実行環境から導出した値を渡す。
+
+    Args:
+        response: 設定先のレスポンス。
+        plane: プレーン。
+        session_id: セッション ID (署名なし。本関数で署名する)。
+        secure: ``Secure`` 属性を付けるか。
+    """
+    response.set_cookie(
+        key=SESSION_COOKIE_NAMES[plane],
+        value=sign_session_id(plane, session_id),
+        httponly=True,
+        secure=secure,
+        samesite="lax",
+        path="/",
+    )
+
+
+def clear_session_cookie(response: Response, plane: Plane, *, secure: bool) -> None:
+    """プレーンのセッション Cookie を削除する (他プレーンの Cookie には触れない)。
+
+    Args:
+        response: 設定先のレスポンス。
+        plane: プレーン。
+        secure: ``Secure`` 属性 (設定時と合わせる)。
+    """
+    response.delete_cookie(key=SESSION_COOKIE_NAMES[plane], path="/", secure=secure, httponly=True, samesite="lax")
 
 
 def save_auth_state(state: str, payload: dict[str, Any], ttl_seconds: int = 300) -> None:
@@ -213,7 +274,8 @@ def save_auth_state(state: str, payload: dict[str, Any], ttl_seconds: int = 300)
     Args:
         state: 認可リクエスト時に生成した URL-safe なランダム文字列。
         payload: state に紐づけるデータ。
-                 ``{"realm": ..., "code_verifier": ..., "nonce": ...}`` を想定。
+                 ``{"plane": ..., "realm": ..., "code_verifier": ..., "nonce": ...}``
+                 (AP は ``tenant_code`` も) を想定。
                  ``code_verifier`` (PKCE) と ``nonce`` はサーバー側にのみ保持し、
                  ブラウザには渡さない。
         ttl_seconds: 一時データの有効期限 (秒)。デフォルト 300 秒 (5 分)。

@@ -8,7 +8,7 @@ import httpx
 import pytest
 import pytest_check as check
 
-from modules.keycloak_admin import KeycloakAdminSettings, cli
+from modules.keycloak_admin import KeycloakAdminSettings, cli, derive_client_secret
 
 R = "/keycloak/admin/realms"
 REALM = f"{R}/tenant-a"
@@ -104,12 +104,40 @@ class TestSuccess:
         check.equal(body["webOrigins"], ["https://app.example.com"])
         check.equal(body["attributes"]["post.logout.redirect.uris"], "https://app.example.com/*")
 
+    def test_client_secret_is_derived_from_seed(self, cli_kc, monkeypatch):
+        """クライアントには KC_CLIENT_SECRET_SEED から導出したシークレットを設定する(BFF と同じ値)。"""
+        monkeypatch.setenv("KC_CLIENT_SECRET_SEED", "seed-for-test")
+        cli.main(["tenant-a", "fastapi-app", "alice"])
+        body = cli_kc.requests_to("POST", CLIENTS)[0].json
+        check.equal(body["secret"], derive_client_secret("seed-for-test", "tenant-a", "fastapi-app"))
+
+    def test_user_profile_defaults(self, cli_kc):
+        """メール・姓・名を省略すると開発用の既定値で作成する(Account is not fully set up を防ぐ)。"""
+        cli.main(["tenant-a", "fastapi-app", "alice"])
+        body = cli_kc.requests_to("POST", USERS)[0].json
+        check.equal((body["email"], body["firstName"], body["lastName"], body["emailVerified"]), ("alice@example.com", "alice", "User", True))
+
+    def test_user_profile_from_arguments(self, cli_kc):
+        """--email / --first-name / --last-name を指定できる。"""
+        cli.main(["tenant-a", "fastapi-app", "alice", "--email", "a@corp.example", "--first-name", "Alice", "--last-name", "Liddell"])
+        body = cli_kc.requests_to("POST", USERS)[0].json
+        check.equal((body["email"], body["firstName"], body["lastName"]), ("a@corp.example", "Alice", "Liddell"))
+
+    def test_existing_user_missing_profile_is_filled(self, cli_kc):
+        """既存ユーザーにメール・姓・名が無ければ補い、既にある値は変えない。"""
+        cli_kc.on("GET", USERS, json=[{"id": "uid-1", "username": "alice", "firstName": "Keep"}])
+        cli_kc.on("PUT", f"{USERS}/uid-1", status=204)
+        cli.main(["tenant-a", "fastapi-app", "alice"])
+        body = cli_kc.requests_to("PUT", f"{USERS}/uid-1")[0].json
+        check.equal((body["email"], body["firstName"], body["lastName"]), ("alice@example.com", "Keep", "User"))
+
     def test_rerun_prints_existing_messages(self, cli_kc, capsys):
         """作成済みの再実行は exit 0 で、already exists を表示し、同じシークレットを最後に出す。"""
         cli_kc.on("GET", REALM, json={"realm": "tenant-a"})
         cli_kc.on("GET", CLIENTS, json=[{"id": "cid-1", "clientId": "fastapi-app"}])
         cli_kc.on("PUT", f"{CLIENTS}/cid-1", status=204)
         cli_kc.on("GET", USERS, json=[{"id": "uid-1", "username": "alice"}])
+        cli_kc.on("PUT", f"{USERS}/uid-1", status=204)
         code = cli.main(["tenant-a", "fastapi-app", "alice"])
         out = capsys.readouterr().out
         check.equal(code, 0)

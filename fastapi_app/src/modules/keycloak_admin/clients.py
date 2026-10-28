@@ -282,3 +282,42 @@ def audience_mapper(name: str, included_client_audience: str, *, id_token: bool 
         "introspection.token.claim": "true",
     }
     return ProtocolMapperSpec(name=name, protocol_mapper="oidc-audience-mapper", config=config)
+
+
+def get_service_account_user_id(admin: KeycloakAdminClient, realm: str, client_internal_id: str) -> str:
+    """サービスアカウントを有効にしたクライアントの、サービスアカウントユーザーの内部 ID を返す。
+
+    Args:
+        admin: Admin API クライアント。
+        realm: レルム名。
+        client_internal_id: クライアントの内部 ID。
+
+    Returns:
+        str: サービスアカウントユーザーの内部 ID。
+
+    Raises:
+        KeycloakAdminError: 取得に失敗した (サービスアカウントが無効など) 場合。
+    """
+    operation = f"query service account user in realm {realm}"
+    user = admin.get_json(admin.realm_url(realm, "clients", client_internal_id, "service-account-user"), operation=operation)
+    user_id = user.get("id") if isinstance(user, dict) else None
+    if not user_id:
+        raise KeycloakAdminError(operation, detail="service account user is missing (is serviceAccountsEnabled true?)")
+    return user_id
+
+
+def require_client_internal_id(admin: KeycloakAdminClient, realm: str, client_id: str) -> str:
+    """クライアント ID から内部 ID を返す。見つからなければ例外にする。
+
+    Args:
+        admin: Admin API クライアント。
+        realm: レルム名。
+        client_id: クライアント ID (例: ``realm-management``)。
+
+    Returns:
+        str: クライアントの内部 ID。
+
+    Raises:
+        KeycloakAdminError: 見つからない場合。
+    """
+    return _require_client(admin, realm, client_id)["id"]

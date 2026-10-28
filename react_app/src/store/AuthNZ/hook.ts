@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import { useSessionStorage } from 'react-use';
 // 定数のインポート
-import { STORAGE_KEY } from '@/constants.ts';
+import { AUTH_API, STORAGE_KEY } from '@/constants.ts';
 
 // httpリクスト関連
 import { requestFetch } from '@/utils/libs/FetchComponents/';
@@ -15,6 +15,16 @@ import type {
     Status,
     UseAuthNZReturn,
 } from './type';
+/**
+ * 状態 API のレスポンスからユーザー情報を組み立てる関数
+ * @param {AuthStatusResponse} response 状態 API のレスポンス
+ * @returns {AuthUserInfo | undefined} ユーザー情報 (テナントコードを含む)
+*/
+const toUserInfo = (response: AuthStatusResponse): AuthUserInfo | undefined => {
+    if (!response.authenticated || !response.user) return undefined;
+    return { ...response.user, tenant_code: response.tenant_code };
+};
+
 // デフォルト値の設定 ////////////////////////////////////////////////////////////
 const default_auth_n_info: AuthNInfo = {
     is_auth_n: undefined,
@@ -62,7 +72,7 @@ export const useAuthNZ = (): UseAuthNZReturn => {
     // ログイン処理の関数
     const login = (response: AuthStatusResponse) => {
         setIsAuthN(response.authenticated);
-        setUserInfo(response.user);
+        setUserInfo(toUserInfo(response));
         setIsAuthZ(true); // 暫定的に認可も成功とする。実際にはここでロールやパーミッションの情報もセットする必要がある。
     };
     // ログアウト処理の関数
@@ -73,9 +83,9 @@ export const useAuthNZ = (): UseAuthNZReturn => {
         setPermissions(undefined);
     };
 
-    // ステータス確認のリソースオブジェクトを定義
+    // ステータス確認のリソースオブジェクトを定義 (アプリケーションプレーンのセッション)
     const auth_status_resource: ResourceObj<AuthStatusResponse> = {
-        url: '/api/auth/status',
+        url: AUTH_API.APP_STATUS,
         method: 'GET',
         credentials: 'include',
     };
@@ -85,8 +95,10 @@ export const useAuthNZ = (): UseAuthNZReturn => {
         requestFetch(auth_status_resource).then((data: AuthStatusResponse | null) => {
             if (!data) throw new Error('認証ステータスの取得に失敗');
             setIsAuthN(Boolean(data.authenticated));
-            setUserInfo(data.user);
+            setUserInfo(toUserInfo(data));
         }).catch(() => {
+            // 未認証は 401 (Problem Details の code: unauthenticated / session_expired) で返る。
+            // 503 などそれ以外のエラーも、現状は未認証として扱いログイン画面へ誘導する。
             setIsAuthN(false);
             setUserInfo(undefined);
         });

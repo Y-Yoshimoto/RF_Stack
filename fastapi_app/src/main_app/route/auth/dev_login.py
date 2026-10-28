@@ -19,18 +19,35 @@ Playwright テストや手動での動作確認時に、KeyCloak のログイン
     通常のコールバックと同一の内容でセッションを作る。これにより、ロール・トークン更新・
     ログアウトが本番と同じコードパスを通るため、テストが実装を検証できる。
 
-    KeyCloak 側のクライアントで ``directAccessGrantsEnabled`` が有効である必要がある
+    KeyCloak 側のクライアントで ``directAccessGrantsEnabled`` が有効であり、クライアントシークレットが
+    ``KC_CLIENT_SECRET_SEED`` からの導出値である必要がある
     (``python -m modules.keycloak_admin.cli`` が設定する。手順は ``tenant-provisioning`` スキル)。
+
+プロファイル:
+    開発用の認証情報は :mod:`modules.auth.dev_profiles` に 1 箇所で定義し、シードと共有する (02 §7.1)。
+    プロファイルは :data:`~modules.auth.dev_profiles.DEV_PROFILES` (02 §7.2 の ``cp-admin`` / ``cp-viewer`` /
+    ``alpha-admin`` / ``alpha-member`` / ``beta-member``)。``as`` 省略時は ``alpha-admin``。
+    レルム・ユーザーはシード (CP の払い出しサービスを CLI から呼ぶもの) で作成しておく。
+
+    CP のプロファイルは ``saas_admin`` / ``saas_viewer`` のいずれかのロールを持たないと 403 になる
+    (通常のコールバックと同じ検証)。
+
+テナントレジストリとの照合:
+    開発用ログインはレジストリを引かない。トークンに ``tenant_id`` クレームがあればセッションに載せる。
+    AP の ``/api/v1`` はリクエスト毎にテナントコンテキストの依存関数がレジストリと照合するため、
+    未登録のテナントはそこで拒否される。
 """
 import logging
 
 import httpx
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Cookie, HTTPException, Query
 from fastapi.responses import RedirectResponse
 
+from modules.auth.dev_profiles import DEFAULT_DEV_PROFILE, DEV_PROFILES, DevUser
 from modules.auth.environment import KeyCloakEnvironmentVariables
-from modules.auth.session import SESSION_COOKIE_NAME, create_session, sign_session_id
-from modules.auth.token import build_token_record, verify_id_token
+from modules.auth.login import build_login_session
+from modules.auth.plane import Plane
+from modules.auth.session import create_session, delete_session, set_session_cookie, unsign_session_id
 
 logger = logging.getLogger(__name__)
 
@@ -39,26 +56,23 @@ router = APIRouter()
 # KeyCloak 設定のグローバルインスタンス
 _config = KeyCloakEnvironmentVariables()
 
-# 開発用ログインに使用する認証情報。
-# TODO: 認証情報の退避場所が決まったらこの定義をそこへ移す。
-#       ロール別のユーザーを増やす場合はここにプロファイルを追加する。
-DEV_LOGIN_PROFILES: dict[str, dict[str, str]] = {
-    "default": {"realm": "tenant-a", "username": "user001", "password": "ChangeMe123!"},
-}
 
 # ログイン後の既定の遷移先 (フロントエンドのパス)
 DEFAULT_NEXT_PATH = "/button"
+DEFAULT_NEXT_PATHS: dict[Plane, str] = {Plane.APP: DEFAULT_NEXT_PATH, Plane.CP: "/cp/"}
 
 
-def _validate_next_path(next_path: str) -> str:
+def _validate_next_path(next_path: str | None, default: str = DEFAULT_NEXT_PATH) -> str:
     """遷移先パスを検証する。
 
     ``next`` をそのままリダイレクトに使うとオープンリダイレクトになるため、
     **同一オリジン内のパスのみ**を許可する。``//example.com`` は
-    プロトコル相対 URL として外部に飛ぶため拒否する。
+    プロトコル相対 URL として外部に飛ぶため拒否する。``\\`` もブラウザが ``/`` と
+    解釈するため拒否する。
 
     Args:
-        next_path: クエリパラメータで受け取った遷移先。
+        next_path: クエリパラメータで受け取った遷移先。空なら ``default``。
+        default: 既定の遷移先。
 
     Returns:
         str: 検証済みのパス。
@@ -66,17 +80,17 @@ def _validate_next_path(next_path: str) -> str:
     Raises:
         ValueError: パス以外 (絶対 URL / プロトコル相対 URL) が指定された場合。
     """
-    path = (next_path or DEFAULT_NEXT_PATH).strip()
-    if not path.startswith("/") or path.startswith("//"):
+    path = (next_path or default).strip()
+    if not path.startswith("/") or path.startswith("//") or "\\" in path:
         raise ValueError("next must be a path starting with '/'")
     return path
 
 
-def _fetch_tokens(profile: dict[str, str]) -> dict:
+def _fetch_tokens(profile: DevUser) -> dict:
     """プロファイルの認証情報で KeyCloak からトークンを取得する。
 
     Args:
-        profile: ``realm`` / ``username`` / ``password`` を持つプロファイル。
+        profile: プロファイル。
 
     Returns:
         dict: トークンエンドポイントのレスポンス。
@@ -85,106 +99,90 @@ def _fetch_tokens(profile: dict[str, str]) -> dict:
         HTTPException(502): KeyCloak への到達に失敗した場合。
         HTTPException(401): 認証情報が拒否された場合。
     """
-    token_url = _config.build_realm_endpoint(_config.kc_internal_base, profile["realm"], "token")
+    token_url = _config.build_realm_endpoint(_config.kc_internal_base, profile.realm, "token")
     try:
         response = httpx.post(
             token_url,
             data={
                 "grant_type": "password",
-                "client_id": _config.client_id,
-                "client_secret": _config.client_secret,
-                "username": profile["username"],
-                "password": profile["password"],
+                "client_id": _config.client_id_for(profile.plane),
+                "client_secret": _config.client_secret_for(profile.plane, profile.realm),
+                "username": profile.username,
+                "password": profile.password,
                 "scope": "openid profile email",
             },
             timeout=10.0,
         )
     except httpx.HTTPError as exc:
-        logger.warning("dev-login: KeyCloak への接続に失敗しました: %s", exc)
+        logger.warning("dev-login: KeyCloak への接続に失敗しました: %s", type(exc).__name__)
         raise HTTPException(status_code=502, detail="Failed to reach KeyCloak") from exc
 
     if response.status_code != 200:
-        # 認証情報の誤り、または directAccessGrantsEnabled が無効な場合にここへ来る
-        logger.warning("dev-login: token request failed (%s): %s", response.status_code, response.text[:200])
-        raise HTTPException(status_code=401, detail="Dev login failed. Check credentials and directAccessGrantsEnabled.")
+        # 認証情報の誤り、シークレットの不一致、directAccessGrantsEnabled が無効、
+        # ユーザープロフィールの未設定 (Account is not fully set up) などでここへ来る。
+        # error / error_description はトークン等の秘匿値を含まない。
+        try:
+            body = response.json()
+        except ValueError:
+            body = {}
+        logger.warning("dev-login: token request failed (%s): error=%s description=%s", response.status_code, body.get("error"), body.get("error_description"))
+        raise HTTPException(status_code=401, detail="Dev login failed. Check credentials, client secret seed and directAccessGrantsEnabled.")
 
     return response.json()
 
 
 @router.get("/dev-login", include_in_schema=False)
-def dev_login(profile_name: str = Query(default="default", alias="as"), next_path: str = Query(default=DEFAULT_NEXT_PATH, alias="next")):
+def dev_login(
+    profile_name: str = Query(default=DEFAULT_DEV_PROFILE, alias="as"),
+    next_path: str | None = Query(default=None, alias="next"),
+    rf_sid_app: str | None = Cookie(default=None),
+    rf_sid_cp: str | None = Cookie(default=None),
+):
     """開発用の認証情報でログインし、認証済み状態でフロントエンドへ遷移する。
 
     通常のコールバック (:func:`~main_app.route.auth.apiapp.callback`) と
-    **同一内容のセッション**を作るため、以降の挙動 (トークン更新・ログアウト) は
+    **同一内容のセッション** をプロファイルのプレーンに作るため、以降の挙動 (トークン更新・ログアウト) は
     通常のログインと変わらない。
 
     Args:
-        profile_name: 使用するプロファイル名。クエリ ``as`` で指定する。
-        next_path: ログイン後の遷移先パス。クエリ ``next`` で指定する。
+        profile_name: 使用するプロファイル名。クエリ ``as`` で指定する (省略時 ``alpha-admin``)。
+        next_path: ログイン後の遷移先パス。クエリ ``next`` で指定する。省略時はプレーンの既定。
+        rf_sid_app: 既存の AP セッション Cookie (AP でログインする場合は破棄する)。
+        rf_sid_cp: 既存の CP セッション Cookie (CP でログインする場合は破棄する)。
 
     Returns:
         RedirectResponse(302): ``FRONTEND_URL + next`` へのリダイレクト。
-                               ``rf_sid`` HttpOnly Cookie が付与される。
+                               プレーンのセッション Cookie (``rf_sid_app`` / ``rf_sid_cp``) が付与される。
 
     Raises:
         HTTPException(400): プロファイルが存在しない、または ``next`` が不正な場合。
-        HTTPException(401): KeyCloak が認証情報を拒否した場合。
+        HTTPException(401): KeyCloak が認証情報を拒否した、またはトークンの検証に失敗した場合。
+        HTTPException(403): CP のプロファイルが CP のロールを持たない場合。
         HTTPException(502): KeyCloak に到達できない場合。
     """
-    profile = DEV_LOGIN_PROFILES.get(profile_name)
+    profile = DEV_PROFILES.get(profile_name)
     if not profile:
-        available = ", ".join(sorted(DEV_LOGIN_PROFILES))
+        available = ", ".join(sorted(DEV_PROFILES))
         raise HTTPException(status_code=400, detail=f"Unknown profile: {profile_name}. Available: {available}")
 
     try:
-        redirect_path = _validate_next_path(next_path)
+        redirect_path = _validate_next_path(next_path, profile.next_path or DEFAULT_NEXT_PATHS[profile.plane])
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     token_data = _fetch_tokens(profile)
-    realm = profile["realm"]
-
-    id_token = token_data.get("id_token")
-    if not id_token:
-        raise HTTPException(status_code=401, detail="id_token was not issued")
-
-    # 通常のコールバックと同じく署名検証を行う。
     # パスワードグラントには nonce が無いため expected_nonce は None とする。
-    try:
-        claims = verify_id_token(
-            id_token,
-            jwks_uri=_config.build_jwks_uri(realm),
-            audience=_config.client_id,
-            allowed_issuers=_config.allowed_issuers(realm),
-            expected_nonce=None,
-        )
-    except Exception as exc:
-        logger.warning("dev-login: id_token verification failed: %s", exc)
-        raise HTTPException(status_code=401, detail="Invalid id_token") from exc
+    session_data = build_login_session(_config, profile.plane, profile.realm, token_data, expected_nonce=None, tenant_code=profile.tenant_code)
 
-    session_id = create_session(
-        {
-            "realm": realm,
-            "tokens": build_token_record(token_data),
-            "user": {
-                "sub": claims.get("sub"),
-                "preferred_username": claims.get("preferred_username"),
-                "email": claims.get("email"),
-                "realm": realm,
-            },
-        }
-    )
+    # 同じプレーンの既存セッションを破棄してから新しいセッションを発行する
+    old_cookie = rf_sid_app if profile.plane == Plane.APP else rf_sid_cp
+    old_session_id = unsign_session_id(profile.plane, old_cookie) if old_cookie else None
+    if old_session_id:
+        delete_session(profile.plane, old_session_id)
+    session_id = create_session(profile.plane, session_data)
 
-    logger.warning("dev-login: プロファイル '%s' でセッションを発行しました", profile_name)
+    logger.warning("dev-login: プロファイル '%s' (plane=%s) でセッションを発行しました", profile_name, profile.plane.value)
 
     response = RedirectResponse(url=f"{_config.frontend_url}{redirect_path}", status_code=302)
-    response.set_cookie(
-        key=SESSION_COOKIE_NAME,
-        value=sign_session_id(session_id),
-        httponly=True,
-        secure=_config.cookie_secure(),
-        samesite="lax",
-        path="/",
-    )
+    set_session_cookie(response, profile.plane, session_id, secure=_config.cookie_secure())
     return response

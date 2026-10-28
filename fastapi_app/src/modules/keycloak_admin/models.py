@@ -65,6 +65,8 @@ class ClientSpec:
         standard_flow_enabled: 認可コードフローを有効にするか。
         direct_access_grants_enabled: パスワードグラントを有効にするか (開発用ログインバイパスで使用)。
         service_accounts_enabled: サービスアカウント (クライアントクレデンシャル) を有効にするか。
+        secret: クライアントシークレット。指定時は作成・更新のたびに設定する (``None`` なら Keycloak の値のまま)。
+                ``repr`` には出さない。
         attributes: 追加のクライアント属性。
         extra: その他の ClientRepresentation フィールド。
     """
@@ -78,6 +80,7 @@ class ClientSpec:
     standard_flow_enabled: bool = True
     direct_access_grants_enabled: bool = True
     service_accounts_enabled: bool = False
+    secret: str | None = field(default=None, repr=False)
     attributes: Mapping[str, str] = field(default_factory=dict)
     extra: Mapping[str, Any] = field(default_factory=dict)
 
@@ -85,12 +88,14 @@ class ClientSpec:
         """ClientRepresentation に変換する。
 
         Returns:
-            dict[str, Any]: Keycloak に送る JSON。
+            dict[str, Any]: Keycloak に送る JSON。``secret`` を含む場合があるため、ログに出さないこと。
         """
         attributes = dict(self.attributes)
         if self.post_logout_redirect_uris:
             attributes["post.logout.redirect.uris"] = POST_LOGOUT_REDIRECT_URIS_SEPARATOR.join(self.post_logout_redirect_uris)
+        secret = {"secret": self.secret} if self.secret else {}
         return {
+            **secret,
             **self.extra,
             "clientId": self.client_id,
             "enabled": self.enabled,
@@ -257,3 +262,37 @@ class SetupResult:
     client: ClientResult
     client_secret: str = field(repr=False)
     user: UserResult
+
+
+@dataclass(frozen=True, kw_only=True)
+class TenantRealmResult:
+    """``ensure_tenant_realm`` (テナントレルムのテンプレート) の結果。
+
+    クライアントシークレットは導出値 (02 §3.3) のため含めない。
+
+    Attributes:
+        realm_name: レルム名 (``tenant-{tenant_code}``)。
+        created: 今回レルムを作成したか。
+        login_client_id: ログイン用クライアントのクライアント ID (既定 ``fastapi-app``)。
+        user_admin_client_id: ユーザー管理用サービスアカウントのクライアント ID (``tenant-user-admin``)。
+    """
+
+    realm_name: str
+    created: bool
+    login_client_id: str
+    user_admin_client_id: str
+
+
+@dataclass(frozen=True, kw_only=True)
+class ControlPlaneRealmResult:
+    """``ensure_control_plane_realm`` の結果。
+
+    Attributes:
+        realm_name: レルム名 (``control-plane``)。
+        created: 今回レルムを作成したか。
+        login_client_id: ログイン用クライアントのクライアント ID (既定 ``fastapi-cp``)。
+    """
+
+    realm_name: str
+    created: bool
+    login_client_id: str

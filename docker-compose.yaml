@@ -42,6 +42,10 @@ services:
     command: "uvicorn app:app --host 0.0.0.0 --port 8000"
     volumes:
       - ./:/work/
+      # Python仮想環境とuvキャッシュは名前付きボリュームに置き、コンテナを作り直しても依存を再インストールしない。
+      # 空のボリュームは初回にイメージの内容(所有者はvscode)で初期化される。入れ直す場合は dev-environment スキルを参照
+      - fastapi_uv_venv:/usr/local/uv
+      - fastapi_uv_cache:/usr/local/uv-cache
     ports:
       - "8000:8000"
     user: vscode
@@ -82,7 +86,9 @@ services:
       - KEYCLOAK_EXTERNAL_URL=${KEYCLOAK_EXTERNAL_URL:-http://localhost:8080}
       - KEYCLOAK_HTTP_RELATIVE_PATH=${KEYCLOAK_HTTP_RELATIVE_PATH:-keycloak}
       - KEYCLOAK_CLIENT_ID=${KEYCLOAK_CLIENT_ID:-fastapi-app}
-      - KEYCLOAK_CLIENT_SECRET=${KEYCLOAK_CLIENT_SECRET:-change-me}
+      - KEYCLOAK_CP_CLIENT_ID=${KEYCLOAK_CP_CLIENT_ID:-fastapi-cp}
+      # クライアントシークレット導出用のシード (開発用の既定値は APP_ENV=development 以外で起動エラー)
+      - KC_CLIENT_SECRET_SEED=${KC_CLIENT_SECRET_SEED:-change-me-client-secret-seed}
       - APP_CALLBACK_URL=${APP_CALLBACK_URL:-http://localhost:5173/api/auth/callback}
       - FRONTEND_URL=${FRONTEND_URL:-http://localhost:5173}
       # セッション管理
@@ -91,12 +97,17 @@ services:
       - AUTH_DEV_LOGIN_ENABLED=${AUTH_DEV_LOGIN_ENABLED:-true}
       # 空の場合 CORS は無効(Vite proxy 経由の同一オリジン運用では不要)
       - CORS_ALLOW_ORIGINS=${CORS_ALLOW_ORIGINS:-}
+      # CSRF 対策で FRONTEND_URL 以外に許可する Origin (カンマ区切り。空なら FRONTEND_URL のみ)
+      - CSRF_TRUSTED_ORIGINS=${CSRF_TRUSTED_ORIGINS:-}
       - REDIS_URL=${REDIS_URL:-redis://redis_c:6379/0}
       - SESSION_SECRET_KEY=${SESSION_SECRET_KEY:-change-me-session-secret}
       - SESSION_TTL_SECONDS=${SESSION_TTL_SECONDS:-3600}
       # Keycloak セットアップ CLI が Admin API を呼ぶための管理者資格情報。開発専用(本番では渡さない)
       - KEYCLOAK_ADMIN_USERNAME=${KC_BOOTSTRAP_ADMIN_USERNAME:-admin}
       - KEYCLOAK_ADMIN_PASSWORD=${KC_BOOTSTRAP_ADMIN_PASSWORD:-admin}
+      # テナント払い出し用のサービスアカウント(master の cp-provisioner)。APP_ENV=development 以外で使用し、シークレットは必須
+      - KEYCLOAK_PROVISIONER_CLIENT_ID=${KEYCLOAK_PROVISIONER_CLIENT_ID:-cp-provisioner}
+      - KEYCLOAK_PROVISIONER_CLIENT_SECRET=${KEYCLOAK_PROVISIONER_CLIENT_SECRET:-}
     depends_on:
       - postgres_c
       - keycloak_c
@@ -174,3 +185,9 @@ services:
     ports:
       - "6379:6379"
     command: ["redis-server", "--appendonly", "yes"]
+
+volumes:
+  # fastapi_app の Python 仮想環境(UV_PROJECT_ENVIRONMENT)
+  fastapi_uv_venv:
+  # fastapi_app の uv キャッシュ(UV_CACHE_DIR)
+  fastapi_uv_cache:

@@ -22,6 +22,15 @@
 ``FRONTEND_URL``               (なし)                         ``http://localhost:5173``
 ``KEYCLOAK_INIT_USER_PASSWORD`` 同名                          ``ChangeMe123!``
 ============================== ============================== ====================================
+
+払い出し用の管理クライアント (:func:`~modules.keycloak_admin.templates.create_provisioner_admin_client`) は、
+``APP_ENV=development`` 以外では上記の管理ユーザーではなく ``cp-provisioner`` のクライアントクレデンシャルを使う:
+
+- ``KEYCLOAK_PROVISIONER_CLIENT_ID`` (既定 ``cp-provisioner``。``KEYCLOAK_ADMIN_REALM`` のクライアント)
+- ``KEYCLOAK_PROVISIONER_CLIENT_SECRET`` (必須。既定値なし)
+
+テンプレートのログイン用クライアントは BFF と同じ ``KEYCLOAK_CLIENT_ID`` / ``KEYCLOAK_CP_CLIENT_ID`` /
+``FRONTEND_URL`` / ``APP_CALLBACK_URL`` / ``APP_ENV`` を読む (:class:`PlatformClientSettings`)。
 """
 import logging
 import os
@@ -114,22 +123,29 @@ class KeycloakAdminSettings:
         return f"{self.base_url}/realms/{self.admin_realm}/protocol/openid-connect/token"
 
     @classmethod
-    def from_env(cls) -> "KeycloakAdminSettings":
+    def from_env(cls, *, require_admin_password: bool = True) -> "KeycloakAdminSettings":
         """環境変数から設定を読み込む。
 
         ``KEYCLOAK_ADMIN_PASSWORD`` が未設定の場合、``APP_ENV=development`` では
         警告を出して開発用既定値 (``admin``) を使う。それ以外の環境ではエラーにする。
 
+        Args:
+            require_admin_password: 管理パスワードを必要とするか。クライアントクレデンシャル
+                (``cp-provisioner``) で管理トークンを取得する場合は ``False`` とし、
+                パスワードは空のままにする (開発用既定値も使わない)。
+
         Returns:
             KeycloakAdminSettings: 読み込んだ設定。
 
         Raises:
-            RuntimeError: 本番相当の環境で管理パスワードが未設定の場合。
+            RuntimeError: 本番相当の環境で管理パスワードが未設定の場合 (``require_admin_password`` が真のとき)。
             ValueError: タイムアウト値が不正な場合。
         """
         app_env = os.getenv("APP_ENV", "development").strip().lower()
         admin_password = os.getenv("KEYCLOAK_ADMIN_PASSWORD", "")
-        if not admin_password:
+        if not require_admin_password:
+            admin_password = ""
+        elif not admin_password:
             if app_env != "development":
                 raise RuntimeError(f"KEYCLOAK_ADMIN_PASSWORD が未設定です。APP_ENV={app_env} では開発用既定値を使用できません。")
             logger.warning("KEYCLOAK_ADMIN_PASSWORD が未設定のため、開発用既定値を使用します。")
@@ -186,3 +202,41 @@ def default_init_user_password() -> str:
         str: ``KEYCLOAK_INIT_USER_PASSWORD``、未設定なら ``ChangeMe123!``。
     """
     return os.getenv("KEYCLOAK_INIT_USER_PASSWORD", "") or DEFAULT_INIT_USER_PASSWORD
+
+
+@dataclass(frozen=True, kw_only=True)
+class PlatformClientSettings:
+    """テンプレート (``modules.keycloak_admin.templates``) が作るログイン用クライアントの設定 (02 §3.1)。
+
+    BFF (``modules.auth.environment``) と同じ環境変数を読む。値が食い違うと、BFF の導出する
+    シークレットやリダイレクト URI がクライアントの設定と合わなくなるため。
+
+    Attributes:
+        app_client_id: AP のログイン用クライアント ID (``KEYCLOAK_CLIENT_ID``、既定 ``fastapi-app``)。
+        cp_client_id: CP のログイン用クライアント ID (``KEYCLOAK_CP_CLIENT_ID``、既定 ``fastapi-cp``)。
+        frontend_url: フロントエンドのベース URL (``FRONTEND_URL``)。Web origins とログアウト後の遷移先に使う。
+        callback_url: 認可コードフローのリダイレクト先 (``APP_CALLBACK_URL``。未設定なら ``{FRONTEND_URL}/api/auth/callback``)。
+        direct_access_grants_enabled: パスワードグラントを有効にするか。``APP_ENV=development`` のときだけ真 (02 §3.1)。
+    """
+
+    app_client_id: str = "fastapi-app"
+    cp_client_id: str = "fastapi-cp"
+    frontend_url: str = DEFAULT_FRONTEND_URL
+    callback_url: str = DEFAULT_CALLBACK_URL
+    direct_access_grants_enabled: bool = False
+
+    @classmethod
+    def from_env(cls) -> "PlatformClientSettings":
+        """環境変数から設定を読み込む。
+
+        Returns:
+            PlatformClientSettings: 読み込んだ設定。
+        """
+        frontend_url = (os.getenv("FRONTEND_URL", "").strip() or DEFAULT_FRONTEND_URL).rstrip("/")
+        return cls(
+            app_client_id=os.getenv("KEYCLOAK_CLIENT_ID", "").strip() or "fastapi-app",
+            cp_client_id=os.getenv("KEYCLOAK_CP_CLIENT_ID", "").strip() or "fastapi-cp",
+            frontend_url=frontend_url,
+            callback_url=os.getenv("APP_CALLBACK_URL", "").strip() or f"{frontend_url}/api/auth/callback",
+            direct_access_grants_enabled=os.getenv("APP_ENV", "development").strip().lower() == "development",
+        )

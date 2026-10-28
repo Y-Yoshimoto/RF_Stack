@@ -146,7 +146,8 @@ ALTER TABLE t_todo_assignee
 - SQLModel の `MetaData` を**プレーン毎に分ける**。各 `env.py` は自プレーンの `MetaData` だけを `target_metadata` にする（他プレーンのテーブルを作る・消すリビジョンが生成されるのを防ぐ）
 - `SQLModel.metadata.create_all()` は使わない。スキーマ変更はすべてリビジョンとして残す
 - プレーン毎の基底: CP は `ControlPlaneBase`（`control_plane_app/models/base.py`）、AP は `AppPlaneBase`（`main_app/models/base.py`）。AP のモデルは `main_app/models/__init__.py` で import して MetaData に載せる
-- CP の初期リビジョンは `0001_create_t_tenant`（既存の `t_tenant` をそのまま作成）
+- CP の初期リビジョンは `0001_create_t_tenant`（既存の `t_tenant` をそのまま作成）。`0002_revise_cp_tables` で 01 の 9.5 に沿って改訂した（4.6）
+- ビュー・GRANT / REVOKE は autogenerate で検出されないため、リビジョンに手で書く。ロール名はハードコードせず、マイグレーション実行時の環境変数（`CP_DB_REGISTRY_READER_USER` 等）から取ってクォートする
 
 ### 4.5 プレーン間アクセスの実装
 
@@ -154,6 +155,24 @@ ALTER TABLE t_todo_assignee
 | --- | --- | --- |
 | AP → CP（レジストリ参照） | `cp_registry_reader` で `control_plane_db` の `v_tenant_registry` | `modules/tenancy/registry.py` の `TenantRegistry`。プロセス内 TTL キャッシュ（30 秒） |
 | CP → AP（集計・物理削除） | `app_cp_agent` で `app_db` | テナント毎に `set_config` でコンテキストを切り替える。CP のリポジトリ層に閉じ込める |
+
+### 4.6 CP のテーブル
+
+01 の 9.5 の実装。モデルは `control_plane_app/models/sql_models.py`、スキーマはリビジョン `0002_revise_cp_tables`。
+
+| 01 の名称 | テーブル / ビュー | 主キー | 実装上の注記 |
+| --- | --- | --- | --- |
+| テナント | `t_tenant` | `id`（UUIDv7） | `tenant_code` / `realm_name` は通常の UNIQUE（部分インデックスにしない。DELETED 後も再利用させないため）。`status` と `tenant_code` の形式（01 の 5.1）を CHECK で強制。予約語の拒否はアプリ層。楽観ロックの `version` と `created_by` / `updated_by`（CP 管理者の IdP subject または `system`）を持つ |
+| 払い出し履歴 | `t_provisioning_history` | `id`（UUIDv7） | `type` は `onboard` / `offboard`、`status` は `RUNNING` / `SUCCEEDED` / `FAILED` / `SKIPPED`（CHECK）。`tenant_id` は `t_tenant` への外部キー |
+| 日次メトリクス | `t_tenant_daily_metric` | `(tenant_id, date, metric_key)` | `value` は `numeric`（浮動小数点を使わない）。日次スナップショットの再実行は `ON CONFLICT ... DO UPDATE` で上書きする |
+| 定期ジョブ実行履歴 | `t_scheduled_job_run` | `id`（UUIDv7） | `status` は払い出し履歴と同じ値。advisory lock を取れずにスキップした実行は `SKIPPED` で記録できる |
+| CP 監査ログ | `t_cp_audit_log` | `id`（UUIDv7） | 03 の 7 章の `target_type` / `target_id` も持つ。`cp_runtime` から UPDATE / DELETE を REVOKE し追記のみとする。`target_tenant_id` に外部キーは張らない。`updated_at` は持たない |
+| テナントレジストリ公開ビュー | `v_tenant_registry` | — | `t_tenant` の `id AS tenant_id, tenant_code, realm_name, status`（`public` スキーマ、`status <> 'DELETED'`）。SELECT は `cp_registry_reader` にのみ付与 |
+
+- `v_tenant_registry` は `security_invoker` を付けない通常のビューとし、所有者（`cp_owner`）の権限で `t_tenant` を読む。`cp_registry_reader` は `t_tenant` を直接読めない
+- DEFAULT PRIVILEGES により `cp_runtime` もビューの DML 権限を持つが、`t_tenant` の DML 権限を既に持つため権限の拡大にはならない
+- 状態の値は `control_plane_app.models.sql_models.TenantStatus` を正とし、AP 側の `modules.tenancy.registry.TenantStatus` と一致させる
+- `updated_at` は SQLAlchemy の `onupdate`（アプリ側）で更新する。`version` の +1 は更新処理側で行う
 
 ---
 
@@ -170,16 +189,20 @@ fastapi_app/
       db_connector/           # エンジン・セッション生成
       tenancy/                # テナントコンテキスト、RLS、テナントレジストリ、テナントスコープのモデル基底
       keycloak_admin/         # Keycloak Admin API クライアント（冪等 ensure 関数、CLI）
+      api_common/             # API 規約の部品（UTC の日時型、カーソル方式のページネーション、ETag / If-Match）
+      errors/                 # Problem Details の例外・ハンドラ・OpenAPI への反映、リクエスト ID
       logging/                # 構造化ログ（予定）
-      errors/                 # Problem Details の例外とハンドラ（予定）
     control_plane_app/        # コントロールプレーン
-      api_*/                  # /api/v1/cp ルーター（fastapi-api-schema）
+      apiapp.py               # /api/v1/cp ルーター（認可: saas_admin / saas_viewer + CSRF）
+      api_tenants/            # /api/v1/cp/tenants（fastapi-api-schema）
+      api_metrics/            # /api/v1/cp/tenants/{id}/metrics、/api/v1/cp/metrics/summary
+      problems.py             # 払い出しサービスの例外 → Problem Details
       services/               # 払い出し・メトリクス等（fastapi-domain）
-      repositories/           # DB アクセス（AP DB への集計・物理削除もここに閉じ込める）
+      repositories/           # DB アクセス（AP DB への集計・物理削除もここに閉じ込める）。tenant_query.py は一覧・メトリクスの読み取り専用クエリ
       models/                 # CP の SQLModel（postgres-schema）
       jobs/                   # 定期ジョブ本体（APScheduler に依存しない関数）
     main_app/                 # アプリケーションプレーン
-      route/                  # /api/v1 ルーター、/api/auth ルーター
+      route/                  # ルーター。auth（/api/auth）、public（/api/v1/public）、v1（/api/v1。AP）
       services/
       repositories/
       models/                 # AP の SQLModel
@@ -191,6 +214,19 @@ fastapi_app/
 ```
 
 - `main_app` は `control_plane_app` を import しない（逆も同様）。共有は `modules` のみ
+- CP のテナント払い出し（実装済み）:
+
+| モジュール | 内容 |
+| --- | --- |
+| `control_plane_app/services/tenant_provisioning.py` | `TenantProvisioningService`（`onboard` / `retry` / `suspend` / `resume` / `request_deletion` / `deprovision`）。FastAPI 非依存で、CP DB の `Session` と Keycloak の管理クライアントを受け取り、コミットはサービスが行う |
+| `control_plane_app/services/errors.py` | 例外と Problem Details の `code`・HTTP ステータスの対応 |
+| `control_plane_app/services/tenant_lifecycle.py` | 状態遷移（01 の 6.1）と操作ごとの遷移元。猶予期間 30 日、中断判定 10 分 |
+| `control_plane_app/services/tenant_maintenance.py` | 中断した払い出しの回収（`reap_stale_provisioning`）、物理削除の対象の抽出 |
+| `control_plane_app/repositories/` | CP DB の台帳・履歴・監査ログ、advisory lock、AP DB のテナントデータ削除（`app_tenant_data.py` の `TENANT_DATA_PURGE_TABLES` が 01 の 13 章 #9 の拡張点） |
+| `control_plane_app/jobs/` | `provisioning_reaper` / `tenant_purge` の本体（`python -m control_plane_app.jobs <job_name>` でも実行できる）。スケジューラへの登録は未実装 |
+| `control_plane_app/seed.py` | 開発用シード（7.1） |
+
+  使い方と守ることは `tenant-provisioning` スキルの 3 章を参照する
 - 例外: AP のテナントレジストリ参照は `modules/tenancy/registry.py` の読み取り専用インターフェース経由
 - 各層の担当エージェント: ルーター・スキーマ → `fastapi-api-schema`、サービス・共通部品 → `fastapi-domain`、モデル・マイグレーション → `postgres-schema`、テスト → `fastapi-pytest`、認証 → `auth-keycloak`
 
@@ -198,15 +234,13 @@ fastapi_app/
 
 | 項目 | 実装 |
 | --- | --- |
-| セッション Cookie | AP: `rf_sid_app`、CP: `rf_sid_cp`。`HttpOnly`、`SameSite=Lax`、`Secure` は `APP_ENV` から導出。値は `itsdangerous` で署名 |
+| セッション Cookie | AP: `rf_sid_app`、CP: `rf_sid_cp`。`HttpOnly`、`SameSite=Lax`、`Secure` は `APP_ENV` から導出。値は `itsdangerous` でプレーン毎の salt を使って署名 |
 | セッションストア | Redis。キーは `session:app:{sid}` / `session:cp:{sid}`、TTL は `SESSION_TTL_SECONDS` |
-| セッションの内容 | `plane`, `realm`, `tenant_id`, `tenant_code`（AP のみ）, `user`（`sub`, `user_id`, `roles`）, `tokens` |
+| セッションの内容 | `plane`, `realm`, `tenant_id` / `tenant_code`（AP のみ）, `user`, `tokens`。`user` は `sub`, `preferred_username`, `email`, `realm`, `plane`, `roles`（プレーンの許可リストにあるレルムロールのみ）で、AP のみ `tenant_id` を加える |
 | 認可リクエストの一時状態 | Redis `auth_state:{state}`（TTL 300 秒）に `plane`, `realm`, `code_verifier`, `nonce` |
-| トークン検証 | レルム毎の JWKS を `PyJWKClient` でキャッシュ。issuer は内部・外部 URL の両方を許可（`KC_HOSTNAME` 固定前提） |
-| 認証依存関数 | AP ルーター: `require_app_session` → `require_tenant_context`、CP ルーター: `require_cp_session` → ロール確認 |
-| CSRF | 変更系メソッドで `X-Requested-With: rf-stack` ヘッダーと `Origin` の一致を検証するミドルウェア |
-
-現状の実装（`/api/auth/login?realm=`、単一 Cookie `rf_sid`）は、上記のプレーン別構成に移行する。
+| トークン検証 | レルム毎の JWKS を `PyJWKClient` でキャッシュ。issuer は内部・外部 URL の両方を許可（`KC_HOSTNAME` 固定前提）。アクセストークンはアクセスのたびに期限を確認し、切れていればサーバー側で更新する |
+| 認証依存関数 | `modules/auth/dependency.py` の `get_current_app_user` / `get_current_cp_user`（未認証・別プレーンのセッションは 401）、`require_app_roles` / `require_cp_roles`（ロール不足は 403）。AP ルーターはさらに `AppTenantContextDep`（`modules/tenancy/app_dependency.py`。レジストリ照合、停止中・不一致は 403）を適用する |
+| CSRF | ミドルウェアではなく**依存関数** `require_csrf_protection`（`modules/auth/csrf.py`）。変更系メソッド（POST / PUT / PATCH / DELETE）で `X-Requested-With: rf-stack` と、許可したオリジン（`FRONTEND_URL` と `CSRF_TRUSTED_ORIGINS`）に一致する `Origin` を検証し、不足は 403。参照系は素通りするため、ルーター単位で付ける（`/api/v1` と `/api/v1/cp` のルーターに適用済み） |
 
 ### 5.3 テナントコンテキスト
 
@@ -226,7 +260,7 @@ fastapi_app/
 
 ### 5.4 予約語
 
-- 正は `modules/tenancy` 配下の定数（バックエンド）とする。テナント作成 API が検証する
+- 正は `modules/tenancy/tenant_code.py` の `RESERVED_TENANT_CODES`（バックエンド）とする。払い出しサービス（`onboard`）が形式とあわせて検証する（`validate_tenant_code`）
 - フロントは予約語リストを持たない。静的ルートを `/:tenantCode/*` より先に定義し、それ以外の第 1 セグメントは公開のテナント存在確認 API（予約語は 404）で判定する
 
 ### 5.5 定期実行
@@ -235,6 +269,55 @@ fastapi_app/
 - 環境変数 `SCHEDULER_ENABLED`（既定 `true`）で無効化できる。複数ワーカー構成では 1 つ以外で無効化するか、advisory lock に任せる
 - ジョブ実行時に `pg_try_advisory_lock(hashtext('<job_name>'))` を CP DB で取得し、取れなければスキップする
 - ジョブ本体は `control_plane_app/jobs/` の普通の関数とし、CLI からも実行できる
+
+### 5.6 API 層（ルーティング・エラー・規約）
+
+実装は `app.py`（ルーターのマウント、lifespan、例外ハンドラ、リクエスト ID のミドルウェアのみ）。
+
+**ルーターと認可**（登録順は上から。`cp` / `public` を AP より先に登録する。01 §10.1）
+
+| プレフィックス | タグ | 実装 | ルーター全体に適用するもの |
+| --- | --- | --- | --- |
+| `/api/auth` | `auth` | `main_app/route/auth/` | なし（BFF のフロー。OpenAPI には出さない） |
+| `/api/v1/cp` | `cp` | `control_plane_app/apiapp.py` | `require_cp_roles("saas_admin", "saas_viewer")` → `require_csrf_protection`。変更系のエンドポイントはさらに `require_cp_roles("saas_admin")` |
+| `/api/v1/public` | `public` | `main_app/route/public/apiapp.py` | なし |
+| `/api/v1` | `app` | `main_app/route/v1/apiapp.py` | `AppTenantContextDep` → `require_csrf_protection` |
+
+**エンドポイント**（`GET /openapi.json` が契約の正。ここは一覧）
+
+| メソッド | パス | 認可 | 概要 |
+| --- | --- | --- | --- |
+| GET | `/api/v1/me` | AP セッション | テナント（`id`, `tenant_code`）とユーザー（`id`, `username`, `email`, `roles`） |
+| GET | `/api/v1/cp/tenants` | CP 参照 | 一覧。カーソル方式（`limit` / `cursor` / `include_total`）、`sort`（`created_at` 既定 `-created_at` / `tenant_code` / `name`）、`status`（カンマ区切り）。直近の日次メトリクスのユーザー数を含む |
+| POST | `/api/v1/cp/tenants` | `saas_admin` | 同期払い出し。201、`Location` と `ETag`。一時パスワードを本文で一度だけ返し、`Cache-Control: no-store` |
+| GET | `/api/v1/cp/tenants/{id}` | CP 参照 | 詳細と払い出し履歴。`ETag` |
+| POST | `/api/v1/cp/tenants/{id}/suspend` / `resume` | `saas_admin` | `If-Match` 必須（無ければ 428、不一致は 412）。200 とテナント、新しい `ETag` |
+| DELETE | `/api/v1/cp/tenants/{id}` | `saas_admin` | 削除要求（`PENDING_DELETION`）。`If-Match` 必須。物理削除は猶予期間後の定期ジョブ |
+| POST | `/api/v1/cp/tenants/{id}/provisioning/retry` | `saas_admin` | 再実行。初期管理者を本文で受け取る（台帳に保存していないため）。`If-Match` は任意。一時パスワードは新しい値を一度だけ返す |
+| GET | `/api/v1/cp/tenants/{id}/metrics?from=&to=` | CP 参照 | `t_tenant_daily_metric` の推移（既定は直近 30 日、最大 366 日）。データが無ければ `items` は空。値は 10 進数の文字列 |
+| GET | `/api/v1/cp/metrics/summary` | CP 参照 | 状態ごとのテナント数と、指標ごとの最新値の合計（削除済みを除く） |
+| GET | `/api/v1/public/health/live` | なし | プロセスの生存のみ |
+| GET | `/api/v1/public/health/ready` | なし | CP DB・AP DB・Redis に接続できるか。失敗は 503 |
+| GET | `/api/v1/public/tenants/{tenant_code}` | なし | `{tenant_code, status}` のみ。存在しない・削除済み・形式不正・予約語は区別せず 404 |
+
+users / organizations（01 §10.2）は AP のテーブルを作成した後に追加する。
+
+**エラー**（`modules/errors`。03 §2）
+
+- `application/problem+json`（RFC 9457）。`type` / `title` / `status` / `detail` / `instance` / `code` / `request_id` / `errors`（`{field, code, message}`）。`title` / `detail` は日本語の固定文言で、`HTTPException.detail` の文字列はそのまま返さない（`modules/errors/catalog.py` の対応表で `code` にする。表に無いものはステータスの既定の文言）
+- ルーターからは `ProblemError` を送出する。`HTTPException`・`RequestValidationError`（422、`errors` に項目ごとの詳細）・払い出しサービスの例外（`control_plane_app/problems.py`）・Redis / DB の接続失敗（503）・想定外の例外（500。内容は返さずログに残す）を変換する
+- AP と CP で 401 / 403 / 404 の形は同じ。AP の 403 は `tenant_inactive`（停止中・削除要求中）とそれ以外（`tenant_unavailable`。存在有無を推測させないため集約）に分ける
+- 払い出しの失敗（502）は拡張メンバー `tenant_id` / `step` を返す（`tenant_id` で再実行できる）。状態遷移の不正（409）は `operation` / `current_status` を返す
+- OpenAPI は後処理で、エラー応答を `application/problem+json`・`ProblemDetails` にそろえる（`modules/errors/openapi.py`）
+
+**リクエスト ID**: `X-Request-ID` を受け取り（形式が不正・無ければ UUIDv7 を生成）、レスポンスヘッダー・Problem Details の `request_id`・監査ログに使う（`modules/errors/request_id.py`）。
+
+**規約の部品**（`modules/api_common`）: 日時は UTC に正規化して `Z` 付きで出力（`UtcDatetime`）、カーソルは base64url の JSON（並び替えの指定・キーの値・`id`。並び替えが変わると 422）、`ETag: "<version>"` / `If-Match`（形式不正は 400）。
+
+**公開 API の判断**
+
+- `health/ready` は CP DB・AP DB（`SELECT 1`）と Redis（`PING`）を確認する。**Keycloak は含めない**。停止してもログイン済みのセッションは使えるため、含めると IdP の障害で全 API がトラフィックから外れて影響が広がる（Keycloak の死活は監視 04 で扱う）。確認は並列で、合計 3 秒で打ち切る
+- `public/tenants/{tenant_code}` のレート制限は、Redis の固定ウィンドウによる IP 単位の簡易実装（既定 60 回 / 60 秒。`PUBLIC_TENANT_LOOKUP_RATE_LIMIT` で変更、`0` で無効、`PUBLIC_TENANT_LOOKUP_RATE_WINDOW_SECONDS`）。超過は 429（`Retry-After`）。Redis 障害時は制限せず通す（fail-open）。**リバースプロキシの背後では `X-Forwarded-For` の設定と uvicorn の `--proxy-headers --forwarded-allow-ips` が必要**で、無いと全クライアントが同じ IP に見えて 1 つの枠を共有する（本番投入前に infra で設定する）
 
 ---
 
@@ -289,7 +372,16 @@ react_app/src/
 | ユーザー | 各テナントに `tenant_admin` 1、`member` 2 |
 
 - シードは CP の払い出しサービスを CLI から呼び出して作成する（Keycloak を直接いじるスクリプトを別に持たない）
-- 認証情報（開発用）は `fastapi_app` 側の 1 箇所に定義し、開発用ログインのプロファイルと共有する
+- 認証情報（開発用）は `fastapi_app` 側の 1 箇所（`modules/auth/dev_profiles.py`）に定義し、開発用ログインのプロファイルと共有する
+
+```bash
+make d-run SERVICE=fastapi_app CMD="uv run python -m control_plane_app.seed"
+```
+
+- 何度実行してもよい（冪等）。`control-plane` レルムと CP のユーザーを反映し、各テナントは台帳に無ければ `onboard`、`FAILED` / `PROVISIONING` なら `retry`、`ACTIVE` ならスキップする。その後、各テナントのユーザーを開発用パスワード（一時パスワードではない）で作成・更新する
+- 初期管理者は各テナントの `tenant_admin`（`alpha-admin` / `beta-admin`）。払い出しで設定された一時パスワードは、直後のユーザー作成で開発用パスワードに置き換わる
+- `APP_ENV=development` が明示的に設定されていない場合は実行を拒否する（終了コード 2）
+- 停止中・削除要求中などのテナントは触らない（警告のみ）。作り直す場合は台帳と Keycloak の両方を消してから再実行する
 
 ### 7.2 開発用ログイン
 
@@ -307,7 +399,7 @@ GET /api/auth/dev-login?as=<profile>&next=<path>
 
 - `APP_ENV=development` かつ `AUTH_DEV_LOGIN_ENABLED=true` のときのみルートを登録する（現行どおり）
 - Direct Access Grant で本物のトークンを取得し、通常のコールバックと同じ内容のセッションを作る（現行どおり）
-- 現状のプロファイル（`default` → `tenant-a` / `user001`）は、シード整備時に上表へ置き換える。テナントコード `a` は 3 文字未満で 01 の形式に合わないため、`tenant-a` は使い続けない
+- プロファイルと開発用の認証情報は `fastapi_app/src/modules/auth/dev_profiles.py` に定義する（`as` 省略時は `alpha-admin`）。旧プロファイル `default`（`tenant-a` / `user001`）は、テナントコード `a` が 01 の形式に合わないため削除した
 
 ---
 
@@ -315,13 +407,17 @@ GET /api/auth/dev-login?as=<profile>&next=<path>
 
 | 項目 | 現状 | 目標 |
 | --- | --- | --- |
-| 認証のログイン開始 | `/api/auth/login?realm=`（任意のレルム名を受け付ける） | `/api/auth/app/login?tenant_code=`（レジストリで解決）、`/api/auth/cp/login` |
-| セッション Cookie | `rf_sid`（1 つ） | `rf_sid_app` / `rf_sid_cp` |
-| セッションのユーザー情報 | `sub`, `preferred_username`, `email`, `realm` のみ | トークンの `tenant_id` クレームと `roles` を追加（`RegistryTenantResolver` が必要とする） |
-| テナント部品の組み込み | （済）`modules/tenancy` を作成 | `app_db` 用 `DBConnector` に `install_tenant_guc_listener` を登録、AP ルーターに `create_tenant_context_dependency` を適用 |
-| CP の API | `/control_plane/tenant/*`（`/api` 外で Vite proxy を通らない） | `/api/v1/cp/*` |
-| テナント台帳 | `t_tenant`（`isenabled`, `claim`, `industry` 等） | 01 の 9.5 に沿って改訂 |
+| 認証のログイン開始 | （済）`/api/auth/app/login?tenant_code=`（レジストリで解決）、`/api/auth/cp/login` | — |
+| セッション Cookie | （済）`rf_sid_app` / `rf_sid_cp` | — |
+| セッションのユーザー情報 | （済）`sub`, `preferred_username`, `email`, `realm`, `plane`, `roles`、AP のみ `tenant_id` | — |
+| テナント部品の組み込み | （済）`modules/tenancy` を作成し、`app_db` 用の sessionmaker にリスナーを登録 | （済）AP ルーター（`/api/v1`）に `AppTenantContextDep` を適用 |
+| CP の API | （済）`/api/v1/cp/*`。旧 `/control_plane/*` と `control_plane_app/api_tenant/` は削除（React からの呼び出しは無かった） | — |
+| 公開 API | （済）`/api/v1/public/*`（ヘルスチェック、テナント存在確認） | — |
+| AP の API | （済）`/api/v1/me`。users / organizations は AP のテーブルの作成後 | `/api/v1/users`、`/api/v1/organizations`（01 §10.2） |
+| エラー形式 | （済）RFC 9457 Problem Details（`modules/errors`）。`/api/auth/*` と旧サンプルも同じハンドラで変換される | — |
+| CSRF 対策 | （済）依存関数 `require_csrf_protection`（`/api/v1`、`/api/v1/cp`、ログアウトに適用） | — |
+| テナント台帳 | （済）01 の 9.5 に沿って改訂（4.6） | （済）CP API（`/api/v1/cp/*`）から利用 |
 | DB ロール | （済）プレーン・用途毎に分離 | 既存の開発環境は `make d-reset-db` で作り直す |
 | Alembic | （済）プレーン毎の 2 環境、`create_all()` を廃止 | — |
-| Keycloak セットアップ | （済）Python の `modules/keycloak_admin` | 払い出しサービスから利用 |
+| Keycloak セットアップ | （済）Python の `modules/keycloak_admin` | （済）払い出しサービスから利用 |
 | デモ用 API | `/api/demo/login`、`rest_sample`、`sample` | 基盤の実装が進んだ段階で削除 |

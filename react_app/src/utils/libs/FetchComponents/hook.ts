@@ -2,10 +2,11 @@
  * @description:
  * Fetch APIを使用してデータを取得するカスタムフック
 */
-import { useState, useEffect, useMemo, use } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 // 共通型定義, 関数読み込み
 import { ResourceObj } from './type'
 import { takeDataDef, generateRequestObject, generateRequestKey, requestFetch } from './common'
+import { toApiError } from './problem'
 
 /** 
  * リクエストオブジェクトメモを生成するカスタムフック
@@ -40,8 +41,9 @@ export const useFetch = <T>({ url, method = 'GET', body, headers, takeData = tak
         // クリーンアップ時用のAbortControllerを生成
         const controller = new AbortController();
         fetch(request, { signal: controller.signal })
-            .then((res) => {
-                if (!res.ok) throw new Error(res.statusText);
+            .then(async (res) => {
+                // エラーステータスは ApiError (Problem Details を problem に保持) として送出する
+                if (!res.ok) throw await toApiError(res);
                 return takeData(res);
             })
             .then((data) => {

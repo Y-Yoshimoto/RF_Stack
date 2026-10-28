@@ -3,6 +3,7 @@ import logging
 import re
 
 from .admin_client import KeycloakAdminClient
+from .errors import KeycloakAdminError
 from .models import RealmResult, RealmSpec
 
 logger = logging.getLogger(__name__)
@@ -79,3 +80,60 @@ def ensure_realm(admin: KeycloakAdminClient, spec: RealmSpec | str) -> RealmResu
     admin.request("PUT", admin.realm_url(realm), operation=f"update realm {realm}", expected=(204,), json=spec.to_representation())
     logger.info("既存レルムの設定を更新しました: %s", realm)
     return RealmResult(realm=realm, created=False, updated=True)
+
+
+# 削除を拒否するレルム。master を消すと Keycloak 全体の管理ができなくなる。
+PROTECTED_REALMS = frozenset({"master"})
+
+
+def set_realm_enabled(admin: KeycloakAdminClient, realm_name: str, enabled: bool) -> None:
+    """レルムの有効・無効を切り替える (テナントの停止・再開用。01 §6.3)。
+
+    既に指定の状態であれば何もしない (冪等)。無効化したレルムではログイン・トークン更新ができなくなる。
+    発行済みのアクセストークンは有効期限まで失効しないため、AP 側の停止判定 (テナントレジストリ) と併用する。
+
+    Args:
+        admin: Admin API クライアント。
+        realm_name: レルム名。
+        enabled: 有効にするか。
+
+    Raises:
+        ValueError: レルム名が不正な場合。
+        KeycloakAdminError: レルムが存在しない (404)、または Admin API の呼び出しに失敗した場合。
+    """
+    realm = validate_realm_name(realm_name)
+    current = get_realm(admin, realm)
+    if current is None:
+        raise KeycloakAdminError(f"set enabled={enabled} on realm {realm}", 404, "realm not found")
+    if current.get("enabled") is enabled:
+        logger.info("レルムは既に enabled=%s です: %s", enabled, realm)
+        return
+    admin.request("PUT", admin.realm_url(realm), operation=f"set enabled={enabled} on realm {realm}", expected=(204,), json={"realm": realm, "enabled": enabled})
+    logger.info("レルムを enabled=%s にしました: %s", enabled, realm)
+
+
+def delete_realm_if_exists(admin: KeycloakAdminClient, realm_name: str) -> bool:
+    """レルムを削除する。既に無ければ何もしない (冪等。01 CP-OPS-08)。
+
+    レルム内のユーザー・クライアント・セッションもすべて消える。``master`` は削除を拒否する。
+
+    Args:
+        admin: Admin API クライアント。
+        realm_name: レルム名。
+
+    Returns:
+        bool: 今回削除した場合は ``True``、存在しなかった場合は ``False``。
+
+    Raises:
+        ValueError: レルム名が不正、または削除を拒否するレルムの場合。
+        KeycloakAdminError: Admin API の呼び出しに失敗した場合。
+    """
+    realm = validate_realm_name(realm_name)
+    if realm in PROTECTED_REALMS:
+        raise ValueError(f"realm {realm} must not be deleted")
+    response = admin.request("DELETE", admin.realm_url(realm), operation=f"delete realm {realm}", expected=(204, 404))
+    if response.status_code == 404:
+        logger.info("レルムは存在しません (削除済み): %s", realm)
+        return False
+    logger.info("レルムを削除しました: %s", realm)
+    return True

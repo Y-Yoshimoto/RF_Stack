@@ -60,12 +60,15 @@ docker compose exec -T -e APP_WEB_ORIGIN=http://localhost:5173 fastapi_app \
   uv run python -m modules.keycloak_admin.cli tenant-a fastapi-app user001
 ```
 
-CLI 実行後、標準出力に `KEYCLOAK_CLIENT_SECRET` が表示されるため、`.env` に設定する。
+**クライアントシークレットは `.env` に転記しない。** CLI は `KC_CLIENT_SECRET_SEED` から導出した値
+(`base64url_nopad(HMAC-SHA256(seed, "{realm}:{client_id}"))`、02 §3.3) をクライアントに設定し、
+FastAPI (BFF) も同じ式で導出する。標準出力の `KEYCLOAK_CLIENT_SECRET=...` は確認用である。
+シードを変えた場合は、全レルムで CLI を再実行してシークレットを揃え直す。
 
-**作成したユーザーで開発用ログインバイパス (パスワードグラント) を使う場合は、ユーザーのプロフィールを埋めておく。**
-CLI はユーザー名のみでユーザーを作成する。Keycloak の既定のユーザープロフィールでは
-メールアドレス・姓・名が必須のため、未入力のままだとトークン取得が
-`invalid_grant: Account is not fully set up` で失敗する (トラブルシュート F 参照)。
+CLI はユーザーにメール・姓・名を必ず設定する (`--email` / `--first-name` / `--last-name`。
+省略時は `{username}@example.com` / `{username}` / `User`)。Keycloak の既定のユーザープロフィールでは
+これらが必須で、欠けているとトークン取得が `invalid_grant: Account is not fully set up` で失敗するため
+(トラブルシュート F 参照)。既存ユーザーは空の項目だけを補う。
 
 `.env` を更新したら、**`docker compose restart` ではなく `docker compose up -d` で入れ直す**こと。
 `restart` は既存コンテナを再起動するだけで `.env` を読み直さないため、古い値のまま起動する。
@@ -77,7 +80,7 @@ docker compose up -d fastapi_app
 反映できたかは、FastAPI の起動ログで判定できる。既定値のままだと次の警告が出る。
 
 ```text
-WARNING: 開発用の既定値のままの環境変数があります: KEYCLOAK_CLIENT_SECRET, SESSION_SECRET_KEY
+WARNING: 開発用の既定値のままの環境変数があります: KC_CLIENT_SECRET_SEED, SESSION_SECRET_KEY
 ```
 
 なお `.env` はリポジトリ**ルート**のものを compose が読む。`react_app/.env` は Vite 用であり別物なので注意する。
@@ -128,15 +131,15 @@ WARNING: 開発用の既定値のままの環境変数があります: KEYCLOAK_
 
 ## 6. Client Secret の取得
 
-1. client (`fastapi-app`) の `Credentials` タブを開く。
-2. `Client secret` を確認。
-3. 取得した値を `.env` の `KEYCLOAK_CLIENT_SECRET` に設定する。
+クライアントシークレットは `KC_CLIENT_SECRET_SEED` からの導出値でなければならない (FastAPI が同じ式で導出するため)。
+管理コンソールでは任意の値を設定できないため、手動で作成したクライアントにも **2. の CLI を実行してシークレットを揃える**。
+CLI は既存のレルム・クライアントを作り直さず、設定とシークレットだけを反映する。
 
 関連する `.env` 例:
 
 ```env
 KEYCLOAK_CLIENT_ID=fastapi-app
-KEYCLOAK_CLIENT_SECRET=<your-client-secret>
+KC_CLIENT_SECRET_SEED=<random-seed>
 KEYCLOAK_EXTERNAL_URL=http://localhost:8080
 KEYCLOAK_HTTP_RELATIVE_PATH=keycloak
 APP_CALLBACK_URL=http://localhost:5173/api/auth/callback
@@ -158,9 +161,14 @@ FRONTEND_URL=http://localhost:5173
 
 ## 8. ログイン動作確認
 
+通常のログイン (`/api/auth/app/login?tenant_code=`) は、テナントがコントロールプレーンのテナントレジストリに
+**ACTIVE で登録済み**で、トークンに `tenant_id` クレームがあることを要求する (01 §7.4)。手動・CLI で作っただけのレルムは
+登録されていないため、ログイン画面で「利用できません」になる。その場合は開発用ログイン
+(`http://localhost:5173/dev-login`、`run-checks` スキル) で確認する。
+
 1. Reactアプリにアクセス: `http://localhost:5173/login`
-2. Realm名を入力してログインボタン押下。
-   - 例: `tenant-a`
+2. テナントコードを入力してログインボタン押下。
+   - 例: `alpha` (レルム `tenant-alpha`)
 3. KeyCloakログイン画面に遷移することを確認。
 4. 作成したユーザーでログイン。
 5. ログイン成功後、`/button` へ遷移することを確認。
@@ -174,8 +182,9 @@ FRONTEND_URL=http://localhost:5173
 
 ### B. `unauthorized_client` / `Client authentication failed`
 
-- `.env` の `KEYCLOAK_CLIENT_SECRET` が正しいか確認。
-- 対象Realmの client ID が `fastapi-app` になっているか確認。
+- クライアントのシークレットが `KC_CLIENT_SECRET_SEED` からの導出値になっているか確認 (2. の CLI を再実行すれば揃う)。
+- `KC_CLIENT_SECRET_SEED` を変えた後に CLI を再実行していない場合も同じエラーになる。
+- 対象Realmの client ID が `fastapi-app` (CP は `fastapi-cp`) になっているか確認。
 
 ### C. ログイン後に未認証になる
 
@@ -205,8 +214,8 @@ curl -s -H "Authorization: Bearer $TOKEN" http://localhost:8080/keycloak/admin/r
   | python3 -c 'import json,sys; print([r["realm"] for r in json.load(sys.stdin)])'
 ```
 
-消えていた場合は 2. の CLI (`python -m modules.keycloak_admin.cli`) を再実行する。**Realm を作り直すと client secret も新しくなる**ため、
-`.env` の `KEYCLOAK_CLIENT_SECRET` も必ず更新すること。
+消えていた場合は 2. の CLI (`python -m modules.keycloak_admin.cli`) を再実行する。client secret は
+`KC_CLIENT_SECRET_SEED` から導出した同じ値が設定されるため、`.env` の変更は不要。
 
 ### E. ログアウトしても KeyCloak のセッションが残る / `Invalid token issuer`
 
@@ -239,7 +248,7 @@ curl -s http://localhost:8080/keycloak/realms/tenant-a/.well-known/openid-config
 ```
 
 なおログアウト自体は**フロントチャネル (RP-Initiated Logout)** で行っている。
-`POST /api/auth/logout` はリダイレクトではなく遷移先 URL を JSON で返すので、
+`POST /api/auth/app/logout` (CP は `/api/auth/cp/logout`) はリダイレクトではなく遷移先 URL を JSON で返すので、
 呼び出し側 (SPA) が `window.location.href` でトップレベル遷移する必要がある。
 `fetch` のままではブラウザ側の KeyCloak セッション Cookie が消えない。
 
@@ -257,10 +266,12 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 ### F. 開発用ログインバイパスが `Account is not fully set up` で失敗する
 
 Keycloak の既定のユーザープロフィールでは、メールアドレス・姓・名が必須になっている。
-2. の CLI はユーザー名だけでユーザーを作成するため、そのままではパスワードグラントが
-`invalid_grant` / `Account is not fully set up` で失敗する (ブラウザでのログインでは入力画面が出るので気づきにくい)。
+いずれかが欠けたユーザーは、パスワードグラントが `invalid_grant` / `Account is not fully set up` で失敗する
+(ブラウザでのログインでは入力画面が出るので気づきにくい)。
 
-管理画面の `Users` → 対象ユーザー → `Details` でメールアドレス・姓・名を入力して保存する。
+現在の 2. の CLI はメール・姓・名を必ず設定し、既存ユーザーの空の項目も補う。以前の CLI (ユーザー名だけで作成) で
+作ったユーザーは、同じ引数で CLI を再実行すれば直る。手動で直す場合は、管理画面の `Users` → 対象ユーザー →
+`Details` でメールアドレス・姓・名を入力して保存する。
 
 ## 10. テナント追加時の最小作業
 
@@ -270,4 +281,4 @@ Keycloak の既定のユーザープロフィールでは、メールアドレ�
 2. `fastapi-app` client作成
 3. Redirect URI / Web origins設定
 4. ユーザー作成
-5. Realm名でログイン確認
+5. テナントレジストリへの登録 (CP の払い出し) 後に、テナントコードでログイン確認

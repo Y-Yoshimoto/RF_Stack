@@ -14,7 +14,7 @@ model: opus
 
 - FastAPI は型注釈から OpenAPI スキーマを生成する（`/openapi.json`, `/docs`）。
 - React 側は `src/utils/libs/FetchComponents/` の `ResourceObj<T>` に対して、**呼び出し側が手書きの型 `T` を与える**設計。生成されたクライアントも共有型ファイルもない。
-- 通信経路は Vite のプロキシ: React の `/api/...` → rewrite で `/api` を除去 → `http://fastapi_app:8000/...`（`vite.config.ts` の `reverseproxy()`）。**パスを突き合わせる際は必ずこの rewrite を考慮する**。
+- 通信経路は Vite のプロキシ: React の `/api/...` → パスを書き換えずに `http://fastapi_app:8000/api/...` へ転送（`vite.config.ts` の `reverseproxy()`）。FastAPI 側のルートも `/api` から始まる（`/api/auth/*`, `/api/v1/*`）。`/api` の外のルートは Vite 経由では届かない。
 
 したがって整合性は現時点では**静的な突き合わせでしか検証できない**。この構造的な弱点を、調査結果とあわせて依頼者に伝えること。
 

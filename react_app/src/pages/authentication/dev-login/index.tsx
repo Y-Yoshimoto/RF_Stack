@@ -13,8 +13,8 @@ import { useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Typography } from '@mui/material';
 
-/** 既定で使用するプロファイル名。FastAPI 側の DEV_LOGIN_PROFILES と対応する。 */
-const DEFAULT_PROFILE = 'default';
+/** 既定で使用するプロファイル名。FastAPI 側の DEV_PROFILES (modules/auth/dev_profiles.py) と対応する。 */
+const DEFAULT_PROFILE = 'alpha-admin';
 
 export const DevLoginPage = () => {
     const [search_params] = useSearchParams();

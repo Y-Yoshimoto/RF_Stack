@@ -49,12 +49,17 @@ description: マルチテナントのテナント分離の実装規則とテス�
 
 | 場面 | 使うもの |
 | --- | --- |
-| AP のルーター | `modules/tenancy/dependency.py` の `create_tenant_context_dependency(resolver)` で作った依存関数をルーター単位で適用する |
-| AP の DB セッション | `app_db` 用の Session に `install_tenant_guc_listener()` を登録する（Session クラス全体には登録しない） |
+| AP のルーター | `modules/tenancy/app_dependency.py` の `get_app_tenant_context`（型エイリアス `AppTenantContextDep`）をルーター単位で適用する: `APIRouter(dependencies=[Depends(get_app_tenant_context)])`。拒否時は 403（`detail` は `tenant_not_found` 等のコード） |
+| AP の DB セッション | `app_dependency.py` の `AppSessionDep`（`get_app_db_session`）。テナント判定に依存するため、判定前にセッションは開始されない。`app_runtime` 用の sessionmaker にだけ GUC リスナーが登録済み（自分で `install_tenant_guc_listener()` を呼ばない） |
+| AP からテナントレジストリを引く（ログイン時の解決など） | `modules/tenancy/providers.py` の `get_tenant_registry()`（`TenantRegistryDep`）。プロセス内シングルトン、TTL 30 秒 |
+| CP の DB セッション | `providers.py` の `CpSessionDep`（`get_cp_db_session`、`cp_runtime`） |
 | サービス層・ロガー | `get_tenant_context()` / `require_tenant_context()` |
-| CP からの集計・削除 | `tenant_guc_scope(bind, tenant_id)` または `run_per_tenant(bind, tenant_ids, func)` |
-| バッチ・CLI | `tenant_scope(TenantContext(...))` で明示的に設定する |
+| CP からの集計・削除 | `providers.get_app_cp_agent_engine()` のセッションで `tenant_guc_scope(bind, tenant_id)` または `run_per_tenant(bind, tenant_ids, func)` |
+| バッチ・CLI | `tenant_scope(TenantContext(...))` で明示的に設定し、その中で `providers.open_app_session()` を使う（コンテキスト無しでは `TenantContextMissingError`） |
+| 独自のリゾルバ・ユーザー依存関数で組み立てる | `modules/tenancy/dependency.py` の `create_registry_tenant_context_dependency(registry_dependency, user_dependency)` / `create_tenant_context_dependency(resolver, user_dependency)` |
 
+- ロール毎のエンジン（`get_cp_registry_reader_engine` / `get_cp_runtime_engine` / `get_app_runtime_engine` / `get_app_cp_agent_engine`）は `providers.py` が環境変数から遅延生成する（import 時に接続しない）。`create_engine` や `DBConnector` を各所で作らない。終了時・テストの後始末は `dispose_providers()`。
+- テストでの差し替えは `app.dependency_overrides` に `get_current_app_user`（ユーザー）・`get_tenant_registry`（レジストリ）を渡す。`get_app_tenant_context` ごと差し替える場合は、差し替え先でも `tenant_scope()` でコンテキストを設定する。
 - FastAPI の依存関数は async の yield 依存にする（同期の yield 依存では contextvar がエンドポイントに伝わらない）。
 - サービス層の関数の引数に `tenant_id` を取らない。コンテキストから得る。
 

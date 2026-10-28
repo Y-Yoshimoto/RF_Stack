@@ -3,8 +3,11 @@
 """有効テナント一覧（テナントレジストリ）の読み取りインターフェース。
 
 アプリケーションプレーン(AP)はテナントの登録情報を、コントロールプレーン DB のビュー
-``v_tenant_registry``（tenant_id, tenant_code, realm_name, status）からのみ読む。
-これが AP からコントロールプレーンへの **唯一の依存口** であり、読み取り専用とする。
+``public.v_tenant_registry``（tenant_id uuid, tenant_code, realm_name, status）からのみ読む。
+これが AP からコントロールプレーンへの **唯一の依存口** であり、読み取り専用とする
+（接続ロール ``cp_registry_reader`` にはこのビューの SELECT のみが付与される）。
+
+アプリケーションからは :func:`modules.tenancy.providers.get_tenant_registry` で取得する。
 
 提供する機能:
     - :class:`TenantRecord` — レジストリの 1 行を表す不変オブジェクト。
@@ -37,7 +40,8 @@ DEFAULT_CACHE_TTL_SECONDS = 30.0
 DEFAULT_CACHE_MAX_ENTRIES = 1024
 
 # レジストリビュー名の既定値と、許可する識別子の形式（"view" または "schema.view"）。
-DEFAULT_REGISTRY_VIEW = "v_tenant_registry"
+# ビューは control_plane_db の public スキーマにある。search_path に依存しないようスキーマで修飾する。
+DEFAULT_REGISTRY_VIEW = "public.v_tenant_registry"
 # fullmatch で使う（"$" は末尾の改行 1 つを許してしまうため、アンカーには頼らない）。
 _SQL_IDENTIFIER_PATTERN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)?")
 
@@ -229,15 +233,16 @@ class CachedTenantRegistry:
 
 
 class SqlTenantRegistry:
-    """コントロールプレーン DB のビュー ``v_tenant_registry`` を読むレジストリ実装。
+    """コントロールプレーン DB のビュー ``public.v_tenant_registry`` を読むレジストリ実装。
 
-    ビューは読み取り専用ロールで参照する想定。エンジンは
-    :class:`~modules.db_connector.engine.DBConnector` の ``engine`` を渡し、
-    本クラスで ``create_engine`` は呼ばない。
+    ビューの契約（postgres-schema 担当のマイグレーションで作成）:
+        - 場所: ``control_plane_db`` の ``public.v_tenant_registry``
+        - 列: ``tenant_id``（uuid）, ``tenant_code``, ``realm_name``, ``status``
+        - 権限: ``cp_registry_reader`` に SELECT のみ
 
-    TODO: ``v_tenant_registry`` はまだ作成されていない（postgres-schema 担当）。
-        ビュー作成後に列名・スキーマ名（``control_plane.v_tenant_registry`` 等）を確認し、
-        結合テストで動作を確認すること。
+    エンジンは ``cp_registry_reader`` のもの（:func:`modules.tenancy.providers.get_cp_registry_reader_engine`）
+    を渡し、本クラスで ``create_engine`` は呼ばない。通常は本クラスを直接生成せず、
+    :func:`modules.tenancy.providers.get_tenant_registry`（キャッシュ付きのシングルトン）を使う。
 
     Args:
         engine: コントロールプレーン DB のエンジン。

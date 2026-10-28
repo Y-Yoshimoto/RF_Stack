@@ -26,7 +26,9 @@ SQLAlchemy に依存し、FastAPI には依存しない。
       （コントロールプレーンの集計・削除用）。
     - :func:`run_per_tenant` — 複数テナントに対して順に同じ処理を実行する。
 """
+import threading
 import uuid
+import weakref
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 
@@ -46,6 +48,13 @@ _GET_TENANT_GUC_SQL = text(f"SELECT current_setting('{TENANT_GUC_NAME}', true)")
 
 # リスナーを登録できる対象。
 type ListenerTarget = Session | sessionmaker | type[Session]
+
+# install_tenant_guc_listener で登録済みの対象（弱参照で保持し、対象の破棄と同時に外れる）。
+# 重複登録の判定に sqlalchemy.event.contains は使わない。event.contains は対象の id(...) をキーに
+# 判定するため、破棄済みの sessionmaker と id が再利用された新しい sessionmaker でも真を返し、
+# リスナーが登録されないことがある（GUC が設定されず RLS で 0 件になるが、例外にならない）。
+_installed_targets: weakref.WeakSet[ListenerTarget] = weakref.WeakSet()
+_installed_targets_lock = threading.Lock()
 
 
 def _as_connection(bind: Session | Connection) -> Connection:
@@ -131,13 +140,19 @@ def install_tenant_guc_listener(target: ListenerTarget) -> None:
         - ``Session`` クラス自体に登録すると、そのクラスを使う全 DB（コントロールプレーン DB
           を含む）に効く。``app_db`` 用のセッション / ``sessionmaker`` / インスタンスに
           限定して登録することを推奨する。
+        - 重複登録の判定は、本関数で登録した対象を弱参照で管理して行う（``event.contains`` の
+          id 再利用による誤判定を避けるため）。本関数を経由せず ``event.listen`` で直接登録した
+          リスナーは判定に含まれない。
 
     Args:
         target: リスナーを登録するセッションインスタンス、``sessionmaker``、
             または ``Session`` のサブクラス。
     """
-    if not event.contains(target, "after_begin", _apply_context_tenant_on_begin):
+    with _installed_targets_lock:
+        if target in _installed_targets:
+            return
         event.listen(target, "after_begin", _apply_context_tenant_on_begin)
+        _installed_targets.add(target)
 
 
 def uninstall_tenant_guc_listener(target: ListenerTarget) -> None:
@@ -148,8 +163,11 @@ def uninstall_tenant_guc_listener(target: ListenerTarget) -> None:
     Args:
         target: :func:`install_tenant_guc_listener` に渡した対象。
     """
-    if event.contains(target, "after_begin", _apply_context_tenant_on_begin):
+    with _installed_targets_lock:
+        if target not in _installed_targets:
+            return
         event.remove(target, "after_begin", _apply_context_tenant_on_begin)
+        _installed_targets.discard(target)
 
 
 def _flush_if_session(bind: Session | Connection) -> None:
