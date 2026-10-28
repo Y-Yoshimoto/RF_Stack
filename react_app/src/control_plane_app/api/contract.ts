@@ -56,12 +56,8 @@ export const CP_FIELD_ERROR_CODE = {
     RANGE_TOO_LONG: 'range_too_long',
 } as const;
 
-/**
- * If-Match ヘッダーの値を作る関数
- * @param {number} version テナントの version (ETag と同じ値)
- * @returns {string} `"<version>"` 形式の値
-*/
-export const ifMatchOf = (version: number): string => `"${version}"`;
+// If-Match ヘッダーの値を作る関数 (テナントの version から `"<version>"` を作る。実体は shared/api/etag.ts)
+export { ifMatchOf } from '@/shared/api/etag';
 
 // 列挙値 ///////////////////////////////////////////////////////////////////////
 

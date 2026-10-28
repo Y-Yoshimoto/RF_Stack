@@ -64,7 +64,8 @@ def _fix_if_match_parameters(operation: dict[str, Any]) -> None:
     for parameter in operation.get("parameters", []):
         if parameter.get("in") != "header" or str(parameter.get("name", "")).lower() != "if-match":
             continue
-        required = bool(parameter.get("schema", {}).get(_REQUIRED_MARKER, False))
+        # 2 回目以降の呼び出しでは目印が取り除かれているため、すでに必須に直したものはそのまま必須とする(冪等にする)
+        required = bool(parameter.get("schema", {}).get(_REQUIRED_MARKER, False)) or bool(parameter.get("required", False))
         parameter["name"] = "If-Match"
         parameter["required"] = required
         parameter["schema"] = {"type": "string", "title": "If-Match"}

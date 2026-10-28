@@ -3,12 +3,11 @@
  * CP のテナント詳細 (払い出し履歴を含む) と ETag を取得・保持するカスタムフック
  * 保持している ETag は useTenantActions の停止・再開・削除要求の If-Match に渡す。
 */
-import { useCallback, useState } from 'react';
 import { useCpApiClient } from '@/control_plane_app/api/client';
 import type { TenantDetail } from '@/control_plane_app/api/contract';
 import { classifyCpError, type CpErrorInfo } from '@/control_plane_app/api/errors';
-import { fetchTenant, type TenantVersioned } from '@/control_plane_app/api/tenants';
-import { useAsyncValue } from '@/shared/hooks/useAsyncValue';
+import { fetchTenant, type TenantVersioned, type WithEtag } from '@/control_plane_app/api/tenants';
+import { useVersionedResource } from '@/shared/hooks/useVersionedResource';
 
 /**
  * テナント詳細の状態と操作。
@@ -30,12 +29,6 @@ export type TenantDetailState = {
     applyUpdate: (update: TenantVersioned) => void;
 };
 
-/** 取得結果に重ねる更新 (どの取得結果に対するものかを base で判別する) */
-type Overlay = {
-    base: TenantVersioned<TenantDetail>;
-    update: TenantVersioned;
-};
-
 /**
  * 詳細に更新後のテナントを重ねる関数
  * @param {TenantVersioned<TenantDetail>} base 取得した詳細
@@ -48,6 +41,17 @@ export const mergeTenantUpdate = (base: TenantVersioned<TenantDetail>, update: T
 };
 
 /**
+ * useVersionedResource 用に、本文と ETag の組で更新を重ねる関数
+ * @param {WithEtag<TenantDetail>} current 現在の詳細
+ * @param {TenantVersioned} update 更新後のテナントと ETag
+ * @returns {WithEtag<TenantDetail>} 反映後の詳細
+*/
+const mergeTenantBody = (current: WithEtag<TenantDetail>, update: TenantVersioned): WithEtag<TenantDetail> => {
+    const merged = mergeTenantUpdate({ tenant: current.body, etag: current.etag }, update);
+    return { body: merged.tenant, etag: merged.etag };
+};
+
+/**
  * CP のテナント詳細を取得するカスタムフック (ControlPlaneAuthProvider の内側で使う)
  * tenant_id が変わると取り直す。
  * @param {string} tenant_id テナント ID
@@ -55,20 +59,16 @@ export const mergeTenantUpdate = (base: TenantVersioned<TenantDetail>, update: T
 */
 export const useTenant = (tenant_id: string): TenantDetailState => {
     const client = useCpApiClient();
-    const { result, reload } = useAsyncValue(() => fetchTenant(client, tenant_id), `cp-tenant:${tenant_id}`);
-    const [overlay, setOverlay] = useState<Overlay | null>(null);
-
-    const base = result.status === 'success' ? result.value : null;
-    const applyUpdate = useCallback((update: TenantVersioned) => {
-        // 更新後のテナントは全項目を持つため、前の更新に重ねず置き換える
-        if (base !== null) setOverlay({ base, update });
-    }, [base]);
-
-    if (result.status === 'loading') return { status: 'loading', tenant: null, etag: null, error: null, reload, applyUpdate };
-    if (result.status === 'error') return { status: 'error', tenant: null, etag: null, error: classifyCpError(result.error), reload, applyUpdate };
-    // 取り直した後は、前の取得結果に対する更新を使わない
-    const current = overlay !== null && overlay.base === result.value ? mergeTenantUpdate(result.value, overlay.update) : result.value;
-    return { status: 'success', tenant: current.tenant, etag: current.etag, error: null, reload, applyUpdate };
+    const { status, value, etag, error, reload, applyUpdate } = useVersionedResource<TenantDetail, TenantVersioned>({
+        key: `cp-tenant:${tenant_id}`,
+        load: async () => {
+            const { tenant, etag: loaded_etag } = await fetchTenant(client, tenant_id);
+            return { body: tenant, etag: loaded_etag };
+        },
+        merge: mergeTenantBody,
+        classify: classifyCpError,
+    });
+    return { status, tenant: value, etag, error, reload, applyUpdate };
 };
 
 export default useTenant;

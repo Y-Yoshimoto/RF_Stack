@@ -13,10 +13,12 @@ import datetime as dt
 import time
 import uuid
 from collections.abc import Callable, Iterator
+from dataclasses import dataclass
 from decimal import Decimal
 from typing import Annotated, Any
 
 import pytest
+from ap_services.conftest import ApDb, ap_db, app_cp_agent_engine, app_owner_engine, app_runtime_engine, idp  # noqa: F401
 from control_plane.conftest import SENTINEL_PASSWORD, CpDb, FakeAdmin, cp_db, cp_owner_engine, cp_runtime_engine, fake_app_data, fake_kc  # noqa: F401
 from fastapi import Depends
 from fastapi.testclient import TestClient
@@ -27,12 +29,15 @@ from control_plane_app.api_tenants.deps import get_provisioning_service
 from control_plane_app.services.tenant_provisioning import TenantProvisioningService
 from main_app.route.public.api_health import router as health_router
 from main_app.route.public.redis_client import get_public_redis
-from main_app.route.v1.deps import ActiveAppUser, require_active_app_user
+from main_app.route.v1.deps import ActiveAppUser, ActiveAppUserDep, get_user_service, require_active_app_user
+from main_app.services.user_service import UserService
 from modules.auth import csrf, dependency, session
 from modules.auth.dependency import get_current_app_user
 from modules.auth.environment import KeyCloakEnvironmentVariables
 from modules.auth.plane import Plane
 from modules.tenancy import providers
+from modules.tenancy.app_dependency import AppSessionDep
+from modules.tenancy.context import TenantContext
 from modules.tenancy.providers import CpSessionDep, get_tenant_registry
 from modules.tenancy.registry import SqlTenantRegistry
 
@@ -210,3 +215,74 @@ def insert_metric(db: CpDb, tenant_id: uuid.UUID, date: dt.date, key: str, value
     """日次メトリクスを 1 行入れる(後片付けは ``cp_db`` フィクスチャ)。"""
     with db.runtime.begin() as connection:
         connection.execute(text("INSERT INTO t_tenant_daily_metric (tenant_id, date, metric_key, value) VALUES (:t, :d, :k, :v)"), {"t": tenant_id, "d": date, "k": key, "v": value})
+
+
+# ---------------------------------------------------------------------------
+# AP のユーザー・組織管理 API(/api/v1/users、/api/v1/organizations)
+# ---------------------------------------------------------------------------
+SENTINEL_TEMP_PASSWORD = "Api-Sentinel-Passw0rd-9!"
+
+
+@dataclass(frozen=True)
+class ApTenant:
+    """台帳(control_plane_db)に ACTIVE で作った使い捨てテナント。AP のデータは終了時に ``ap_db`` が削除する。"""
+
+    id: uuid.UUID
+    code: str
+    realm: str
+    ctx: TenantContext
+
+
+@dataclass(frozen=True)
+class ApActor:
+    """AP のセッションを持つ使い捨てのユーザー(AP の行・IdP のユーザー・Cookie)。"""
+
+    headers: dict[str, str]
+    user_id: uuid.UUID
+    sub: str
+    tenant: ApTenant
+
+
+@pytest.fixture
+def real_active_user(active_app_user) -> None:
+    """``require_active_app_user`` のフェイク(autouse の ``active_app_user``)を外し、DB の ``t_user`` を引く本物の依存関数に戻す。"""
+    app.dependency_overrides.pop(require_active_app_user, None)
+
+
+@pytest.fixture
+def fake_idp_user_service(idp, real_active_user) -> None:  # noqa: F811
+    """``get_user_service`` を、Keycloak をフェイク(``idp``)にした本物の ``UserService`` に差し替える(AP の DB・RLS は実物)。一時パスワードは固定値。"""
+
+    def build(session: AppSessionDep, actor: ActiveAppUserDep) -> UserService:
+        return UserService(session, idp.factory, actor_subject=actor.subject, password_generator=lambda: SENTINEL_TEMP_PASSWORD)
+
+    app.dependency_overrides[get_user_service] = build
+
+
+@pytest.fixture
+def ap_tenant(cp_db, ap_db) -> Callable[..., ApTenant]:  # noqa: F811
+    """台帳に ACTIVE の使い捨てテナントを作るファクトリ(alpha / beta には触れない)。AP のデータの後片付けも登録する。"""
+
+    def create(status: str = "ACTIVE") -> ApTenant:
+        tenant_id = cp_db.insert_tenant(status=status)
+        code = cp_db.tenant(tenant_id)["tenant_code"]
+        ap_db.track(tenant_id)
+        return ApTenant(id=tenant_id, code=code, realm=f"tenant-{code}", ctx=TenantContext(tenant_id=tenant_id, tenant_code=code, plane="app"))
+
+    return create
+
+
+@pytest.fixture
+def ap_login(ap_db, idp, login_ap) -> Callable[..., ApActor]:  # noqa: F811
+    """AP のユーザー(AP の行と IdP のユーザー)を作り、そのセッションの Cookie を返すファクトリ。"""
+
+    def create(tenant: ApTenant, *, roles: tuple[str, ...] = ("tenant_admin",), name: str = "Test User") -> ApActor:
+        sub = str(uuid.uuid4())
+        email = f"{sub[:8]}@{tenant.code}.example.com"
+        idp.ensure_realm(tenant.realm)
+        idp.state_for(tenant.realm).users[sub] = {"id": sub, "username": email, "email": email, "firstName": name, "lastName": "Actor", "enabled": True}
+        idp.state_for(tenant.realm).user_realm_roles[sub] = list(roles)
+        user = ap_db.add_user(tenant.ctx, sub=sub, email=email, display_name=f"{name} Actor")
+        return ApActor(headers=login_ap(tenant.code, tenant.id, list(roles), sub=sub), user_id=user.id, sub=sub, tenant=tenant)
+
+    return create

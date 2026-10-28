@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # coding:utf-8
-"""AP のユーザー・組織管理（01 §8 PF-USR / PF-ORG）とログイン時のユーザー同期の例外。
+"""AP のユーザー・組織管理（01 §8 PF-USR / PF-ORG）、ログイン時のユーザー同期、ToDo（docs/spec/ToDoApp.md）の例外。
 
 FastAPI に依存しない。API 層（fastapi-api-schema 担当）は各例外の ``code`` と下表の HTTP ステータスで
 Problem Details（03 §2）に変換する。ログイン処理（auth-keycloak 担当）は下表の「ログイン時」の列に従う。
@@ -21,6 +21,12 @@ Problem Details（03 §2）に変換する。ログイン処理（auth-keycloak 
 | :class:`IdentityProviderOperationError` | ``identity_provider_operation_failed`` | 502 |
 | :class:`UserDeactivatedError` | ``user_deactivated`` | ログイン時: ログインを拒否（コールバックは ``login_rejected``）。各リクエスト時: 401 とセッション破棄 |
 | :class:`UserNotSyncedError` | ``user_not_synced`` | 各リクエスト時: 401 とセッション破棄（再ログインで同期される） |
+| :class:`TodoValidationError` | ``invalid_todo_input`` | 422（``field`` / ``reason``。例: ``organization_ids`` / ``required``、``assignee_ids`` / ``too_many``） |
+| :class:`InvalidTodoAssigneesError` | ``invalid_todo_assignees`` | 422（``user_ids`` と ``reason``: ``not_found`` = テナント内に無い（他テナントを含む）/ ``inactive`` = 無効化されたユーザーの新規割り当て） |
+| :class:`InvalidTodoOrganizationsError` | ``invalid_todo_organizations`` | 422（``organization_ids``。テナント内に無い・論理削除済みの組織を新たに公開先にした） |
+| :class:`TodoNotFoundError` | ``todo_not_found`` | 404（他テナント・存在しない・論理削除済み・**閲覧範囲外**を区別しない。03 §2） |
+| :class:`TodoPermissionDeniedError` | ``todo_operation_forbidden`` | 403（閲覧はできるが操作の権限が無い。``operation`` は ``todo_policy.TodoOperation`` の値） |
+| :class:`TodoVersionConflictError` | ``todo_version_conflict`` | 412 |
 
 メッセージ・属性には一時パスワード・トークン・``KeycloakAdminError.detail`` を含めない。
 原因の例外は ``__cause__`` に残す（ログ出力用。永続化しないこと）。
@@ -30,7 +36,7 @@ from collections.abc import Sequence
 
 
 class AppServiceError(Exception):
-    """AP のユーザー・組織管理の例外の基底。
+    """AP のサービス層（ユーザー・組織管理、ToDo）の例外の基底。
 
     Attributes:
         code: 機械判定用のコード（Problem Details の ``code``）。
@@ -112,6 +118,53 @@ class InvalidOrganizationMembersError(OrganizationValidationError):
         super().__init__("user_ids", "not_found")
 
 
+class TodoValidationError(AppValidationError):
+    """ToDo の入力値が不正（AP-TODO-04、AP-VIS-07、AP-ASN-01 等）。"""
+
+    code = "invalid_todo_input"
+
+
+class InvalidTodoAssigneesError(TodoValidationError):
+    """担当者に指定できないユーザーが含まれる（AP-ASN-02）。
+
+    Attributes:
+        user_ids: 指定できないユーザー ID（入力に含まれていた値のみ）。
+        reason: ``not_found``（テナント内に存在しない。他テナントのユーザーを含む）/ ``inactive``（無効化されたユーザーを新たに割り当てようとした）。
+    """
+
+    code = "invalid_todo_assignees"
+
+    def __init__(self, user_ids: Sequence[uuid.UUID], reason: str, *, field: str = "assignee_ids"):
+        """例外を初期化する。
+
+        Args:
+            user_ids: 指定できないユーザー ID。
+            reason: ``not_found`` / ``inactive``。
+            field: 入力の項目名（作成は ``assignee_ids``、全置換は ``user_ids``）。
+        """
+        self.user_ids = tuple(user_ids)
+        super().__init__(field, reason)
+
+
+class InvalidTodoOrganizationsError(TodoValidationError):
+    """公開先に指定できない組織が含まれる（テナント内に存在しない・論理削除済みの組織を新たに指定した）。
+
+    Attributes:
+        organization_ids: 指定できない組織 ID（入力に含まれていた値のみ）。
+    """
+
+    code = "invalid_todo_organizations"
+
+    def __init__(self, organization_ids: Sequence[uuid.UUID]):
+        """例外を初期化する。
+
+        Args:
+            organization_ids: 指定できない組織 ID。
+        """
+        self.organization_ids = tuple(organization_ids)
+        super().__init__("organization_ids", "not_found")
+
+
 # --------------------------------------------------------------------------- 404
 class UserNotFoundError(AppServiceError):
     """ユーザーが存在しない（他テナントのユーザーも同じ扱い。03 §2）。
@@ -149,6 +202,48 @@ class OrganizationNotFoundError(AppServiceError):
         """
         self.organization_id = organization_id
         super().__init__(f"organization not found: {organization_id}")
+
+
+class TodoNotFoundError(AppServiceError):
+    """ToDo が存在しない。他テナント・論理削除済み・**閲覧範囲外**も同じ扱い（存在を明かさない。03 §2、ToDoApp.md §3）。
+
+    Attributes:
+        todo_id: 指定された ToDo ID。
+    """
+
+    code = "todo_not_found"
+
+    def __init__(self, todo_id: uuid.UUID):
+        """例外を初期化する。
+
+        Args:
+            todo_id: 指定された ToDo ID。
+        """
+        self.todo_id = todo_id
+        super().__init__(f"todo not found: {todo_id}")
+
+
+# --------------------------------------------------------------------------- 403
+class TodoPermissionDeniedError(AppServiceError):
+    """閲覧できる ToDo に対して、操作の権限が無い（ToDoApp.md §3）。
+
+    Attributes:
+        todo_id: ToDo ID。
+        operation: 拒否した操作（``edit_fields`` / ``change_status`` / ``change_visibility`` / ``change_assignees`` / ``delete``）。
+    """
+
+    code = "todo_operation_forbidden"
+
+    def __init__(self, todo_id: uuid.UUID, operation: str):
+        """例外を初期化する。
+
+        Args:
+            todo_id: ToDo ID。
+            operation: 拒否した操作。
+        """
+        self.todo_id = todo_id
+        self.operation = operation
+        super().__init__(f"operation {operation} is not allowed for todo {todo_id}")
 
 
 # --------------------------------------------------------------------------- 409
@@ -239,6 +334,12 @@ class OrganizationVersionConflictError(VersionConflictError):
     """組織の楽観ロックの不一致。"""
 
     code = "organization_version_conflict"
+
+
+class TodoVersionConflictError(VersionConflictError):
+    """ToDo の楽観ロックの不一致（AP-TODO-08）。"""
+
+    code = "todo_version_conflict"
 
 
 # --------------------------------------------------------------------------- 502

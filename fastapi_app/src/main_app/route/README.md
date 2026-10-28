@@ -28,7 +28,8 @@ route/
 │   ├── openapi.py          # 成功レスポンスのヘッダー (ETag / Location / Cache-Control) の OpenAPI 定義
 │   ├── api_me/             # GET /api/v1/me
 │   ├── api_users/          # /api/v1/users
-│   └── api_organizations/  # /api/v1/organizations (members 含む)
+│   ├── api_organizations/  # /api/v1/organizations (members 含む)
+│   └── api_todos/          # /api/v1/todos (ToDo アプリ。assignees・activities 含む。docs/spec/ToDoApp.md §9.5)
 └── sample/                 # サンプル (基盤の実装が進んだ段階で削除)
 ```
 
@@ -142,3 +143,22 @@ def create_tenant(user: dict = Depends(require_cp_roles("saas_admin"))):
 ```
 
 `get_current_user` は移行期間中の別名 (= `get_current_app_user`)。
+
+---
+
+## v1/api_todos — ToDo API (AP、テーマ固有)
+
+**prefix**: `/api/v1/todos`（`v1/apiapp.py` が束ねる。ルーター全体にテナント → CSRF → 有効ユーザーの依存が掛かる）
+仕様の正は `docs/spec/ToDoApp.md`（6 章、9.3 サービス層、9.5 API）。ロールは `tenant_admin` / `member` のどちらも可で、閲覧範囲（404）と操作の権限（403）は `TodoService` が判定する。ルーターはサービスの呼び出しとレスポンスの組み立てだけを行う。
+
+| メソッド | パス | 概要 |
+|---|---|---|
+| `GET` | `/api/v1/todos` | 一覧。`scope` / `status` / `priority` (カンマ区切り) / `q` / `organization_id` / `assignee_id` / `due_before` / `due_after` / `sort` (キー 1 つ。複数キーは未対応) / `limit` / `cursor` |
+| `POST` | `/api/v1/todos` | 作成。201、`Location`、`ETag` |
+| `GET` | `/api/v1/todos/{id}` | 詳細 (説明・`permissions`)。`ETag` |
+| `PATCH` | `/api/v1/todos/{id}` | 部分更新 (閲覧範囲・公開先組織を含む)。`If-Match` 必須 (428 / 412)。新しい `ETag` |
+| `DELETE` | `/api/v1/todos/{id}` | 論理削除。`If-Match` 必須。204 |
+| `PUT` | `/api/v1/todos/{id}/assignees` | 担当者の全置換。`If-Match` 必須。新しい `ETag` |
+| `GET` | `/api/v1/todos/{id}/activities` | アクティビティ (新しい順、カーソル方式) |
+
+例外の変換は `main_app/problems.py` (`invalid_todo_input` / `invalid_todo_assignees` / `invalid_todo_organizations` 422、`todo_not_found` 404、`todo_operation_forbidden` 403、`todo_version_conflict` 412)。

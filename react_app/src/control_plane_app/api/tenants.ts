@@ -1,11 +1,11 @@
 // CP のテナント API (`/api/v1/cp/tenants`) を呼び出す関数
 // フック (control_plane_app/tenants/) から使う。ApiClient を引数で受け取り、副作用はそれだけにする (テストで差し替えられる)。
 // 一時パスワードを含むレスポンス (作成・再実行) はログに出さないこと。
+// ETag / If-Match の部品は shared/api/etag.ts (WithEtag はここから再公開する)。
 import type { ApiClient } from '@/shared/api/client';
-import type { ResourceObj } from '@/utils/libs/FetchComponents/type';
+import { ifMatchHeaders, requestWithEtag, requireBody, type WithEtag } from '@/shared/api/etag';
 import {
     CP_API_PATHS,
-    ifMatchOf,
     type InitialAdminInput,
     type TenantCreate,
     type TenantDetail,
@@ -17,13 +17,7 @@ import {
     type TenantStatus,
 } from './contract';
 
-/**
- * 本文と ETag の組。ETag は楽観ロック (If-Match) にそのまま渡す値 (`"<version>"`)。
- */
-export type WithEtag<T> = {
-    body: T;
-    etag: string;
-};
+export type { WithEtag } from '@/shared/api/etag';
 
 /**
  * テナントの最新の状態とその ETag (詳細の取得・停止・再開・削除要求の結果)。
@@ -87,48 +81,6 @@ export const buildTenantListUrl = (query: TenantListQuery): string => {
     const search = params.toString();
     return search === '' ? CP_API_PATHS.TENANTS : `${CP_API_PATHS.TENANTS}?${search}`;
 };
-
-/**
- * 本文と ETag ヘッダーを読み取る関数 (requestFetch の takeData に渡す)
- * ETag ヘッダーが読めない場合は空文字にし、呼び出し側で version から補う。
- * @param {Response} res レスポンス
- * @returns {Promise<{ body: T, etag: string }>} 本文と ETag
-*/
-const takeBodyWithEtag = async <T,>(res: Response): Promise<{ body: T; etag: string }> => {
-    const body = (await res.json()) as T;
-    return { body, etag: res.headers.get('ETag') ?? '' };
-};
-
-/**
- * 応答が空でないことを確かめる関数
- * @param {T | null} value 応答
- * @param {string} url リクエストの URL (エラーメッセージ用)
- * @returns {T} 応答
-*/
-const requireBody = <T,>(value: T | null, url: string): T => {
-    if (value === null || value === undefined) throw new Error(`CP API の応答が空です: ${url}`);
-    return value;
-};
-
-/**
- * ETag 付きのリクエストを送る関数
- * ETag ヘッダーが無い場合 (プロキシで落ちた等) は version から作る (値は同じ。contract.ts)。
- * @param {ApiClient} client API クライアント
- * @param {ResourceObj<{ body: T, etag: string }>} resource_obj リクエスト (takeData は上書きする)
- * @param {(body: T) => number} versionOf 本文から version を取り出す関数
- * @returns {Promise<WithEtag<T>>} 本文と ETag
-*/
-const requestWithEtag = async <T,>(client: ApiClient, resource_obj: Omit<ResourceObj<{ body: T; etag: string }>, 'takeData'>, versionOf: (body: T) => number): Promise<WithEtag<T>> => {
-    const value = requireBody(await client.request<{ body: T; etag: string }>({ ...resource_obj, takeData: takeBodyWithEtag }), resource_obj.url);
-    return { body: value.body, etag: value.etag !== '' ? value.etag : ifMatchOf(versionOf(value.body)) };
-};
-
-/**
- * If-Match ヘッダーを作る関数 (ETag が無い場合は付けない)
- * @param {string | null | undefined} etag ETag
- * @returns {Record<string, string>} ヘッダー
-*/
-const ifMatchHeaders = (etag: string | null | undefined): Record<string, string> => (etag ? { 'If-Match': etag } : {});
 
 /**
  * テナント一覧の 1 ページを取得する関数

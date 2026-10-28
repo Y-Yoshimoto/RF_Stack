@@ -10,6 +10,7 @@ import uuid
 from collections.abc import Collection
 from typing import Any
 
+from main_app.models import TodoPriority
 from main_app.repositories.keyset import ListSort
 from modules.api_common.pagination import decode_cursor, encode_cursor, invalid_cursor_error
 from modules.errors.catalog import text_for_code
@@ -17,7 +18,11 @@ from modules.errors.handlers import problem_from_text
 from modules.errors.problem import FieldError, ProblemError
 
 # 並び替えキーのうち、日時の列(カーソルでは ISO 8601 の文字列にする)
-DATETIME_SORT_KEYS: frozenset[str] = frozenset({"created_at"})
+DATETIME_SORT_KEYS: frozenset[str] = frozenset({"created_at", "updated_at"})
+# 並び替えキーのうち、日付の列(カーソルでは ``YYYY-MM-DD`` にする。NULL を許す列は ``null``。ToDo の ``due_date``)
+DATE_SORT_KEYS: frozenset[str] = frozenset({"due_date"})
+# 並び替えキーのうち、取りうる値が決まっている列(範囲外の値のカーソルは他の壊れたカーソルと同じ invalid_cursor にする)
+ENUM_SORT_KEY_VALUES: dict[str, frozenset[str]] = {"priority": frozenset(TodoPriority)}
 
 
 def parse_sort(raw: str, allowed: Collection[str]) -> ListSort:
@@ -46,7 +51,7 @@ def encode_next_cursor(sort: ListSort, next_after: tuple[Any, uuid.UUID] | None)
     if next_after is None:
         return None
     value, last_id = next_after
-    return encode_cursor({"s": str(sort), "k": value.isoformat() if isinstance(value, dt.datetime) else value, "i": str(last_id)})
+    return encode_cursor({"s": str(sort), "k": value.isoformat() if isinstance(value, dt.date) else value, "i": str(last_id)})
 
 
 def decode_after(cursor: str | None, sort: ListSort) -> tuple[Any, uuid.UUID] | None:
@@ -73,8 +78,12 @@ def decode_after(cursor: str | None, sort: ListSort) -> tuple[Any, uuid.UUID] | 
             value: Any = dt.datetime.fromisoformat(raw_value)
             if value.tzinfo is None:
                 raise invalid_cursor_error()
+        elif sort.key in DATE_SORT_KEYS:
+            value = None if raw_value is None else dt.date.fromisoformat(raw_value)
         else:
             if not isinstance(raw_value, str):
+                raise invalid_cursor_error()
+            if sort.key in ENUM_SORT_KEY_VALUES and raw_value not in ENUM_SORT_KEY_VALUES[sort.key]:
                 raise invalid_cursor_error()
             value = raw_value
         return value, uuid.UUID(str(payload["i"]))

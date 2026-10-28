@@ -250,6 +250,13 @@ class TestOpenApiContract:
         ("patch", "/api/v1/organizations/{organization_id}"),
         ("delete", "/api/v1/organizations/{organization_id}"),
         ("put", "/api/v1/organizations/{organization_id}/members"),
+        ("get", "/api/v1/todos"),
+        ("post", "/api/v1/todos"),
+        ("get", "/api/v1/todos/{todo_id}"),
+        ("patch", "/api/v1/todos/{todo_id}"),
+        ("delete", "/api/v1/todos/{todo_id}"),
+        ("put", "/api/v1/todos/{todo_id}/assignees"),
+        ("get", "/api/v1/todos/{todo_id}/activities"),
         ("get", "/api/v1/cp/tenants"),
         ("post", "/api/v1/cp/tenants"),
         ("get", "/api/v1/cp/tenants/{tenant_id}"),
@@ -335,3 +342,34 @@ class TestOpenApiContract:
                     unexpected.append((method, path))
         check.equal(missing, [])
         check.equal(unexpected, [])
+
+    def test_if_match_is_required_header_on_every_update(self, spec):
+        """更新系の If-Match は OpenAPI で必須のヘッダー(払い出しの再実行だけ任意)。openapi() を繰り返し呼んでも変わらない。"""
+        optional = {("post", "/api/v1/cp/tenants/{tenant_id}/provisioning/retry")}
+        for _ in range(3):
+            current = app.openapi()
+            found = {}
+            for path, item in current["paths"].items():
+                for method, operation in item.items():
+                    for parameter in operation.get("parameters", []):
+                        if parameter["in"] == "header" and parameter["name"].lower() == "if-match":
+                            found[(method, path)] = parameter["required"]
+            check.equal({key for key, required in found.items() if not required}, optional)
+            check.equal(len(found), 11)
+
+    def test_etag_headers_are_documented_on_success_responses(self, spec):
+        """ETag を返す成功レスポンスは、CP / AP とも responses.headers に ETag を載せている(作成系は Location も)。"""
+        cp = "/api/v1/cp/tenants"
+        cases = [
+            ("get", f"{cp}/{{tenant_id}}", "200", {"ETag"}),
+            ("post", cp, "201", {"ETag", "Location", "Cache-Control"}),
+            ("post", f"{cp}/{{tenant_id}}/suspend", "200", {"ETag"}),
+            ("post", f"{cp}/{{tenant_id}}/resume", "200", {"ETag"}),
+            ("delete", f"{cp}/{{tenant_id}}", "200", {"ETag"}),
+            ("post", f"{cp}/{{tenant_id}}/provisioning/retry", "200", {"ETag", "Cache-Control"}),
+            ("get", "/api/v1/todos/{todo_id}", "200", {"ETag"}),
+            ("patch", "/api/v1/todos/{todo_id}", "200", {"ETag"}),
+        ]
+        for method, path, status, names in cases:
+            headers = spec["paths"][path][method]["responses"][status].get("headers", {})
+            check.is_true(names <= set(headers), f"{method} {path}: {sorted(headers)}")

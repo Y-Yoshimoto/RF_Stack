@@ -15,6 +15,8 @@ description: Dev Container 開発環境の初期セットアップ、起動・�
 | `fastapi_app` | FastAPI | 8000 |
 | `postgres_c` | PostgreSQL | 5432 |
 | `keycloak_c` | Keycloak | 8080、8443、9000 |
+| `keycloak_forward` | `react_app` コンテナ内の `localhost:8080` を `keycloak_c:8080` へ中継する socat(`react_app` のネットワークを共有。公開ポートなし) | なし |
+| `redis_c` | Redis(セッションストア) | 6379 |
 
 `npm run storybook`(6006) と `npm run preview`(4173) はいずれもホストのブラウザから開ける。どちらも常駐プロセスなので、確認が終わったら停止すること。
 
@@ -60,6 +62,8 @@ ls react_app/.npm_install.lock fastapi_app/.uv_install.lock 2>/dev/null || echo 
 ```
 
 > `README.md` には `.npm.lock` と書かれているが、実際のファイル名は `.npm_install.lock`。
+
+**react_app は `npm install` が失敗するとコンテナが非 0 で終了する**（原因候補を出し、`.npm_install.lock` は削除される）。`docker compose logs react_app` で npm の出力を確認する。Playwright ブラウザのインストール失敗は警告のみで起動は続ける（E2E だけが失敗する）。
 
 **fastapi_app は 2 回の `uv sync` がどちらも失敗するとコンテナが非 0 で終了する**（原因を示すメッセージを出し、`.uv_install.lock` は削除される）。`docker compose logs fastapi_app` で uv の出力を確認する。以前は失敗しても CMD に進み、`uvicorn` が見つからず exit 127 になっていた。
 
@@ -158,6 +162,8 @@ make d-reset-db   # ★★ 全データが失われる。必ず確認を取る
 | FastAPI で `ModuleNotFoundError` | `PYTHONPATH=/work/fastapi_app/src/` に依存している。compose の environment を確認する |
 | DB に接続できない | `postgres_c` の起動と、`DB_HOST=postgres_c` / `DB_PORT=5432` および `CP_DB_*` / `APP_DB_*` 環境変数を確認。`role ... does not exist` なら旧構成の initdb のままなので `make d-reset-db`（要確認） |
 | ポートが衝突する | 4173 / 5173 / 6006 / 8000 / 8080 / 8443 / 9000 / 9323 / 5432 のいずれかをホスト側で他プロセスが使用している |
+| react_app コンテナ内で `localhost:8080`(Keycloak)に接続できない | `keycloak_forward` が動いているか `make d-ps` で確認する。`react_app` だけを `docker restart` / 再作成した場合は `docker compose restart keycloak_forward`（`docker compose up -d` なら自動で作り直される。`react_app` のネットワーク名前空間が変わると中継が効かなくなるため） |
+| アクセスログに `?code=...` が出る | `fastapi_app` が `--log-config`(`fastapi_app/src/uvicorn_log_config.json`)付きで起動していない。compose の `command` を確認し、`docker compose up -d fastapi_app` で作り直す |
 | Dev Container の設定変更が反映されない | VS Code の再ビルド（Rebuild Container）が必要 |
 
 ---

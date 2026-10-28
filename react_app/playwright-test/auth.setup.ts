@@ -9,7 +9,7 @@
  * playwright.config.ts に対応する project を足す。
  */
 import { test as setup, expect } from '@playwright/test';
-import { APP_HOME_PATH, DEV_PROFILE, TENANT_CODE } from './constants';
+import { APP_HOME_PATH, authStatePath, DEV_PROFILE, PROFILES, TENANT_CODE, type ProfileName } from './constants';
 
 /**
  * 認証状態の保存先。playwright.config.ts の storageState と対応させる。
@@ -58,3 +58,27 @@ setup('開発用ログインで認証状態を作成する', async ({ browser, b
     await context.storageState({ path: AUTH_STATE_FILE });
     await context.close();
 });
+
+
+/**
+ * プロファイルごとの認証状態を作る。複数の利用者が登場するシナリオ (fixtures.ts の `openAs`) と、
+ * CP のテストが使う。上の default.json (alpha-admin) とは別に、全プロファイルを `.auth/{プロファイル名}.json` に保存する。
+ */
+for (const profile of Object.keys(PROFILES) as ProfileName[]) {
+    setup(`開発用ログインで ${profile} の認証状態を作成する`, async ({ browser, baseURL }) => {
+        const { plane, tenant_code } = PROFILES[profile];
+        const context = await browser.newContext({ baseURL });
+        const response = await context.request.get(`/api/auth/dev-login?as=${profile}`, { maxRedirects: 0 });
+        expect(response.status(), `dev-login (${profile}) が 302 ではありません`).toBe(302);
+
+        // セッションが実際に有効であることを、プレーンのステータス API で確認してから保存する
+        const status_response = await context.request.get(`/api/auth/${plane}/status`);
+        expect(status_response.ok()).toBeTruthy();
+        const status = await status_response.json();
+        expect(status.authenticated).toBe(true);
+        if (tenant_code !== null) expect(status.tenant_code).toBe(tenant_code);
+
+        await context.storageState({ path: authStatePath(profile) });
+        await context.close();
+    });
+}

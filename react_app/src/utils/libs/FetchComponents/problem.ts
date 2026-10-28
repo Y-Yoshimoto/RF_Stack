@@ -22,6 +22,14 @@ export const PROBLEM_CODE = {
     VALIDATION_ERROR: 'validation_error',
     PRECONDITION_FAILED: 'precondition_failed',
     PRECONDITION_REQUIRED: 'precondition_required',
+    // 400: If-Match の形式不正 (modules/api_common/etag.py)
+    INVALID_IF_MATCH: 'invalid_if_match',
+} as const;
+
+//// 422 validation_error の errors[].code のうち、プレーン共通で分岐に使うもの (modules/api_common/pagination.py)
+export const FIELD_ERROR_CODE = {
+    /** cursor が壊れている・並び順が変わった (field: cursor)。先頭から取得し直す。 */
+    INVALID_CURSOR: 'invalid_cursor',
 } as const;
 
 /**

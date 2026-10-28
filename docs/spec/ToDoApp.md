@@ -141,7 +141,7 @@ AP DB に以下を追加する。すべて共通基盤のテナントスコー�
 共通基盤の API 原則（01 §10、03）に従う。
 
 ```
-GET    /api/v1/todos?scope=mine|assigned|shared|all&status=&assignee=&organization=&due_before=&due_after=&priority=&sort=&limit=&cursor=
+GET    /api/v1/todos?scope=mine|assigned|shared|all&status=&assignee_id=&organization_id=&due_before=&due_after=&priority=&q=&sort=&limit=&cursor=
 POST   /api/v1/todos
 GET    /api/v1/todos/{id}                 → ETag
 PATCH  /api/v1/todos/{id}                 If-Match 必須。visibility と organization_ids もここで変更する
@@ -197,7 +197,7 @@ CP のテナント一覧・詳細には、7 章 #5 のメトリクスを表示�
 | --- | --- | --- | --- |
 | ToDo | `t_todo` | `id`（UUIDv7） | `title` は 1〜200 文字、`description` は最大 10,000 文字を CHECK で強制。既定値は `status = 'open'`、`priority = 'medium'`、`visibility = 'private'`、`version = 1`。`created_by` / `updated_by` は NOT NULL（作成時は `updated_by` = 作成者）。5 章のインデックスは `deleted_at IS NULL` の部分インデックス |
 | ToDo の公開先組織 | `t_todo_organization` | `(tenant_id, todo_id, organization_id)` | 組織が論理削除されても行は残し、判定時に除外する（AP-VIS-08）。逆引き用に `(tenant_id, organization_id)` |
-| ToDo の担当者 | `t_todo_assignee` | `(tenant_id, todo_id, user_id)` | `assigned_at` / `assigned_by`（NOT NULL）に加えて共通列 `created_at` / `updated_at` を持つ。全置換では残る担当者の行を維持する想定（`assigned_at` を保つ） |
+| ToDo の担当者 | `t_todo_assignee` | `(tenant_id, todo_id, user_id)` | `assigned_at` / `assigned_by`（NOT NULL）に加えて共通列 `created_at` / `updated_at` を持つ。全置換では残る担当者の行を維持する（`assigned_at` / `assigned_by` を保つ。9.3） |
 | ToDo アクティビティ | `t_todo_activity` | `id`（UUIDv7） | `actor_id` は NOT NULL。`payload` は `jsonb`（NOT NULL、既定 `{}`）。追記のみのため `updated_at` を持たない。一覧用に `(tenant_id, todo_id, created_at)` |
 
 - `app_db` に作成し、マイグレーションは `alembic/alembic_app.ini`（リビジョン `0002_create_todo_tables`）。モデルは `fastapi_app/src/main_app/models/todo.py`
@@ -213,17 +213,74 @@ CP のテナント一覧・詳細には、7 章 #5 のメトリクスを表示�
 | 層 | 配置 | 担当エージェント |
 | --- | --- | --- |
 | モデル | `fastapi_app/src/main_app/models/` | `postgres-schema` |
-| ルーター・スキーマ | `fastapi_app/src/main_app/route/todos/` | `fastapi-api-schema` |
-| サービス（閲覧範囲の判定を含む） | `fastapi_app/src/main_app/services/todos/` | `fastapi-domain` |
+| ルーター・スキーマ | `fastapi_app/src/main_app/route/v1/api_todos/`（`router.py`、`schemas.py`。9.5） | `fastapi-api-schema` |
+| サービス（閲覧範囲の判定を含む） | `fastapi_app/src/main_app/services/todo_service.py`、`todo_policy.py`、`todo_views.py`（9.3） | `fastapi-domain` |
+| DB アクセス | `fastapi_app/src/main_app/repositories/todos/`（`todos.py`、`activities.py`、`metrics.py`） | `fastapi-domain` |
 | メトリクス集計（CP） | `fastapi_app/src/control_plane_app/repositories/` | `fastapi-domain` |
-| 画面 | `react_app/src/main_app/pages/todos/` | `react-ui` |
-| フック・API クライアント | `react_app/src/main_app/api/`、`react_app/src/main_app/hooks/` | `react-domain` |
+| 画面 | `react_app/src/main_app/pages/`（`TodoList`、`TodoCreate`、`TodoDetail`、共通部品 `TodoCommon`） | `react-ui` |
+| フック・API クライアント | `react_app/src/main_app/api/`（`todo_contract.ts`、`todos.ts`）、`react_app/src/main_app/todos/` | `react-domain` |
 | テスト | pytest（クロステナント・閲覧範囲）、Vitest、Playwright（`alpha-member` / `beta-member` での分離確認） | `fastapi-pytest` / `react-unit-test` / `react-e2e-test` |
 
-### 9.3 開発用データ
+### 9.3 サービス層
+
+FastAPI 非依存。テナントコンテキスト下の AP セッション（`AppSessionDep` / `open_app_session()`）で呼び、コミットはサービスが行う（共通基盤の `UserService` / `OrganizationService` と同じ作り。[02](../architecture/02-platform-implementation.md) §5.1）。
+
+| モジュール | 内容 |
+| --- | --- |
+| `main_app/services/todo_service.py` | `TodoService(session, *, actor_user_id, actor_roles)`。`actor_user_id` は `t_user.id`（IdP の `sub` ではない）、`actor_roles` はセッションのロール。`list_todos` / `get_todo` / `create_todo` / `update_todo`（PATCH。`UNSET` で未指定。閲覧範囲・公開先組織の変更を含む）/ `delete_todo`（論理削除）/ `set_assignees`（全置換）/ `list_activities` |
+| `main_app/services/todo_policy.py` | 閲覧範囲（AP-VIS）の SQL 条件 `visible_condition`、表示範囲 `scope_condition`、操作の権限 `todo_permissions`（3 章）。**判定はここだけ**で、一覧のクエリと単体の取得（詳細・更新・削除・担当者の変更・アクティビティ）が同じ条件を `WHERE` に付ける（AP-VIS-09） |
+| `main_app/services/todo_views.py` | `TodoView`（一覧。説明を除く）/ `TodoDetailView`（詳細。説明と操作者の権限 `permissions`）/ `TodoActivityView` |
+| `main_app/services/errors.py` | 例外と `code`・HTTP の対応（下表） |
+| `main_app/repositories/todos/todos.py` / `activities.py` | DB アクセス。一覧の担当者・公開先組織は ToDo の ID でまとめて取得する（1 ページあたり 3 クエリ。N+1 にしない） |
+
+**閲覧範囲**（`visible_condition`。論理削除済みは誰も閲覧できない）: `tenant_admin`、または 作成者 / 担当者 / `visibility = 'tenant'` / `visibility = 'organization'` かつ公開先の**有効な**組織に所属。削除された組織は判定から除外するため、すべて削除されると `private` と同じになる（AP-VIS-08）。副問い合わせは相関させず `id IN (...)` にし、`tenant_id` と `deleted_at IS NULL` を明示して 5 章のインデックス（部分インデックス）を使える形にする。他テナントの行は RLS で見えない。
+
+**操作の権限**（`todo_permissions`。閲覧できる ToDo に対して判定）:
+
+| 操作 | `tenant_admin` | 作成者 | 担当者 |
+| --- | --- | --- | --- |
+| 項目（タイトル・説明・期限・優先度）の変更 / 削除 / 閲覧範囲・公開先組織の変更 | ○ | ○ | × |
+| ステータスの変更 / 担当者の変更 | ○ | ○ | ○ |
+
+**一覧**: `scope`（`mine` / `assigned` / `shared` / `all`。いずれも閲覧できるものに限る）、絞り込み `status` / `priority`（複数可）/ `assignee_id` / `organization_id` / `due_before` / `due_after` / `q`（タイトルの部分一致）、`sort`（`due_date` / `priority` / `created_at` / `updated_at`、先頭 `-` で降順。既定 `-created_at`）。キーセット方式で、`next_after` は `(並び替えキーの値, id)`（`due_date` は `date | None`、`priority` は値の文字列、日時は `datetime`）。カーソル文字列への変換は API 層。
+
+**例外**（`main_app/services/errors.py`）:
+
+| 例外 | `code` | HTTP |
+| --- | --- | --- |
+| `TodoValidationError` | `invalid_todo_input` | 422（`field` / `reason`） |
+| `InvalidTodoAssigneesError` | `invalid_todo_assignees` | 422（`user_ids`、`reason` は `not_found` / `inactive`） |
+| `InvalidTodoOrganizationsError` | `invalid_todo_organizations` | 422（`organization_ids`） |
+| `TodoNotFoundError` | `todo_not_found` | 404（他テナント・存在しない・論理削除済み・閲覧範囲外を区別しない） |
+| `TodoPermissionDeniedError` | `todo_operation_forbidden` | 403（`operation`: `edit_fields` / `change_status` / `change_visibility` / `change_assignees` / `delete`） |
+| `TodoVersionConflictError` | `todo_version_conflict` | 412 |
+
+**アクティビティと監査ログ**（AP-ACT）: 変更と同じトランザクションで、アクティビティは種別ごとに 1 行（例: 1 回の PATCH で項目・ステータス・閲覧範囲を変えると `updated` / `status_changed` / `visibility_changed` の 3 行）。値が変わらない更新は何も記録せず `version` も変えない。監査ログの `action` は `todo.create` / `todo.update`（項目・ステータス）/ `todo.change_visibility` / `todo.set_assignees` / `todo.delete`（`target_type = 'todo'`。説明の本文は残さず変更の有無だけ）。`payload` の形は `TodoActivityView` の docstring。
+
+### 9.4 開発用データ
 
 - シードテナント `alpha` / `beta` に、閲覧範囲・担当者の組み合わせを網羅した ToDo を投入する
 - E2E は開発用ログイン（`/api/auth/dev-login?as=alpha-member` 等）で各ロールの見え方を確認する
+
+### 9.5 API（ルーター・スキーマ）
+
+`main_app/route/v1/api_todos/`（`router.py`、`schemas.py`）。`main_app/route/v1/apiapp.py` が `/todos` で束ね、既存の `/api/v1` の依存（テナントコンテキスト → CSRF → `require_active_app_user`）が掛かる。ロールは `tenant_admin` / `member` のどちらも可で、ToDo ごとの閲覧範囲（404）と操作の権限（403）は `TodoService` が判定する。ルーターは `deps.py` の `TodoServiceDep`（`TodoService(session, actor_user_id=ActiveAppUser.id, actor_roles=セッションの roles)`）を呼ぶだけで、ロジックを持たない。
+
+| メソッド | パス | 成功 | サービス | 主なエラー |
+| --- | --- | --- | --- | --- |
+| GET | `/api/v1/todos` | 200 `TodoPage`（説明なし。`total` は常に `null`） | `list_todos` | 422 |
+| POST | `/api/v1/todos` | 201 `TodoDetail`、`Location`、`ETag` | `create_todo` | 422 |
+| GET | `/api/v1/todos/{id}` | 200 `TodoDetail`（説明・`permissions`）、`ETag` | `get_todo` | 404 |
+| PATCH | `/api/v1/todos/{id}` | 200 `TodoDetail`、新しい `ETag` | `update_todo` | 403 / 404 / 412 / 422 / 428 |
+| DELETE | `/api/v1/todos/{id}` | 204（論理削除。本文なし） | `delete_todo` | 403 / 404 / 412 / 428 |
+| PUT | `/api/v1/todos/{id}/assignees` | 200 `TodoDetail`、新しい `ETag` | `set_assignees` | 403 / 404 / 412 / 422 / 428 |
+| GET | `/api/v1/todos/{id}/activities` | 200 `TodoActivityPage`（新しい順） | `list_activities` | 404 / 422 |
+
+- **クエリ**: 6 章のとおり。絞り込みの名前はサービスの引数に合わせ `assignee_id` / `organization_id`。`status` / `priority` の複数値は 03 §3 のカンマ区切り（`status=open,in_progress`）。`sort` は**キー 1 つ**（`due_date` / `priority` / `created_at` / `updated_at`、先頭 `-` で降順。既定 `-created_at`）で、複数キー（`due_date,-priority`）は未対応（#11）のため 422。OpenAPI の `sort` の説明にも書く
+- **カーソル**: `route/v1/paging.py`（`(キー, id)` を base64url の JSON にする。`due_date` は `YYYY-MM-DD` または `null`、`priority` は文字列、`created_at` / `updated_at` は ISO 8601）。`sort` の違うカーソルや壊れたカーソルは 422（`validation_error` の `errors[].code = invalid_cursor`）。アクティビティは `-created_at` 固定
+- **PATCH**: 送った項目だけ更新する（`model_fields_set` → `UNSET`）。`description` / `due_date` の `null` は値を消し、`title` / `priority` / `status` / `visibility` / `organization_ids` の `null` は 422
+- **エラーの変換**（`main_app/problems.py`）: `invalid_todo_input` 422（`errors` に `{field, code, message}`）/ `invalid_todo_assignees` 422（拡張メンバー `user_ids`。`errors[].code` は `not_found` / `inactive`）/ `invalid_todo_organizations` 422（拡張メンバー `organization_ids`）/ `todo_not_found` 404 / `todo_operation_forbidden` 403（拡張メンバー `operation`）/ `todo_version_conflict` 412。`If-Match` が無ければ 428、形式不正は 400
+- 入力の形式（型・長さ・enum・UUID）の誤りは FastAPI の検証による 422（`validation_error`）で、サービスの検証（`invalid_todo_input`）より先に返る
 
 ---
 
@@ -239,6 +296,15 @@ CP のテナント一覧・詳細には、7 章 #5 のメトリクスを表示�
 | 4 | 無効化ユーザーの割り当て | 残す。新規割り当ては不可（AP-ASN-02 / 04） |
 | 5 | アクティビティと監査ログ | 別に持つ（AP-ACT-04） |
 | 6 | 閲覧できない ToDo への応答 | 404 |
+| 7 | 更新の権限の判定対象 | PATCH は**実際に値が変わる項目**で判定する（同じ値を送った項目は変更とみなさない）。編集画面が全項目を送っても、担当者のステータス変更は通る |
+| 8 | 変更系の判定の順序 | 入力の形式（422）→ 閲覧範囲（404）→ 版（412）→ 権限（403）→ 現在の状態に依存する検証（422。組織・担当者の存在と有効性、`organization` の組織 1 つ以上） |
+| 9 | 無効化された担当者を外せる人（AP-ASN-04） | 3 章の表を優先し、担当者の変更の権限を持つ人（`tenant_admin`・作成者・担当者）は外せる。新たな割り当てだけを拒否する（AP-ASN-02） |
+| 10 | 公開先組織の扱い（AP-VIS-07 / 08） | `organization` 以外に変えると公開先の行を削除する。閲覧範囲・公開先を変える更新では有効な組織が 1 つ以上必要（既に公開先にある削除済みの組織は指定に残してよいが、新たには指定できない）。変えない更新は、公開先がすべて削除済みでもそのまま通す。詳細の `effective_visibility` が `private` になったら再指定を促す |
+| 11 | 一覧の並び替え | 単一キー + `id`（03 §3 の複数キー `sort=due_date,-priority` は未対応）。既定は `-created_at`。`due_date` の期限なしは昇順で末尾・降順で先頭。`priority` は `low < medium < high` |
+| 12 | 期限の絞り込み | `due_before` / `due_after` は指定日を含む。期限なしの ToDo は除外 |
+| 13 | 一覧の項目 | 説明（最大 10,000 文字）は一覧に含めず、詳細でだけ返す |
+| 14 | 公開先組織の上限 | 100（仕様に上限は無いが入力の大きさを抑えるため。担当者は AP-ASN-01 の 20 人） |
+| 15 | アクティビティの並び順 | 新しい順（同じ操作で記録した行は記録順の逆） |
 
 ## 11. 未決事項
 

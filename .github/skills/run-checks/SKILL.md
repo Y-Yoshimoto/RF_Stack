@@ -155,10 +155,26 @@ make d-run SERVICE=react_app CMD="npm run playwright:keycloak -- app_login"     
 - `npm run playwright` には含まれない（`E2E_KEYCLOAK=1` のときだけ project を切り替える。このとき既存の `setup` / `Chrome *` と `npm run preview` は使わない）。
 - ブラウザは preview（4173）ではなく **Vite の dev サーバー（5173）** を使う。BFF のコールバック先とログイン後の遷移先が `APP_CALLBACK_URL` / `FRONTEND_URL`（5173）だからである。起動済みならそれを使い、無ければ Playwright が `npm run dev` を起動する。
 - 前提: `fastapi_app` / `keycloak_c` / `redis_c` / `postgres_c` が起動し、シード（§5 の前提）が投入済みであること。Keycloak のユーザーは参照のみで、テストは作成・変更しない。
-- コンテナ内では `localhost:8080`（BFF が返す `KEYCLOAK_EXTERNAL_URL`）に Keycloak がいない（コンテナからは `keycloak_c:8080`）。そのためコンテナ内で実行するときだけ、Chromium の名前解決を `localhost:8080 -> keycloak_c:8080` に書き換える（`E2E_KEYCLOAK_HOST_RULES` で上書き・空文字で無効化、`E2E_KEYCLOAK_BASEURL` で対象 URL を変更できる）。
+- `react_app` コンテナ内の `localhost:8080`（BFF が返す `KEYCLOAK_EXTERNAL_URL`）は、サイドカー `keycloak_forward`（socat）が `keycloak_c:8080` へ転送するため、Chromium の名前解決は書き換えない（`--host-resolver-rules` の既定は空）。サイドカーが無い環境でだけ `E2E_KEYCLOAK_HOST_RULES='MAP localhost:8080 keycloak_c:8080'` を指定する。`E2E_KEYCLOAK_BASEURL` で対象 URL を変更できる。
+- Keycloak プロジェクトのワーカーは 1 に固定している（`setup` が無く、複数ワーカーが同時に `test-results` を作ると bind mount 上で `ENOTDIR` になることがあるため）。
 - 開発用パスワードは `fastapi_app/src/modules/auth/dev_profiles.py` の `_DEV_PASSWORD` を `playwright-test/keycloak/dev_credentials.ts` が読む（リポジトリ全体が `/work` にマウントされているため）。読めない環境では環境変数 `E2E_DEV_PASSWORD` を指定する。ユーザー名もこのファイルの 1 箇所に置く。
 - Keycloak の画面のロケーターは `playwright-test/keycloak/pages/keycloak_login_page.ts` だけにあり、Keycloak 更新で壊れた場合はここを直す。
 - 誤ったパスワードのテストは専用ユーザー（`alpha-member2`）を使う。Keycloak のブルートフォース検知（`bruteForceProtected`）のカウントが他のテストのユーザーへ波及しないようにするため。連続して実行しすぎると一時ロックされうるが、ロック中も「エラーが表示される」ことは変わらない。
+
+### 新しい画面の E2E（`playwright-test/screens/`）
+
+CP のテナント管理、AP のユーザー・組織・ToDo の画面を、開発用ログイン（`alpha-admin` / `alpha-member` / `beta-member` / `cp-admin` / `cp-viewer`）で通す E2E。`npm run playwright` に含まれ、`Screens Desktop` / `Screens Mobile` プロジェクトで実行される。
+
+```bash
+make d-run SERVICE=react_app CMD="npm run playwright"                                  # 既存 + 画面の E2E（setup が全プロファイルの認証状態を作る）
+make d-run SERVICE=react_app CMD="npm run playwright -- screens"                       # 画面の E2E だけ
+make d-run SERVICE=react_app CMD="npm run playwright -- screens/app_todos"             # ファイル指定（cp_tenants / app_organizations / app_users / app_todos）
+```
+
+- 対象は Vite の **dev サーバー（5173）**（`playwright.config.ts` が起動済みならそれを使い、無ければ起動する）。変更系の API は `Origin` が `FRONTEND_URL`（5173）か `CSRF_TRUSTED_ORIGINS` のものでないと 403 になるため、`vite preview`（4173）では動かない。preview で動かす場合は FastAPI の `CSRF_TRUSTED_ORIGINS` に `http://localhost:4173` を足し、`E2E_SCREEN_BASEURL` で指定する。
+- 複数の利用者が登場するシナリオは、`playwright-test/fixtures.ts` の `openAs(profile)` で利用者ごとのブラウザコンテキストを開く。前提データの用意と失敗時の後片付けは `playwright-test/helpers/api.ts`（API。`Origin` と `X-Requested-With` を付ける）。
+- **テストはデータを作る。** 組織・ToDo は画面で削除する（ToDo は論理削除のため DB に削除済みの行が残る）。CP のテナントは「削除を要求」まで進めて `PENDING_DELETION` のまま残る（コードは `e2e-` + 乱数。猶予期間（30 日）後の物理削除はテストでは行わない）。ユーザーは削除できないため、作成したら必ず無効化する（無効なユーザーの行と Keycloak のユーザーが alpha に残る）。
+- 前提: §5 の前提に加え、`keycloak_c` が Keycloak の管理 API を呼べること（テナント・ユーザーの作成が実際にレルム・ユーザーを作る）。
 
 ## 6. 結果の報告
 

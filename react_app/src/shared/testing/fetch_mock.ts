@@ -11,6 +11,9 @@ export type MockReply = {
     headers?: Record<string, string>;
 };
 
+/** 本文を持てないステータス */
+const NULL_BODY_STATUSES: readonly number[] = [204, 205, 304];
+
 /** 応答、またはリクエストから応答を決める関数 (クエリ・ヘッダー・呼び出し回数で応答を変える場合) */
 export type MockHandler = MockReply | ((request: Request) => MockReply);
 
@@ -39,7 +42,9 @@ export const mockFetch = (replies: Record<string, MockHandler>) => {
         if (!handler) throw new TypeError(`unmocked request: ${key}`);
         const reply = typeof handler === 'function' ? handler(request) : handler;
         const content_type = reply.content_type ?? (reply.status < 300 ? 'application/json' : 'application/problem+json');
-        return new Response(JSON.stringify(reply.body ?? {}), { status: reply.status, headers: { 'Content-Type': content_type, ...reply.headers } });
+        // 204 などの本文を持てないステータスでは本文を付けない (Response の生成が失敗するため)
+        const body = NULL_BODY_STATUSES.includes(reply.status) ? null : JSON.stringify(reply.body ?? {});
+        return new Response(body, { status: reply.status, headers: { 'Content-Type': content_type, ...reply.headers } });
     });
 };
 

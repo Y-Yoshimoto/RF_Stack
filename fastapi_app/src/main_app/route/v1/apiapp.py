@@ -20,6 +20,7 @@ from fastapi import APIRouter, Depends
 
 from main_app.route.v1.api_me.router import router as router_me
 from main_app.route.v1.api_organizations.router import router as router_organizations
+from main_app.route.v1.api_todos.router import router as router_todos
 from main_app.route.v1.api_users.router import router as router_users
 from main_app.route.v1.deps import require_active_app_user
 from modules.auth.csrf import require_csrf_protection
@@ -34,3 +35,4 @@ router = APIRouter(
 router.include_router(router_me)
 router.include_router(router_users, prefix="/users")
 router.include_router(router_organizations, prefix="/organizations")
+router.include_router(router_todos, prefix="/todos")

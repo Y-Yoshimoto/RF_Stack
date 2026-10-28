@@ -28,6 +28,7 @@ from control_plane_app.repositories import tenant_repository as repo
 from control_plane_app.services.errors import TenantNotFoundError
 from control_plane_app.services.tenant_provisioning import InitialAdminSpec, OnboardResult, TenantView
 from modules.api_common.etag import IfMatchVersion, OptionalIfMatchVersion, set_etag
+from modules.api_common.openapi import success_headers
 from modules.api_common.pagination import CursorQuery, IncludeTotalQuery, LimitQuery
 from modules.errors.openapi import problem_responses
 from modules.errors.request_id import get_request_id
@@ -90,7 +91,7 @@ def list_tenants(
     "",
     status_code=201,
     summary="テナントの作成（払い出し）",
-    responses=problem_responses(409, 422, 502),
+    responses={**success_headers(201, "作成したテナントと初期管理者の一時パスワード", location=True, no_store=True), **problem_responses(409, 422, 502)},
     dependencies=[Depends(require_saas_admin)],
 )
 def create_tenant(body: TenantCreate, response: Response, user: CpAdminDep, service: ProvisioningServiceDep) -> TenantProvisioned:
@@ -116,7 +117,7 @@ def create_tenant(body: TenantCreate, response: Response, user: CpAdminDep, serv
 @router.get(
     "/{tenant_id}",
     summary="テナント詳細",
-    responses=problem_responses(404, 422),
+    responses={**success_headers(200, "テナントの詳細と払い出し履歴"), **problem_responses(404, 422)},
 )
 def get_tenant(tenant_id: uuid.UUID, session: CpSessionDep, response: Response) -> TenantDetail:
     """テナントの詳細と払い出し履歴（新しい順）を返す（`saas_admin` / `saas_viewer`）。
@@ -138,7 +139,7 @@ def get_tenant(tenant_id: uuid.UUID, session: CpSessionDep, response: Response) 
 @router.post(
     "/{tenant_id}/suspend",
     summary="テナントの停止",
-    responses=problem_responses(404, 409, 412, 422, 428, 502),
+    responses={**success_headers(200, "停止したテナント"), **problem_responses(404, 409, 412, 422, 428, 502)},
     dependencies=[Depends(require_saas_admin)],
 )
 def suspend_tenant(tenant_id: uuid.UUID, version: IfMatchVersion, response: Response, user: CpAdminDep, service: ProvisioningServiceDep) -> TenantRead:
@@ -154,7 +155,7 @@ def suspend_tenant(tenant_id: uuid.UUID, version: IfMatchVersion, response: Resp
 @router.post(
     "/{tenant_id}/resume",
     summary="テナントの再開",
-    responses=problem_responses(404, 409, 412, 422, 428, 502),
+    responses={**success_headers(200, "再開したテナント"), **problem_responses(404, 409, 412, 422, 428, 502)},
     dependencies=[Depends(require_saas_admin)],
 )
 def resume_tenant(tenant_id: uuid.UUID, version: IfMatchVersion, response: Response, user: CpAdminDep, service: ProvisioningServiceDep) -> TenantRead:
@@ -169,7 +170,7 @@ def resume_tenant(tenant_id: uuid.UUID, version: IfMatchVersion, response: Respo
 @router.delete(
     "/{tenant_id}",
     summary="テナントの削除要求",
-    responses=problem_responses(404, 409, 412, 422, 428, 502),
+    responses={**success_headers(200, "削除を要求したテナント"), **problem_responses(404, 409, 412, 422, 428, 502)},
     dependencies=[Depends(require_saas_admin)],
 )
 def request_tenant_deletion(tenant_id: uuid.UUID, version: IfMatchVersion, response: Response, user: CpAdminDep, service: ProvisioningServiceDep) -> TenantRead:
@@ -185,7 +186,7 @@ def request_tenant_deletion(tenant_id: uuid.UUID, version: IfMatchVersion, respo
 @router.post(
     "/{tenant_id}/provisioning/retry",
     summary="払い出しの再実行",
-    responses=problem_responses(404, 409, 412, 422, 502),
+    responses={**success_headers(200, "再実行したテナントと初期管理者の一時パスワード", no_store=True), **problem_responses(404, 409, 412, 422, 502)},
     dependencies=[Depends(require_saas_admin)],
 )
 def retry_provisioning(

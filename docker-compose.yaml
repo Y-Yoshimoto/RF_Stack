@@ -27,6 +27,19 @@ services:
     volumes:
       - ./:/work/
       # - /tmp/.X11-unix:/tmp/.X11-unix
+  # react_app コンテナ内の localhost:8080 を keycloak_c:8080 に転送する
+  # BFF は KEYCLOAK_EXTERNAL_URL(http://localhost:8080)をブラウザ向けに返すため、react_app コンテナ内の Chromium
+  # (Playwright の Keycloak 経由 E2E)からは localhost:8080 に届く必要がある。react_app のネットワーク名前空間を共有し、
+  # そこの 8080 で待ち受けて keycloak_c に中継する(IPv4/IPv6 の両方。localhost が ::1 に解決される場合に備える)。
+  # ポートは公開しない(ホストの 8080 は keycloak_c が公開している)。react_app を作り直した場合は、このサービスも作り直すこと
+  # (docker compose up -d が自動で行う。react_app だけ docker restart した場合は docker compose restart keycloak_forward)
+  keycloak_forward:
+    image: alpine/socat:1.8.1.3
+    network_mode: "service:react_app"
+    command: ["TCP6-LISTEN:8080,ipv6-v6only=0,fork,reuseaddr", "TCP:keycloak_c:8080"]
+    depends_on:
+      - react_app
+      - keycloak_c
   # FastAPI アプリケーション
   fastapi_app:
     image: fastapi_app
@@ -39,7 +52,8 @@ services:
         GROUP_ID: ${GROUP_ID:-1000}
     # restart: always
     # PYTHONPATH=/work/fastapi_app/src/ が通っているため、モジュール指定は app:app となる
-    command: "uvicorn app:app --host 0.0.0.0 --port 8000"
+    # --log-config: アクセスログから認可コードを含むクエリ(/api/auth/callback?code=...&state=...)を除く(src/access_log_filter.py)
+    command: "uvicorn app:app --host 0.0.0.0 --port 8000 --log-config /work/fastapi_app/src/uvicorn_log_config.json"
     volumes:
       - ./:/work/
       # Python仮想環境とuvキャッシュは名前付きボリュームに置き、コンテナを作り直しても依存を再インストールしない。

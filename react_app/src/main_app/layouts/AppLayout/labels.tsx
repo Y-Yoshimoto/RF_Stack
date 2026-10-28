@@ -4,7 +4,7 @@ import AccountTreeIcon from '@mui/icons-material/AccountTree';
 import ChecklistIcon from '@mui/icons-material/Checklist';
 import HomeIcon from '@mui/icons-material/Home';
 import PeopleIcon from '@mui/icons-material/People';
-import { appHomePath } from '@/main_app/paths';
+import { appHomePath, appOrganizationsPath, appProfilePath, appTodosPath, appUsersPath } from '@/main_app/paths';
 import type { NavItem } from '@/shared/layouts/AppShell/nav_item';
 
 /**
@@ -15,10 +15,10 @@ import type { NavItem } from '@/shared/layouts/AppShell/nav_item';
 */
 export const appNavItemsOf = (tenant_code: string): NavItem[] => [
     { id: 'home', label: 'ホーム', to: appHomePath(tenant_code), end: true, icon: <HomeIcon /> },
-    { id: 'users', label: 'ユーザー管理', to: null, icon: <PeopleIcon /> },
-    { id: 'organizations', label: '組織管理', to: null, icon: <AccountTreeIcon /> },
-    { id: 'profile', label: 'プロフィール', to: null, icon: <AccountCircleIcon /> },
-    { id: 'todo', label: 'ToDo', to: null, icon: <ChecklistIcon /> },
+    { id: 'users', label: 'ユーザー管理', to: appUsersPath(tenant_code), icon: <PeopleIcon /> },
+    { id: 'organizations', label: '組織管理', to: appOrganizationsPath(tenant_code), icon: <AccountTreeIcon /> },
+    { id: 'profile', label: 'プロフィール', to: appProfilePath(tenant_code), icon: <AccountCircleIcon /> },
+    { id: 'todo', label: 'ToDo', to: appTodosPath(tenant_code), icon: <ChecklistIcon /> },
 ];
 
 /** AP のロール (01 §7.5) の表示名 */

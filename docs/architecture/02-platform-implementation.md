@@ -268,7 +268,7 @@ fastapi_app/
   - 表示名は Keycloak の姓・名から `"{名} {姓}"`（`name` クレームと同じ）で作る。ログイン時の同期で上書きされないよう、変更は Keycloak の姓・名に対して行う（`update_user(first_name=..., last_name=...)`）。ログイン処理は `display_name` に `name` クレーム（無ければ `preferred_username`）を渡す
   - **無効化したユーザーのセッション失効（01 PF-USR-03、05 #32）**: `update_user(is_active=False)` は Keycloak のユーザーを無効化し、Keycloak のセッションを失効させる（`POST /users/{id}/logout`。BFF のトークン更新が失敗し、遅くともアクセストークンの期限でセッションが破棄される）。即時の失効は AP 側で行う: `/api/v1` の各リクエストで `require_active_session_user` を呼び、`UserDeactivatedError` / `UserNotSyncedError` なら Redis のセッションを破棄して 401 を返す（`t_user.is_active` を正とし、キャッシュしない。一意制約 `(tenant_id, idp_subject)` による 1 回の SELECT）。`tenant_admin` を外した場合も Keycloak のセッションを失効させる（BFF のセッションのロールはログイン時の値のため）
   - ログイン処理への組み込み（実装済み。5.2 の「ログイン時のユーザー同期」）: コールバックと開発用ログインの AP の分岐が、セッションを作る前に `main_app/route/auth/login_sync.py` の `sync_app_user_on_login` 経由で `sync_user_on_login` を呼ぶ
-  - `/api/v1` への組み込み（実装済み。5.6）: ルーター全体に依存関数 `require_active_app_user`（`require_active_session_user` を呼び、失効時は Redis のセッションを削除して 401）、`/api/v1/users`・`/api/v1/organizations` が各サービスを呼ぶ（`main_app/route/v1/`）
+  - `/api/v1` への組み込み（実装済み。5.6）: ルーター全体に依存関数 `require_active_app_user`（`require_active_session_user` を呼び、失効時は Redis のセッションを削除して 401）、`/api/v1/users`・`/api/v1/organizations`・`/api/v1/todos` が各サービスを呼ぶ（`main_app/route/v1/`）
 - 例外: AP のテナントレジストリ参照は `modules/tenancy/registry.py` の読み取り専用インターフェース経由
 - 各層の担当エージェント: ルーター・スキーマ → `fastapi-api-schema`、サービス・共通部品 → `fastapi-domain`、モデル・マイグレーション → `postgres-schema`、テスト → `fastapi-pytest`、認証 → `auth-keycloak`
 
@@ -385,6 +385,13 @@ fastapi_app/
 | PATCH | `/api/v1/organizations/{id}` | `tenant_admin` | 組織名の変更。`If-Match` 必須。200 と組織、新しい `ETag` |
 | DELETE | `/api/v1/organizations/{id}` | `tenant_admin` | 論理削除。`If-Match` 必須。204（本文なし） |
 | PUT | `/api/v1/organizations/{id}/members` | `tenant_admin` | `{user_ids}` の全置換。`If-Match` 必須。200 と組織（`member_ids` 付き）、新しい `ETag`。テナント内に存在しないユーザー（他テナントを含む）は 422（`invalid_organization_members`、拡張メンバー `user_ids`） |
+| GET | `/api/v1/todos` | `tenant_admin` / `member` | ToDo 一覧（ToDo アプリ。閲覧できるもののみ）。カーソル方式、`scope`（`mine` / `assigned` / `shared` / `all`）、`status` / `priority`（カンマ区切り）、`q` / `organization_id` / `assignee_id` / `due_before` / `due_after`、`sort`（単一キー: `due_date` / `priority` / `created_at` / `updated_at`、既定 `-created_at`。複数キーは未対応）。説明は含まない |
+| POST | `/api/v1/todos` | `tenant_admin` / `member` | 201、`Location` と `ETag`。作成者は操作者 |
+| GET | `/api/v1/todos/{id}` | `tenant_admin` / `member` | 説明と `permissions` を含む詳細。`ETag`。他テナント・存在しない・削除済み・閲覧範囲外は同じ 404 |
+| PATCH | `/api/v1/todos/{id}` | `tenant_admin` / `member` | 送った項目だけ（閲覧範囲・公開先組織を含む）。`If-Match` 必須。200 と ToDo、新しい `ETag`。権限は実際に値が変わる項目で判定（担当者はステータスのみ可。無ければ 403 `todo_operation_forbidden`） |
+| DELETE | `/api/v1/todos/{id}` | `tenant_admin` / `member` | 論理削除（作成者・`tenant_admin`）。`If-Match` 必須。204 |
+| PUT | `/api/v1/todos/{id}/assignees` | `tenant_admin` / `member` | `{user_ids}` の全置換。`If-Match` 必須。200 と ToDo、新しい `ETag`。存在しない・無効化されたユーザーの新規割り当ては 422（`invalid_todo_assignees`、拡張メンバー `user_ids`） |
+| GET | `/api/v1/todos/{id}/activities` | `tenant_admin` / `member` | アクティビティ（新しい順。カーソル方式）。閲覧できない ToDo は 404 |
 | GET | `/api/v1/cp/tenants` | CP 参照 | 一覧。カーソル方式（`limit` / `cursor` / `include_total`）、`sort`（`created_at` 既定 `-created_at` / `tenant_code` / `name`）、`status`（カンマ区切り）。直近の日次メトリクスのユーザー数と、テーマ固有の主要指標（`primary_metrics`: `{metric_key, value, date}` の配列。`modules.tenant_metrics.registry.theme_primary_metric_keys()` の順。ToDo は `todo_count`。集計前は `value` / `date` が `null`）を含む |
 | POST | `/api/v1/cp/tenants` | `saas_admin` | 同期払い出し。201、`Location` と `ETag`。一時パスワードを本文で一度だけ返し、`Cache-Control: no-store` |
 | GET | `/api/v1/cp/tenants/{id}` | CP 参照 | 詳細と払い出し履歴。`ETag` |
@@ -399,7 +406,7 @@ fastapi_app/
 
 **AP の API の認可と規約**（`main_app/route/v1/`）
 
-- 参照は `tenant_admin` / `member`、変更は `tenant_admin`（`require_app_roles`）。ロール確認はルーター全体の依存関数（テナント → CSRF → 有効確認）の後に評価するため、member の変更は本文の検証より先に 403 になる
+- 参照は `tenant_admin` / `member`、変更は `tenant_admin`（`require_app_roles`）。ToDo（`/todos`）はテーマ固有で、どちらのロールも使え、ToDo ごとの閲覧範囲（404）・操作の権限（403）は `TodoService` が判定する（ToDoApp.md §3、§9.5）ロール確認はルーター全体の依存関数（テナント → CSRF → 有効確認）の後に評価するため、member の変更は本文の検証より先に 403 になる
 - **有効確認（`require_active_app_user`。PF-USR-03、05 #32）**: 各リクエストで `require_active_session_user` を呼ぶ（`t_user` を `sub` で 1 回 SELECT。キャッシュしない）。`UserDeactivatedError`（401 `user_deactivated`）/ `UserNotSyncedError`（401 `user_not_synced`）の場合は Redis のセッションを削除（`modules.auth.session.delete_session`）して 401 にする。以降の同じ Cookie は `session_expired`（401）。`/me` を含む `/api/v1` 全体が対象（`cp` / `public` は対象外）。AP の DB セッションは同じリクエスト内で共有する
 - 変更系の `PATCH` / `PUT` / `DELETE` は `If-Match: "<version>"` 必須。OpenAPI でも必須ヘッダー（`If-Match`）として出る
 - 一覧のカーソルは `main_app/route/v1/paging.py`（リポジトリの `(キー, id)` を `modules/api_common/pagination` の形式にする）。`sort` や `cursor` が不正なら 422
@@ -411,6 +418,7 @@ fastapi_app/
 - `application/problem+json`（RFC 9457）。`type` / `title` / `status` / `detail` / `instance` / `code` / `request_id` / `errors`（`{field, code, message}`）。`title` / `detail` は日本語の固定文言で、`HTTPException.detail` の文字列はそのまま返さない（`modules/errors/catalog.py` の対応表で `code` にする。表に無いものはステータスの既定の文言）
 - ルーターからは `ProblemError` を送出する。`HTTPException`・`RequestValidationError`（422、`errors` に項目ごとの詳細）・払い出しサービスの例外（`control_plane_app/problems.py`）・Redis / DB の接続失敗（503）・想定外の例外（500。内容は返さずログに残す）を変換する
 - AP のユーザー・組織管理の `code`（`main_app/problems.py`）: 422 `invalid_user_input` / `invalid_user_role` / `invalid_organization_input` / `invalid_organization_members`、404 `user_not_found` / `organization_not_found`、409 `user_already_exists` / `organization_name_already_exists` / `user_self_modification_forbidden`（拡張メンバー `operation`）、412 `user_version_conflict` / `organization_version_conflict`、502 `identity_provider_operation_failed`、401 `user_deactivated` / `user_not_synced`
+- ToDo（`main_app/problems.py`）: 422 `invalid_todo_input` / `invalid_todo_assignees`（拡張メンバー `user_ids`、`errors[].code` は `not_found` / `inactive`）/ `invalid_todo_organizations`（拡張メンバー `organization_ids`）、404 `todo_not_found`、403 `todo_operation_forbidden`（拡張メンバー `operation`）、412 `todo_version_conflict`
 - AP と CP で 401 / 403 / 404 の形は同じ。AP の 403 は `tenant_inactive`（停止中・削除要求中）とそれ以外（`tenant_unavailable`。存在有無を推測させないため集約）に分ける
 - 払い出しの失敗（502）は拡張メンバー `tenant_id` / `step` を返す（`tenant_id` で再実行できる）。状態遷移の不正（409）は `operation` / `current_status` を返す
 - OpenAPI は後処理で、エラー応答を `application/problem+json`・`ProblemDetails` にそろえる（`modules/errors/openapi.py`）
@@ -444,8 +452,10 @@ react_app/src/
   shared/                   # UI 部品、fetch ラッパー（FetchComponents）、テーマ。プレーン固有ロジックを含めない
   main_app/                 # アプリケーションプレーン
     routes.tsx
-    auth/                   # AppAuthProvider（/api/auth/app/*）
-    api/
+    auth/                   # AppAuthProvider（/api/auth/app/*）、useAppPermissions
+    api/                    # 契約の型・エンドポイント関数・エラー分類
+    me/ users/ organizations/  # 画面が使うデータ取得・操作のフック
+    todos/                  # テーマ固有 (ToDo) のフックと純粋関数 (差分・事前の確認・URL クエリ・選択肢)
     pages/
   control_plane_app/        # コントロールプレーン
     routes.tsx
@@ -463,8 +473,16 @@ react_app/src/
 - 認証状態は Cookie で運ばれるため、フロントはトークンを扱わない
 - fetch ラッパーで、変更系メソッドに `X-Requested-With: rf-stack` を必ず付与する
 - 401 を受けたら各プレーンのログイン画面へ、403 はエラー画面へ遷移する
-- API の型は OpenAPI から生成し（`api-contract-sync` が整合を確認する）、手書きの型と二重管理しない
+- API の型は現状は手書き（`main_app/api/contract.ts`・`todo_contract.ts`、`control_plane_app/api/contract.ts`）で、`api-contract-sync` が OpenAPI との整合を確認する。OpenAPI からの生成（openapi-typescript 等。生成物をコミットし CI で差分を検出）への移行は今後の判断事項とする。生成してもヘッダー・`errors[].code`・Problem Details の拡張メンバーは表現されないため、契約テスト（`test/api/test_70_problem_details.py`）は残す
 - CP のデータ取得は、エンドポイント関数・エラー分類を `control_plane_app/api/`（`tenants.ts` / `metrics.ts` / `errors.ts`）に、画面が使うフックを `control_plane_app/tenants/`・`control_plane_app/metrics/` に置き、`pages/` からは fetch を直接呼ばない
+- AP のデータ取得も同じ形にする。エンドポイント関数・エラー分類を `main_app/api/`（`me.ts` / `users.ts` / `organizations.ts` / `errors.ts`。型は `contract.ts`）に、画面が使うフックを `main_app/me/`（`useMe`）・`main_app/users/`（`useUserList` / `useUser` / `useUserActions`）・`main_app/organizations/`（`useOrganizationList` / `useOrganization` / `useOrganizationActions`）に置く。権限（`tenant_admin` か）は `main_app/auth/` の `useAppPermissions`
+- ToDo（テーマ固有。ToDoApp.md §9.5）も同じ形にする。エンドポイント関数は `main_app/api/todos.ts`、型は `main_app/api/todo_contract.ts`（`contract.ts` から再公開。パス・エラーコードは `contract.ts`）。画面が使うものは `main_app/todos/` に置く
+  + フック: `useTodoList`（表示範囲・絞り込み・並び替え・カーソル）/ `useTodo`（詳細・ETag・`permissions`・操作の対象 `target`）/ `useTodoActions`（`create` / `update` / `changeStatus` / `setAssignees` / `remove`）/ `useTodoActivities`（カーソル）/ `useTodoAssigneeChoices`・`useTodoOrganizationChoices`（ユーザー一覧・組織一覧の全ページから選択肢を作る。無効なユーザーは割り当て済みのものだけ残す）
+  + 純粋関数: `list_search.ts`（一覧の絞り込みと画面の URL クエリの相互変換。クエリ名は API と同じ）、`todo_changes.ts`（実際に変わる項目の差分・`permissions` による事前の確認）、`activity_payload.ts`（アクティビティの `payload` の読み取り）
+  + 変更操作は、AP のロール（`can_write`）ではなく ToDo ごとの `permissions` で事前に弾く（`tenant_admin` / `member` のどちらも使える）。更新は実際に値が変わる項目だけを送り、その項目で確かめる（ToDoApp.md §10 #7）。`permissions` を持たない一覧の要素からの操作は API に任せる。API の 403 `todo_operation_forbidden` は `permissions` が古いため `requires_reload` にする
+- プレーン共通の部品は `shared/` に置き、プレーン固有の値（エンドポイント・エラーコード・ロール）は引数で渡す: ETag / If-Match（`shared/api/etag.ts`）、エラーの分類（`shared/api/errors.ts`。`kind` / `code` / `requires_reload`。各プレーンの `classifyCpError` / `classifyAppError` が固有の code を足す）、カーソル一覧（`shared/hooks/useCursorList.ts`）、ETag 付きの詳細（`shared/hooks/useVersionedResource.ts`）、変更操作の実行状態（`shared/hooks/useActionRunner.ts`）、一時パスワードの保持（`shared/hooks/useEphemeralValue.ts`）
+- 変更操作のフックの共通方針: 変更権限の無いロール（CP の `saas_viewer`、AP の `member`）・ETag 未取得・二重実行・業務上の禁止操作（AP の自分自身の無効化と `tenant_admin` の解除）は API を呼ばずに失敗にする。412 / 428 は `requires_reload` の失敗にし、画面は詳細を取り直してからやり直させる。操作は reject せず結果（`ok` / `failure`）を返す。一時パスワードはフックの状態にだけ保持し、閉じる・次の操作の開始・一定時間（既定 10 分）・アンマウントで消す（戻り値・通知・ログには含めない）
+- AP の `/api/v1` の 401（`user_deactivated` / `session_expired` 等）は、AP の API クライアント（`useAppApiClient`）が認証状態を取り直し、ルートガードがログイン画面へ遷移させる。フックは `kind: unauthenticated` の失敗を返すだけで、画面での表示は不要
 
 ### 6.3 Vite
 
@@ -528,7 +546,7 @@ GET /api/auth/dev-login?as=<profile>&next=<path>
 | テナント部品の組み込み | （済）`modules/tenancy` を作成し、`app_db` 用の sessionmaker にリスナーを登録 | （済）AP ルーター（`/api/v1`）に `AppTenantContextDep` を適用 |
 | CP の API | （済）`/api/v1/cp/*`。旧 `/control_plane/*` と `control_plane_app/api_tenant/` は削除（React からの呼び出しは無かった） | — |
 | 公開 API | （済）`/api/v1/public/*`（ヘルスチェック、テナント存在確認） | — |
-| AP の API | （済）`/api/v1/me`、`/api/v1/users`、`/api/v1/organizations`（01 §10.2。`user.id` は `t_user.id`） | — |
+| AP の API | （済）`/api/v1/me`、`/api/v1/users`、`/api/v1/organizations`、`/api/v1/todos`（01 §10.2。`user.id` は `t_user.id`） | — |
 | AP のユーザー同期・組織管理 | （済）サービス層（5.1 の `main_app/services/`）、ログイン処理への `sync_user_on_login`（5.2）、`/api/v1` への有効確認 `require_active_app_user`（PF-USR-03。5.6）。払い出し時の AP の初期データはログイン完了時に AP が作る（05 #31） | — |
 | エラー形式 | （済）RFC 9457 Problem Details（`modules/errors`）。`/api/auth/*` と旧サンプルも同じハンドラで変換される | — |
 | CSRF 対策 | （済）依存関数 `require_csrf_protection`（`/api/v1`、`/api/v1/cp`、ログアウトに適用） | — |

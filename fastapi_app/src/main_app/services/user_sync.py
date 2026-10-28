@@ -246,6 +246,9 @@ def _create_user_from_login(session: Session, ctx: TenantContext, *, idp_subject
 def _sync_profile(session: Session, ctx: TenantContext, user: TUser, *, email: str | None, display_name: str) -> tuple[bool, bool]:
     """既存のユーザー行の表示名・メールアドレスを IdP の値に揃える。
 
+    トークンにメールアドレスが無い（``email`` が None）場合は、保存済みの値を消さずに残す。
+    消すと同じアドレスを別のユーザーが取れてしまい、元のユーザーの次回ログインが ``email_conflict`` になるため。
+
     Returns:
         tuple[bool, bool]: 更新したか、メールアドレスの重複で同期しなかったか。
     """
@@ -254,7 +257,7 @@ def _sync_profile(session: Session, ctx: TenantContext, user: TUser, *, email: s
     if user.display_name != display_name:
         changes["display_name"] = change(user.display_name, display_name)
         user.display_name = display_name
-    if user.email != email:
+    if email is not None and user.email != email:
         if _email_available(session, email, user.id):
             changes["email"] = change(user.email, email)
             user.email = email

@@ -6,7 +6,7 @@
 - :mod:`.organizations` — ``t_organization`` / ``t_organization_member``（既定で論理削除済みを除く）
 - :mod:`.audit_log` — ``t_ap_audit_log`` の追記
 - :mod:`.keyset` — 一覧のキーセット方式（カーソル）の部品
-- :mod:`.todos` — ToDo（docs/spec/ToDoApp.md §9.2）
+- :mod:`.todos` — ToDo・担当者・公開先組織・アクティビティ・メトリクス（docs/spec/ToDoApp.md §9.2）
 
 コミットはしない（トランザクションの境界は呼び出し側のサービス層が決める）。
 """

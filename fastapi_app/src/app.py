@@ -117,7 +117,9 @@ def demo_login(request: dict):
 
 def main():
     # サーバー起動
-    uvicorn.run(app=app, host="0.0.0.0", port=8000)
+    # アクセスログから認可コードを含むクエリを除く(src/access_log_filter.py)
+    log_config = os.path.join(os.path.dirname(os.path.abspath(__file__)), "uvicorn_log_config.json")
+    uvicorn.run(app=app, host="0.0.0.0", port=8000, log_config=log_config)
 
 
 if __name__ == "__main__":
