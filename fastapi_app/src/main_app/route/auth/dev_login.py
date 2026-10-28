@@ -32,22 +32,31 @@ Playwright テストや手動での動作確認時に、KeyCloak のログイン
     CP のプロファイルは ``saas_admin`` / ``saas_viewer`` のいずれかのロールを持たないと 403 になる
     (通常のコールバックと同じ検証)。
 
-テナントレジストリとの照合:
-    開発用ログインはレジストリを引かない。トークンに ``tenant_id`` クレームがあればセッションに載せる。
-    AP の ``/api/v1`` はリクエスト毎にテナントコンテキストの依存関数がレジストリと照合するため、
-    未登録のテナントはそこで拒否される。
+テナントレジストリとの照合とユーザー同期 (AP のプロファイル):
+    通常のコールバックと同じく、プロファイルのレルムをレジストリで ACTIVE なテナントに解決し
+    (未登録・ACTIVE でない・テナントコードの食い違いは 403)、トークンの ``tenant_id`` クレームとの一致を確認する。
+    セッションを作る前に、そのテナントのコンテキストで AP のユーザー行を同期する
+    (:func:`~main_app.route.auth.login_sync.sync_app_user_on_login`。01 PF-USR-04 / 05)。
+    無効化されたユーザーは 403 (``Login rejected``) でセッションを作らない。DB に接続できない場合は
+    共通の例外ハンドラにより 503 (``service_unavailable``) になる。CP のプロファイルでは同期しない。
 """
 import logging
 
 import httpx
-from fastapi import APIRouter, Cookie, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import RedirectResponse
 
+from main_app.route.auth.login_sync import sync_app_user_on_login
+from main_app.services.errors import UserDeactivatedError
 from modules.auth.dev_profiles import DEFAULT_DEV_PROFILE, DEV_PROFILES, DevUser
 from modules.auth.environment import KeyCloakEnvironmentVariables
-from modules.auth.login import build_login_session
-from modules.auth.plane import Plane
+from modules.auth.login import LOGIN_REJECTED_DETAIL, build_login_session
+from modules.auth.plane import SESSION_COOKIE_NAMES, Plane
+from modules.auth.redirects import post_login_path
 from modules.auth.session import create_session, delete_session, set_session_cookie, unsign_session_id
+from modules.tenancy.providers import get_tenant_registry
+from modules.tenancy.registry import TenantRecord, TenantRegistry, is_active
+from modules.tenancy.resolver import TenantErrorCode
 
 logger = logging.getLogger(__name__)
 
@@ -57,12 +66,22 @@ router = APIRouter()
 _config = KeyCloakEnvironmentVariables()
 
 
-# ログイン後の既定の遷移先 (フロントエンドのパス)
-DEFAULT_NEXT_PATH = "/button"
-DEFAULT_NEXT_PATHS: dict[Plane, str] = {Plane.APP: DEFAULT_NEXT_PATH, Plane.CP: "/cp/"}
+def default_next_path(profile: DevUser) -> str:
+    """``next`` を省略したときの遷移先パスを返す。
+
+    プロファイルに ``next_path`` があればそれを、無ければ通常のログイン成功時と同じ遷移先
+    (AP: ``/{tenant_code}/``、CP: ``/cp/``。:func:`~modules.auth.redirects.post_login_path`) とする。
+
+    Args:
+        profile: プロファイル。
+
+    Returns:
+        str: パス。
+    """
+    return profile.next_path or post_login_path(profile.plane, profile.tenant_code)
 
 
-def _validate_next_path(next_path: str | None, default: str = DEFAULT_NEXT_PATH) -> str:
+def _validate_next_path(next_path: str | None, default: str) -> str:
     """遷移先パスを検証する。
 
     ``next`` をそのままリダイレクトに使うとオープンリダイレクトになるため、
@@ -131,12 +150,36 @@ def _fetch_tokens(profile: DevUser) -> dict:
     return response.json()
 
 
+def _resolve_app_tenant(profile: DevUser, registry: TenantRegistry) -> TenantRecord:
+    """AP のプロファイルのレルムを、レジストリで ACTIVE なテナントに解決する。
+
+    Args:
+        profile: AP のプロファイル。
+        registry: テナントレジストリ。
+
+    Returns:
+        TenantRecord: テナント。
+
+    Raises:
+        HTTPException(403): 未登録 (``tenant_not_found``)、ACTIVE でない (``tenant_inactive``)、
+            レルムのテナントコードがプロファイルと食い違う (``tenant_mismatch``) 場合。
+    """
+    record = registry.get_by_realm(profile.realm)
+    if record is None:
+        raise HTTPException(status_code=403, detail=TenantErrorCode.NOT_FOUND.value)
+    if record.tenant_code != profile.tenant_code:
+        raise HTTPException(status_code=403, detail=TenantErrorCode.MISMATCH.value)
+    if not is_active(record):
+        raise HTTPException(status_code=403, detail=TenantErrorCode.INACTIVE.value)
+    return record
+
+
 @router.get("/dev-login", include_in_schema=False)
 def dev_login(
+    request: Request,
     profile_name: str = Query(default=DEFAULT_DEV_PROFILE, alias="as"),
     next_path: str | None = Query(default=None, alias="next"),
-    rf_sid_app: str | None = Cookie(default=None),
-    rf_sid_cp: str | None = Cookie(default=None),
+    registry: TenantRegistry = Depends(get_tenant_registry),
 ):
     """開発用の認証情報でログインし、認証済み状態でフロントエンドへ遷移する。
 
@@ -145,10 +188,11 @@ def dev_login(
     通常のログインと変わらない。
 
     Args:
+        request: リクエスト。プロファイルのプレーンの既存セッション Cookie (``rf_sid_app`` / ``rf_sid_cp``) を読み、破棄する。
         profile_name: 使用するプロファイル名。クエリ ``as`` で指定する (省略時 ``alpha-admin``)。
-        next_path: ログイン後の遷移先パス。クエリ ``next`` で指定する。省略時はプレーンの既定。
-        rf_sid_app: 既存の AP セッション Cookie (AP でログインする場合は破棄する)。
-        rf_sid_cp: 既存の CP セッション Cookie (CP でログインする場合は破棄する)。
+        next_path: ログイン後の遷移先パス。クエリ ``next`` で指定する。省略時は :func:`default_next_path`
+            (AP: ``/{tenant_code}/``、CP: ``/cp/``)。
+        registry: テナントレジストリ (AP のプロファイルのテナントの確認に使う)。
 
     Returns:
         RedirectResponse(302): ``FRONTEND_URL + next`` へのリダイレクト。
@@ -157,8 +201,10 @@ def dev_login(
     Raises:
         HTTPException(400): プロファイルが存在しない、または ``next`` が不正な場合。
         HTTPException(401): KeyCloak が認証情報を拒否した、またはトークンの検証に失敗した場合。
-        HTTPException(403): CP のプロファイルが CP のロールを持たない場合。
+        HTTPException(403): CP のプロファイルが CP のロールを持たない、AP のテナントが ACTIVE でない・
+            ``tenant_id`` クレームが一致しない、または AP で無効化されたユーザーの場合。
         HTTPException(502): KeyCloak に到達できない場合。
+        sqlalchemy.exc.OperationalError: AP の DB に接続できない場合 (共通の例外ハンドラで 503)。
     """
     profile = DEV_PROFILES.get(profile_name)
     if not profile:
@@ -166,16 +212,34 @@ def dev_login(
         raise HTTPException(status_code=400, detail=f"Unknown profile: {profile_name}. Available: {available}")
 
     try:
-        redirect_path = _validate_next_path(next_path, profile.next_path or DEFAULT_NEXT_PATHS[profile.plane])
+        redirect_path = _validate_next_path(next_path, default_next_path(profile))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    app_record = _resolve_app_tenant(profile, registry) if profile.plane == Plane.APP else None
+
     token_data = _fetch_tokens(profile)
     # パスワードグラントには nonce が無いため expected_nonce は None とする。
-    session_data = build_login_session(_config, profile.plane, profile.realm, token_data, expected_nonce=None, tenant_code=profile.tenant_code)
+    session_data = build_login_session(
+        _config,
+        profile.plane,
+        profile.realm,
+        token_data,
+        expected_nonce=None,
+        tenant_code=profile.tenant_code,
+        expected_tenant_id=str(app_record.tenant_id) if app_record is not None else None,
+    )
+
+    if app_record is not None:
+        # AP のユーザー行の同期 (通常のコールバックと同じ)。無効化されたユーザーにはセッションを作らない。
+        try:
+            sync_app_user_on_login(session_data, tenant_id=app_record.tenant_id, tenant_code=app_record.tenant_code)
+        except UserDeactivatedError as exc:
+            logger.warning("dev-login: 無効化されたユーザーのためログインを拒否しました: profile=%s user_id=%s", profile_name, exc.user_id)
+            raise HTTPException(status_code=403, detail=LOGIN_REJECTED_DETAIL) from exc
 
     # 同じプレーンの既存セッションを破棄してから新しいセッションを発行する
-    old_cookie = rf_sid_app if profile.plane == Plane.APP else rf_sid_cp
+    old_cookie = request.cookies.get(SESSION_COOKIE_NAMES[profile.plane])
     old_session_id = unsign_session_id(profile.plane, old_cookie) if old_cookie else None
     if old_session_id:
         delete_session(profile.plane, old_session_id)
@@ -183,6 +247,6 @@ def dev_login(
 
     logger.warning("dev-login: プロファイル '%s' (plane=%s) でセッションを発行しました", profile_name, profile.plane.value)
 
-    response = RedirectResponse(url=f"{_config.frontend_url}{redirect_path}", status_code=302)
+    response = RedirectResponse(url=_config.frontend_redirect_url(redirect_path), status_code=302)
     set_session_cookie(response, profile.plane, session_id, secure=_config.cookie_secure())
     return response

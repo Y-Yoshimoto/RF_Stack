@@ -18,7 +18,7 @@ from sqlalchemy import URL, create_engine, pool
 from alembic import context
 
 # モデルをインポート
-# **新しいモデルモジュールは main_app/models/__init__.py で import する。**
+# **新しいモデルモジュールは main_app/models/__init__.py の _TABLE_MODULES に追加する(参照時に遅延 import される)。**
 # import 漏れのモデルは MetaData に載らず、autogenerate が DROP TABLE を生成する原因になる。
 from main_app.models import app_plane_metadata
 

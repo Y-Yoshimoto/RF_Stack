@@ -118,7 +118,7 @@ http://localhost:5173/dev-login
 | クエリ | 内容 |
 | --- | --- |
 | `as` | 使用するプロファイル名。既定は `alpha-admin`。`cp-admin` / `cp-viewer` / `alpha-admin` / `alpha-member` / `beta-member`（02 §7.2） |
-| `next` | ログイン後の遷移先パス。既定は `/button`。例: `/dev-login?next=/fetch` |
+| `next` | ログイン後の遷移先パス(同一オリジンのパスのみ)。既定は AP のプロファイルが `/{tenant_code}/`(例: `alpha-admin` は `/alpha/`)、CP のプロファイルが `/cp/`。例: `/dev-login?as=cp-viewer&next=/cp/tenants` |
 
 FastAPI に直接アクセスして Cookie だけ得ることもできる。
 
@@ -141,6 +141,24 @@ AP のプロファイルは Cookie `rf_sid_app`、CP のプロファイルは `r
 > **この機能は開発専用。** 認証済みセッションを無条件に発行するため、`APP_ENV` が
 > `development` 以外のときは有効化できず、有効化を要求すると起動時にエラーになる。
 > フロントエンドの `/dev-login` も `npm run build:production` ではバンドルから除去される。
+
+### Keycloak のログイン画面を実際に通る E2E
+
+上記のバイパス（`auth.setup.ts` が使う dev-login）を使わず、Keycloak のログインフォーム（`keycloak_c` の実画面）を通る E2E は別プロジェクト（`Keycloak Desktop` / `Keycloak Mobile`）に分けている。テストは `react_app/playwright-test/keycloak/` にある。
+
+```bash
+make d-run SERVICE=react_app CMD="npm run playwright:keycloak"                                   # 両プロジェクト
+make d-run SERVICE=react_app CMD="npm run playwright:keycloak -- --project='Keycloak Desktop'"   # 片方だけ
+make d-run SERVICE=react_app CMD="npm run playwright:keycloak -- app_login"                      # ファイル指定 (app_login / cp_login)
+```
+
+- `npm run playwright` には含まれない（`E2E_KEYCLOAK=1` のときだけ project を切り替える。このとき既存の `setup` / `Chrome *` と `npm run preview` は使わない）。
+- ブラウザは preview（4173）ではなく **Vite の dev サーバー（5173）** を使う。BFF のコールバック先とログイン後の遷移先が `APP_CALLBACK_URL` / `FRONTEND_URL`（5173）だからである。起動済みならそれを使い、無ければ Playwright が `npm run dev` を起動する。
+- 前提: `fastapi_app` / `keycloak_c` / `redis_c` / `postgres_c` が起動し、シード（§5 の前提）が投入済みであること。Keycloak のユーザーは参照のみで、テストは作成・変更しない。
+- コンテナ内では `localhost:8080`（BFF が返す `KEYCLOAK_EXTERNAL_URL`）に Keycloak がいない（コンテナからは `keycloak_c:8080`）。そのためコンテナ内で実行するときだけ、Chromium の名前解決を `localhost:8080 -> keycloak_c:8080` に書き換える（`E2E_KEYCLOAK_HOST_RULES` で上書き・空文字で無効化、`E2E_KEYCLOAK_BASEURL` で対象 URL を変更できる）。
+- 開発用パスワードは `fastapi_app/src/modules/auth/dev_profiles.py` の `_DEV_PASSWORD` を `playwright-test/keycloak/dev_credentials.ts` が読む（リポジトリ全体が `/work` にマウントされているため）。読めない環境では環境変数 `E2E_DEV_PASSWORD` を指定する。ユーザー名もこのファイルの 1 箇所に置く。
+- Keycloak の画面のロケーターは `playwright-test/keycloak/pages/keycloak_login_page.ts` だけにあり、Keycloak 更新で壊れた場合はここを直す。
+- 誤ったパスワードのテストは専用ユーザー（`alpha-member2`）を使う。Keycloak のブルートフォース検知（`bruteForceProtected`）のカウントが他のテストのユーザーへ波及しないようにするため。連続して実行しすぎると一時ロックされうるが、ロック中も「エラーが表示される」ことは変わらない。
 
 ## 6. 結果の報告
 

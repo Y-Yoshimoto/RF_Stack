@@ -40,19 +40,41 @@
     アクセスのたびに期限を確認し、必要なら更新してセッションに書き戻す。
     refresh token 自体が切れている場合はセッションを破棄して 401 とする。
     ロールはログイン時点の値を保持する (更新では変えない)。ロールの変更は再ログインで反映される。
+
+OpenAPI:
+    セッション Cookie は ``fastapi.security.APIKeyCookie`` で読み、パラメータではなくセキュリティスキーム
+    (AP: ``AppSession``、CP: ``CpSession``) として載せる。``auto_error=False`` とし、Cookie が無い場合の
+    応答 (401 ``Not authenticated``) は :func:`load_session` が決める (FastAPI 既定の 403 にしない)。
 """
 from collections.abc import Callable
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import Cookie, Depends, HTTPException
+from fastapi import Depends, HTTPException
+from fastapi.security import APIKeyCookie
 
 from .environment import KeyCloakEnvironmentVariables
-from .plane import APP_ROLES, CP_ROLES, Plane
+from .plane import APP_ROLES, APP_SESSION_COOKIE_NAME, CP_ROLES, CP_SESSION_COOKIE_NAME, Plane
 from .session import delete_session, get_session, unsign_session_id, update_session
 from .token import is_access_token_expired, is_refresh_token_expired, refresh_access_token
 
 # KeyCloak 設定のグローバルインスタンス
 _config = KeyCloakEnvironmentVariables()
+
+# セッション Cookie (OpenAPI ではセキュリティスキームとして表す)。Cookie が無ければ None を返す。
+APP_SESSION_SCHEME_NAME = "AppSession"
+CP_SESSION_SCHEME_NAME = "CpSession"
+app_session_cookie = APIKeyCookie(
+    name=APP_SESSION_COOKIE_NAME,
+    scheme_name=APP_SESSION_SCHEME_NAME,
+    description="アプリケーションプレーン(AP)のセッション Cookie。`/api/auth/app/login` からのログイン完了時に BFF が発行する(HttpOnly)",
+    auto_error=False,
+)
+cp_session_cookie = APIKeyCookie(
+    name=CP_SESSION_COOKIE_NAME,
+    scheme_name=CP_SESSION_SCHEME_NAME,
+    description="コントロールプレーン(CP)のセッション Cookie。`/api/auth/cp/login` からのログイン完了時に BFF が発行する(HttpOnly)",
+    auto_error=False,
+)
 
 
 def _refresh_session_tokens(plane: Plane, session_id: str, session_data: dict) -> dict | None:
@@ -142,13 +164,13 @@ def load_session(plane: Plane, signed_session_id: str | None) -> dict[str, Any]:
     return session_data
 
 
-def get_current_app_session(rf_sid_app: str | None = Cookie(default=None)) -> dict[str, Any]:
+def get_current_app_session(signed_session_id: Annotated[str | None, Depends(app_session_cookie)]) -> dict[str, Any]:
     """AP のセッションデータ全体を返す FastAPI Dependency (``/api/auth/app/*`` 用)。
 
     通常のエンドポイントは :func:`get_current_app_user` を使うこと。
 
     Args:
-        rf_sid_app: Cookie ``rf_sid_app`` の値。
+        signed_session_id: Cookie ``rf_sid_app`` の値 (無ければ ``None``)。
 
     Returns:
         dict: セッションデータ (``tenant_code`` 等を含む)。
@@ -156,16 +178,16 @@ def get_current_app_session(rf_sid_app: str | None = Cookie(default=None)) -> di
     Raises:
         HTTPException(401): :func:`load_session` を参照。
     """
-    return load_session(Plane.APP, rf_sid_app)
+    return load_session(Plane.APP, signed_session_id)
 
 
-def get_current_cp_session(rf_sid_cp: str | None = Cookie(default=None)) -> dict[str, Any]:
+def get_current_cp_session(signed_session_id: Annotated[str | None, Depends(cp_session_cookie)]) -> dict[str, Any]:
     """CP のセッションデータ全体を返す FastAPI Dependency (``/api/auth/cp/*`` 用)。
 
     通常のエンドポイントは :func:`get_current_cp_user` を使うこと。
 
     Args:
-        rf_sid_cp: Cookie ``rf_sid_cp`` の値。
+        signed_session_id: Cookie ``rf_sid_cp`` の値 (無ければ ``None``)。
 
     Returns:
         dict: セッションデータ。
@@ -173,7 +195,7 @@ def get_current_cp_session(rf_sid_cp: str | None = Cookie(default=None)) -> dict
     Raises:
         HTTPException(401): :func:`load_session` を参照。
     """
-    return load_session(Plane.CP, rf_sid_cp)
+    return load_session(Plane.CP, signed_session_id)
 
 
 def get_current_app_user(session: dict[str, Any] = Depends(get_current_app_session)) -> dict[str, Any]:

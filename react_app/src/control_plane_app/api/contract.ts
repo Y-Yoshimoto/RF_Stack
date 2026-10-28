@@ -27,7 +27,8 @@ export const CP_PROBLEM_CODE = {
     TENANT_VERSION_CONFLICT: 'tenant_version_conflict',
     // 404
     TENANT_NOT_FOUND: 'tenant_not_found',
-    // 409 (invalid_tenant_transition は拡張メンバー operation / current_status を持つ)
+    // 409 (invalid_tenant_transition は拡張メンバー operation / current_status を持つ。
+    //      deletion_grace_period_not_elapsed はさらに deletable_at を持つ)
     TENANT_CODE_ALREADY_EXISTS: 'tenant_code_already_exists',
     INVALID_TENANT_TRANSITION: 'invalid_tenant_transition',
     DELETION_GRACE_PERIOD_NOT_ELAPSED: 'deletion_grace_period_not_elapsed',
@@ -40,6 +41,19 @@ export const CP_PROBLEM_CODE = {
     TENANT_REALM_OPERATION_FAILED: 'tenant_realm_operation_failed',
     TENANT_DEPROVISIONING_FAILED: 'tenant_deprovisioning_failed',
     TENANT_EXTERNAL_OPERATION_FAILED: 'tenant_external_operation_failed',
+    // 500 (テナントのライフサイクル操作の想定外の失敗)
+    TENANT_SERVICE_ERROR: 'tenant_service_error',
+} as const;
+
+//// 422 validation_error の errors[].code のうち、CP の画面で分岐に使うもの
+//// (modules/api_common/pagination.py、control_plane_app/api_metrics/router.py)
+export const CP_FIELD_ERROR_CODE = {
+    /** cursor が壊れている・並び順が変わった (field: cursor)。先頭から取得し直す。 */
+    INVALID_CURSOR: 'invalid_cursor',
+    /** メトリクスの開始日が終了日より後 (field: from)。 */
+    INVALID_RANGE: 'invalid_range',
+    /** メトリクスの期間が 366 日を超える (field: from)。 */
+    RANGE_TOO_LONG: 'range_too_long',
 } as const;
 
 /**
@@ -82,13 +96,27 @@ export type TenantRead = {
 };
 
 /**
- * 一覧の要素 (OpenAPI: TenantListItem)。直近の日次メトリクスのユーザー数を含む (無ければ null)。
+ * テナント一覧に出すテーマ固有の主要指標 (OpenAPI: PrimaryMetricRead。01 §13 #5)。直近の日次スナップショットの値。
+ */
+export type PrimaryMetricRead = {
+    /** 指標のキー (ToDo アプリでは `todo_count`)。表示名はフロントがキーから決める。 */
+    metric_key: string;
+    /** 値 (10 進数の文字列)。集計前は null。 */
+    value: string | null;
+    /** 値の集計日 (`YYYY-MM-DD`、UTC)。集計前は null。 */
+    date: string | null;
+};
+
+/**
+ * 一覧の要素 (OpenAPI: TenantListItem)。直近の日次メトリクスのユーザー数 (無ければ null) と、テーマ固有の主要指標を含む (CP-OPS-01)。
  */
 export type TenantListItem = TenantRead & {
     users_total?: number | null;
     users_active?: number | null;
     /** ユーザー数の集計日 (`YYYY-MM-DD`)。 */
     metrics_date?: string | null;
+    /** テーマ固有の主要指標 (テーマが宣言した順。宣言が無ければ空配列)。 */
+    primary_metrics: PrimaryMetricRead[];
 };
 
 /**
@@ -201,9 +229,9 @@ export type DailyMetricRead = {
  * `GET /api/v1/cp/tenants/{tenant_id}/metrics` のクエリ (既定は直近 30 日、最大 366 日)。
  */
 export type TenantMetricsQuery = {
-    /** 開始日 (含む。`YYYY-MM-DD`)。 */
+    /** 開始日 (含む。`YYYY-MM-DD`)。省略時は終了日の 29 日前。 */
     from?: string;
-    /** 終了日 (含む。`YYYY-MM-DD`)。 */
+    /** 終了日 (含む。`YYYY-MM-DD`)。省略時は今日 (UTC)。 */
     to?: string;
 };
 

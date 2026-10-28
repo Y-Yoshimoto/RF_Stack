@@ -14,10 +14,11 @@ import time
 import uuid
 from collections.abc import Callable, Iterator
 from decimal import Decimal
-from typing import Any
+from typing import Annotated, Any
 
 import pytest
 from control_plane.conftest import SENTINEL_PASSWORD, CpDb, FakeAdmin, cp_db, cp_owner_engine, cp_runtime_engine, fake_app_data, fake_kc  # noqa: F401
+from fastapi import Depends
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 
@@ -26,7 +27,9 @@ from control_plane_app.api_tenants.deps import get_provisioning_service
 from control_plane_app.services.tenant_provisioning import TenantProvisioningService
 from main_app.route.public.api_health import router as health_router
 from main_app.route.public.redis_client import get_public_redis
+from main_app.route.v1.deps import ActiveAppUser, require_active_app_user
 from modules.auth import csrf, dependency, session
+from modules.auth.dependency import get_current_app_user
 from modules.auth.environment import KeyCloakEnvironmentVariables
 from modules.auth.plane import Plane
 from modules.tenancy import providers
@@ -74,6 +77,25 @@ def live_registry(cp_runtime_engine) -> Iterator[SqlTenantRegistry]:  # noqa: F8
     yield registry
     app.dependency_overrides.clear()
     providers.dispose_providers()
+
+
+def ap_user_id(sub: str) -> uuid.UUID:
+    """セッションの ``sub`` に対応する、テスト用の AP のユーザー ID(``t_user.id`` の代わり。決定的に作る)。"""
+    return uuid.uuid5(uuid.NAMESPACE_URL, f"rf-stack-test-user:{sub}")
+
+
+@pytest.fixture(autouse=True)
+def active_app_user(live_registry) -> None:  # noqa: F811
+    """AP の「セッションのユーザーが有効か」(``require_active_app_user``。DB の ``t_user`` を引く)を、認証済みなら通すフェイクに差し替える。
+
+    シードのテナントにはセッションの ``sub`` に対応するユーザー行が無いため。認証(``get_current_app_user``)は実物のまま通す。
+    有効/無効の判定そのものは、このフィクスチャを使わずに本物の依存関数を通すテスト(``test_80_ap_users.py`` 等)で確認する。
+    """
+
+    def fake(user: Annotated[dict[str, Any], Depends(get_current_app_user)]) -> ActiveAppUser:
+        return ActiveAppUser(id=ap_user_id(user["sub"]), subject=user["sub"], claims=user)
+
+    app.dependency_overrides[require_active_app_user] = fake
 
 
 @pytest.fixture(autouse=True)

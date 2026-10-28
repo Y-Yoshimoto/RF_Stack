@@ -12,6 +12,7 @@
 :func:`set_realm_enabled`      停止・再開 (:mod:`.realms` の関数)
 :func:`delete_realm_if_exists` 物理削除 (:mod:`.realms` の関数)
 :func:`create_provisioner_admin_client` 払い出し用の管理クライアント
+:func:`create_tenant_user_admin_client` AP のユーザー管理用の管理クライアント (``tenant-user-admin``)
 ============================== =====================================================================
 
 いずれも「無ければ作成、あれば設定を反映」で収束する。再実行しても同じ状態になる。
@@ -27,6 +28,7 @@
         ensure_tenant_user(admin, realm_name=result.realm_name, username="alice", email="alice@example.com",
                            first_name="Alice", last_name="Liddell", roles=["tenant_admin"], password=temp_password, temporary=True)
 """
+import dataclasses
 import logging
 import os
 import re
@@ -61,6 +63,7 @@ __all__ = [
     "TENANT_USER_ADMIN_CLIENT_ID",
     "TENANT_USER_ADMIN_ROLES",
     "create_provisioner_admin_client",
+    "create_tenant_user_admin_client",
     "delete_realm_if_exists",
     "ensure_control_plane_realm",
     "ensure_tenant_realm",
@@ -403,3 +406,39 @@ def create_provisioner_admin_client() -> KeycloakAdminClient:
         raise RuntimeError(f"{PROVISIONER_CLIENT_SECRET_ENV} が未設定です。APP_ENV={app_env} では払い出しに {client_id} のクライアントクレデンシャルを使います。")
     token_provider = ClientCredentialsTokenProvider(settings.admin_token_url, client_id, client_secret)
     return KeycloakAdminClient.from_settings(settings, token_provider=token_provider)
+
+
+def create_tenant_user_admin_client(realm_name: str, *, secret_seed: str | None = None, settings: KeycloakAdminSettings | None = None) -> KeycloakAdminClient:
+    """テナントレルムのユーザー管理用サービスアカウント ``tenant-user-admin`` の管理クライアントを作る (02 §3.1)。
+
+    AP のユーザー管理 (作成・無効化・ロール変更) 専用。権限は ``realm-management`` の ``manage-users`` /
+    ``view-users`` / ``query-users`` のみで、そのレルムのユーザーしか操作できない。AP から
+    :func:`create_provisioner_admin_client` (``cp-provisioner``) を使わないこと (01 §7.1)。
+
+    - トークン: ``{base_url}/realms/{realm_name}/protocol/openid-connect/token`` のクライアントクレデンシャル
+    - シークレット: ``KC_CLIENT_SECRET_SEED`` から導出 (02 §3.3。払い出しで設定した値と同じ)
+    - 接続先・タイムアウト・締め切りは ``KEYCLOAK_URL`` 等 (:meth:`KeycloakAdminSettings.from_env`)。管理ユーザーのパスワードは読まない
+
+    締め切りは生成時点から数えるため、**1 回の操作 (API の 1 リクエスト) ごとに ``with`` で作る**。
+    操作できる API の範囲は :mod:`modules.keycloak_admin.tenant_users` を参照する。
+
+    Args:
+        realm_name: テナントレルム名 (``tenant-{tenant_code}``)。
+        secret_seed: シークレット導出用のシード。省略時は ``KC_CLIENT_SECRET_SEED``。
+        settings: 接続設定。省略時は環境変数。``admin_realm`` は ``realm_name`` で置き換える。
+
+    Returns:
+        KeycloakAdminClient: 管理クライアント。
+
+    Raises:
+        ValueError: レルム名がテナントレルムの形式でない場合 (``master`` / ``control-plane`` 等は拒否する)。
+        RuntimeError: 本番相当の環境でシードが未設定の場合。
+    """
+    realm = validate_realm_name(realm_name)
+    if not realm.startswith(TENANT_REALM_PREFIX) or not TENANT_CODE_PATTERN.fullmatch(realm.removeprefix(TENANT_REALM_PREFIX)):
+        raise ValueError("realm_name must be a tenant realm (tenant-{tenant_code})")
+    seed = secret_seed or client_secret_seed_from_env()
+    base_settings = settings or KeycloakAdminSettings.from_env(require_admin_password=False)
+    realm_settings = dataclasses.replace(base_settings, admin_realm=realm, admin_client_id=TENANT_USER_ADMIN_CLIENT_ID, admin_password="")
+    token_provider = ClientCredentialsTokenProvider(realm_settings.admin_token_url, TENANT_USER_ADMIN_CLIENT_ID, derive_client_secret(seed, realm, TENANT_USER_ADMIN_CLIENT_ID))
+    return KeycloakAdminClient.from_settings(realm_settings, token_provider=token_provider)

@@ -123,7 +123,9 @@ class OnboardStep(StrEnum):
     ENSURE_TENANT_REALM = "ensure_tenant_realm"
     # 4. 初期管理者（一時パスワード）
     ENSURE_INITIAL_ADMIN = "ensure_initial_admin"
-    # 5-6. AP の初期データ・テーマ固有の初期データは未実装（AP の共通テーブルが未作成のため）
+    # 5-6. AP の初期データ（初期管理者のユーザー行・デフォルト組織）とテーマ固有の初期データは CP からは作らない。
+    #      CP → AP の依存を集計・物理削除に限るため（01 §4.3、05 #31）、AP がログイン完了時に作る
+    #      （main_app.services.user_sync.sync_user_on_login）。そのため払い出しのステップは無い
     # 7. ACTIVE にする
     ACTIVATE = "activate"
 

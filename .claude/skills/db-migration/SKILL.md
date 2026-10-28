@@ -39,9 +39,9 @@ MetaData はプレーン毎に独立しており、**import されたモデル�
 | プレーン | import する場所 |
 | --- | --- |
 | CP | `alembic/control_plane/env.py`（`from control_plane_app.models.sql_models import *`） |
-| AP | `src/main_app/models/__init__.py`（env.py はこのパッケージを import する） |
+| AP | `src/main_app/models/__init__.py` の `_TABLE_MODULES`（モジュール名）と `_EXPORTS`（公開するモデル名）。循環 import を避けるため遅延 import にしており、`app_plane_metadata` を参照した時点で `_TABLE_MODULES` を全部読み込む |
 
-**新しいモデルモジュールを追加した場合は、上表の場所に import を追記する。**
+**新しいモデルモジュールを追加した場合は、上表の場所に追記する**（AP は import 文ではなく `_TABLE_MODULES` / `_EXPORTS` への追記）。
 
 これを忘れると `target_metadata` にテーブルが載らず、autogenerate は「このテーブルはモデル側に存在しない」と解釈して **`DROP TABLE` を含むリビジョンを生成する**。気づかず適用するとデータが消える。**リビジョン生成前に必ず確認すること。**
 

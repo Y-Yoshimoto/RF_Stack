@@ -22,7 +22,7 @@ class Plane(StrEnum):
 
 
 # プレーン毎のセッション Cookie 名。
-# FastAPI の Cookie 依存関数の引数名 (rf_sid_app / rf_sid_cp) と一致させる。
+# FastAPI の依存関数は modules.auth.dependency の APIKeyCookie でこの名前の Cookie を読む。
 APP_SESSION_COOKIE_NAME = "rf_sid_app"
 CP_SESSION_COOKIE_NAME = "rf_sid_cp"
 SESSION_COOKIE_NAMES: dict[Plane, str] = {Plane.APP: APP_SESSION_COOKIE_NAME, Plane.CP: CP_SESSION_COOKIE_NAME}

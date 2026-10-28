@@ -108,6 +108,8 @@ services:
       # テナント払い出し用のサービスアカウント(master の cp-provisioner)。APP_ENV=development 以外で使用し、シークレットは必須
       - KEYCLOAK_PROVISIONER_CLIENT_ID=${KEYCLOAK_PROVISIONER_CLIENT_ID:-cp-provisioner}
       - KEYCLOAK_PROVISIONER_CLIENT_SECRET=${KEYCLOAK_PROVISIONER_CLIENT_SECRET:-}
+      # 定期ジョブのスケジューラ。空なら APP_ENV=development では無効、それ以外では有効
+      - SCHEDULER_ENABLED=${SCHEDULER_ENABLED:-}
     depends_on:
       - postgres_c
       - keycloak_c

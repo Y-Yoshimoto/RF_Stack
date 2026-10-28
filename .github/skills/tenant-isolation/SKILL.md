@@ -63,6 +63,23 @@ description: マルチテナントのテナント分離の実装規則とテス�
 - FastAPI の依存関数は async の yield 依存にする（同期の yield 依存では contextvar がエンドポイントに伝わらない）。
 - サービス層の関数の引数に `tenant_id` を取らない。コンテキストから得る。
 
+### 4.1 AP のユーザー・組織のサービスを使う
+
+`main_app/services/`（FastAPI 非依存。仕様は 02 §5.1）。いずれも **テナントコンテキスト下の AP セッション**で呼び、コミットはサービスが行う。
+
+| 場面 | 使うもの |
+| --- | --- |
+| ログイン完了時（コールバック・開発用ログイン） | `user_sync.sync_user_on_login(session, *, tenant_id, idp_subject, email, display_name)`。`tenant_scope(TenantContext(...))` + `open_app_session()` の中で呼ぶ。`tenant_id` はレジストリで検証済みの値（コンテキストと違えば `TenantContextMismatchError`）。`UserDeactivatedError` ならセッションを作らない。デフォルト組織もここで作られる（CP からは作らない。05 #31） |
+| AP の各リクエスト（無効化ユーザーの拒否。PF-USR-03） | `user_sync.require_active_session_user(session, idp_subject=user["sub"])`。`UserDeactivatedError` / `UserNotSyncedError` ならセッションを破棄して 401 |
+| `/api/v1/users` | `UserService(session)`。Keycloak は既定で `create_tenant_user_admin_client`（各テナントレルムの `tenant-user-admin`。テナントコードからレルム名を導出）。テストでは `kc_admin_factory` に `KeycloakAdminClient(..., http_client=httpx.Client(transport=MockTransport(...)))` を返す関数を渡す |
+| `/api/v1/organizations` | `OrganizationService(session)` |
+| 例外 → HTTP | `main_app/services/errors.py` の docstring の表。他テナント・存在しない・論理削除済みは同じ 404 |
+
+- 他テナントのリソースは RLS で見えないため「存在しない」と同じ 404 になる。メンバー等の関連付けは事前チェック（テナント内に存在するか）で 422、DB の複合外部キーでも拒否される
+- 操作者（監査ログの `actor_id`）はコンテキストの `user_id`（セッションの `sub`）から `t_user.id` を解決する。別の主体として動かす場合は `actor_subject=` を渡す
+- 書き込みでは `tenant_id` に必ずコンテキストの値を入れる（RLS の WITH CHECK で他テナントの値は拒否される）
+- 実機で確認する場合は使い捨てのユーザー・組織を作り、Keycloak のユーザー（`tenant_users.delete_user_if_exists`）と AP の行を削除する。`t_ap_audit_log` は `app_runtime` から削除できないため、`app_cp_agent` + `tenant_guc_scope` で削除する。デフォルト組織の判定は論理削除済みの行も数えるため、片付けは物理削除で行う
+
 ## 5. クロステナントテスト
 
 ### 5.1 観点（API・リポジトリを追加/変更したら必ず確認する）

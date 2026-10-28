@@ -240,6 +240,16 @@ class TestOpenApiContract:
 
     EXPECTED = {
         ("get", "/api/v1/me"),
+        ("get", "/api/v1/users"),
+        ("post", "/api/v1/users"),
+        ("get", "/api/v1/users/{user_id}"),
+        ("patch", "/api/v1/users/{user_id}"),
+        ("get", "/api/v1/organizations"),
+        ("post", "/api/v1/organizations"),
+        ("get", "/api/v1/organizations/{organization_id}"),
+        ("patch", "/api/v1/organizations/{organization_id}"),
+        ("delete", "/api/v1/organizations/{organization_id}"),
+        ("put", "/api/v1/organizations/{organization_id}/members"),
         ("get", "/api/v1/cp/tenants"),
         ("post", "/api/v1/cp/tenants"),
         ("get", "/api/v1/cp/tenants/{tenant_id}"),
@@ -286,6 +296,42 @@ class TestOpenApiContract:
         create = spec["paths"]["/api/v1/cp/tenants"]["post"]["responses"]
         check.is_true({"201", "409", "422", "502"} <= set(create))
 
-    def test_auth_endpoints_are_hidden(self, spec):
-        """BFF(/api/auth)は OpenAPI に出さない。"""
-        check.is_true(all(not path.startswith("/api/auth") for path in spec["paths"]))
+    def test_auth_documents_status_and_logout_only(self, spec):
+        """BFF(/api/auth)は status / logout だけを載せる。login / callback / dev-login はリダイレクトのため載せない。"""
+        operations = {(method, path) for path, item in spec["paths"].items() for method in item if path.startswith("/api/auth")}
+        check.equal(operations, {("get", "/api/auth/app/status"), ("get", "/api/auth/cp/status"), ("post", "/api/auth/app/logout"), ("post", "/api/auth/cp/logout")})
+        check.is_true(all(spec["paths"][path][method]["tags"] == ["auth"] for method, path in operations))
+
+    def test_auth_error_responses_are_problem_json(self, spec):
+        """/api/auth の status は 401、logout は 403 を Problem Details で記述する。"""
+        for path, method, status in (
+            ("/api/auth/app/status", "get", "401"),
+            ("/api/auth/cp/status", "get", "401"),
+            ("/api/auth/app/logout", "post", "403"),
+            ("/api/auth/cp/logout", "post", "403"),
+        ):
+            content = spec["paths"][path][method]["responses"][status]["content"]
+            check.equal(set(content), {"application/problem+json"}, path)
+
+    def test_session_cookies_are_security_schemes(self, spec):
+        """セッション Cookie は cookie パラメータではなく、セキュリティスキーム(AppSession / CpSession)で表す。"""
+        cookie_params = [(path, p["name"]) for path, item in spec["paths"].items() for op in item.values() for p in op.get("parameters", []) if p["in"] == "cookie"]
+        check.equal(cookie_params, [])
+        check.equal(spec["paths"]["/api/v1/me"]["get"]["security"], [{"AppSession": []}])
+        check.equal(spec["paths"]["/api/v1/cp/tenants"]["get"]["security"], [{"CpSession": []}])
+        check.is_not_in("security", spec["paths"]["/api/v1/public/health/live"]["get"])
+
+    def test_csrf_header_only_on_mutations(self, spec):
+        """X-Requested-With は変更系(POST / PUT / PATCH / DELETE)だけに必須で載り、参照系には載らない。"""
+        missing, unexpected = [], []
+        for path, item in spec["paths"].items():
+            if not path.startswith("/api/") or path.startswith("/api/v1/public"):
+                continue
+            for method, operation in item.items():
+                names = [p["name"] for p in operation.get("parameters", []) if p["in"] == "header" and p.get("required")]
+                if method in {"post", "put", "patch", "delete"} and "X-Requested-With" not in names:
+                    missing.append((method, path))
+                if method == "get" and any(p["name"] == "X-Requested-With" for p in operation.get("parameters", [])):
+                    unexpected.append((method, path))
+        check.equal(missing, [])
+        check.equal(unexpected, [])

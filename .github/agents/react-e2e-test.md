@@ -12,7 +12,12 @@ model: sonnet
 ## 構成（`playwright.config.ts` を必ず確認すること）
 - テスト配置: `react_app/playwright-test/` — **ユニットテストと違い src 配下にはコロケートしない**。
 - ファイル名: `*.test.ts`（`testMatch: /.*\.test\.(js|jsx|ts|tsx)/`）。
-- baseURL: `http://127.0.0.1:4173`。`page.goto('/button')` のように**相対パスで書く**。
+- baseURL: `http://localhost:4173`(Cookie の都合で `127.0.0.1` ではなく `localhost`)。`page.goto(...)` は**相対パスで書く**。
+- ルートはプレーン別(01 §11.1): `/`(ランディング)、`/{tenant_code}/login`・`/{tenant_code}/*`(AP)、`/cp/login`・`/cp/*`(CP)。
+  サンプル画面は AP の認証後画面 `/{tenant_code}/sample/{name}` にある(例: `page.goto(samplePath('button'))` → `/alpha/sample/button`)。
+  テナントコード・パスは `playwright-test/constants.ts` の定数(`TENANT_CODE` / `APP_HOME_PATH` / `samplePath`)を使い、直書きしない。
+- Keycloak のログイン画面を実際に通るテストは `playwright-test/keycloak/` に置き、別プロジェクト(`Keycloak Desktop` / `Keycloak Mobile`、`npm run playwright:keycloak`)で実行する。Keycloak の画面のロケーターは `keycloak/pages/keycloak_login_page.ts` に集約し、認証情報は `keycloak/dev_credentials.ts` だけから得る。詳細は `run-checks` スキル §5。
+- 認証状態: `playwright-test/auth.setup.ts` が開発用ログイン(`alpha-admin`)で AP のセッションを作り、各プロジェクトはその storageState から始まる。
 - webServer: `npm run preview`（= production ビルド後の vite preview）が自動起動する。テスト実行前に手動でサーバを立てない。
 - プロジェクト: `Chrome Desktop` と `Chrome Mobile`(Pixel 5) の2つ。両方で通るテストを書く。WebKit は現在コメントアウトされている。
 - `trace: 'on-first-retry'`, `video: 'on'`。

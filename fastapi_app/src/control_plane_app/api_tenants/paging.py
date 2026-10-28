@@ -7,13 +7,14 @@ from typing import Any
 
 from sqlmodel import Session
 
-from control_plane_app.api_tenants.schemas import TenantListItem, TenantPage
+from control_plane_app.api_tenants.schemas import PrimaryMetricRead, TenantListItem, TenantPage
 from control_plane_app.models.sql_models import TenantStatus, TTenant
 from control_plane_app.repositories import tenant_query
 from modules.api_common.pagination import decode_cursor, encode_cursor, invalid_cursor_error
 from modules.errors.catalog import text_for_code
 from modules.errors.handlers import problem_from_text
 from modules.errors.problem import FieldError, ProblemError
+from modules.tenant_metrics.registry import theme_primary_metric_keys
 
 
 def _query_error(field: str, code: str, message: str) -> ProblemError:
@@ -99,14 +100,16 @@ def build_tenant_page(session: Session, *, limit: int, cursor: str | None, inclu
         last = page_rows[-1]
         next_cursor = encode_cursor({"s": str(parsed_sort), "k": _sort_value(last, parsed_sort.key), "i": str(last.id)})
 
-    metrics = tenant_query.latest_metric_values(session, [row.id for row in page_rows], [tenant_query.METRIC_USERS_TOTAL, tenant_query.METRIC_USERS_ACTIVE])
-    items = [_to_item(row, metrics.get(row.id, {})) for row in page_rows]
+    # ユーザー数(基盤の指標)に加え、テーマが宣言した主要指標(01 §13 #5)を直近の日次メトリクスから載せる
+    primary_keys = theme_primary_metric_keys()
+    metrics = tenant_query.latest_metric_values(session, [row.id for row in page_rows], [tenant_query.METRIC_USERS_TOTAL, tenant_query.METRIC_USERS_ACTIVE, *primary_keys])
+    items = [_to_item(row, metrics.get(row.id, {}), primary_keys) for row in page_rows]
     total = tenant_query.count_tenants(session, statuses) if include_total else None
     return TenantPage(items=items, next_cursor=next_cursor, total=total)
 
 
-def _to_item(tenant: TTenant, metrics: dict[str, tenant_query.MetricValue]) -> TenantListItem:
-    """テナントと直近のユーザー数から一覧の要素を作る。"""
+def _to_item(tenant: TTenant, metrics: dict[str, tenant_query.MetricValue], primary_keys: tuple[str, ...]) -> TenantListItem:
+    """テナントと直近のメトリクス(ユーザー数・主要指標)から一覧の要素を作る。"""
     total = metrics.get(tenant_query.METRIC_USERS_TOTAL)
     active = metrics.get(tenant_query.METRIC_USERS_ACTIVE)
     dates = [metric.date for metric in (total, active) if metric is not None]
@@ -116,5 +119,6 @@ def _to_item(tenant: TTenant, metrics: dict[str, tenant_query.MetricValue]) -> T
             "users_total": int(total.value) if total is not None else None,
             "users_active": int(active.value) if active is not None else None,
             "metrics_date": max(dates) if dates else None,
+            "primary_metrics": [PrimaryMetricRead(metric_key=key, value=metrics[key].value if key in metrics else None, date=metrics[key].date if key in metrics else None) for key in primary_keys],
         }
     )

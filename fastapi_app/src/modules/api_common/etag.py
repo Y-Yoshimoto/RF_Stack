@@ -71,7 +71,14 @@ def parse_if_match(value: str | None) -> int:
     return int(match.group("version"))
 
 
-def require_if_match(if_match: Annotated[str | None, Header(description='取得した ETag（例: `"3"`）。更新対象のバージョンと一致しない場合は 412')] = None) -> int:
+# OpenAPI で必須のヘッダーとして出すための目印(``modules.errors.openapi`` が必須に直して取り除く)。
+# ヘッダーが無い場合は 422 ではなく 428 を返したいため、FastAPI 上は任意のパラメータとして宣言している。
+OPENAPI_REQUIRED_MARKER = "x-required"
+
+
+def require_if_match(
+    if_match: Annotated[str | None, Header(description='取得した ETag（例: `"3"`）。必須(無ければ 428)。更新対象のバージョンと一致しない場合は 412', json_schema_extra={OPENAPI_REQUIRED_MARKER: True})] = None,
+) -> int:
     """``If-Match`` ヘッダーを必須としてバージョンを返す FastAPI 依存関数。"""
     return parse_if_match(if_match)
 

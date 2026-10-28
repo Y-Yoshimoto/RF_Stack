@@ -9,7 +9,7 @@ import pytest
 import pytest_check as check
 from sqlalchemy import text
 
-from .conftest import cookie_header, with_csrf
+from .conftest import ap_user_id, cookie_header, with_csrf
 
 ME = "/api/v1/me"
 
@@ -25,7 +25,7 @@ class TestMe:
         check.equal(response.status_code, 200)
         check.equal(response.json(), {
             "tenant": {"id": str(record.tenant_id), "tenant_code": code},
-            "user": {"id": f"{code}-sub-1", "username": f"{code}-member", "email": f"{code}-member@example.com", "roles": ["member"]},
+            "user": {"id": str(ap_user_id(f"{code}-sub-1")), "username": f"{code}-member", "email": f"{code}-member@example.com", "roles": ["member"]},
         })
         check.is_in("application/json", response.headers["content-type"])
 

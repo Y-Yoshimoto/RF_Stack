@@ -11,11 +11,13 @@ from fastapi.middleware.cors import CORSMiddleware
 # from proxy.apiapp import router as proxy
 from control_plane_app.apiapp import router as router_control_plane
 from control_plane_app.problems import register_cp_exception_handlers
+from main_app.problems import register_ap_exception_handlers
 from main_app.route.auth.apiapp import router as router_auth
 from main_app.route.auth.dev_login import router as router_dev_login
 from main_app.route.public.apiapp import router as router_public
 from main_app.route.sample.apiapp import router as router_sample
 from main_app.route.v1.apiapp import router as router_app
+from modules.auth.csrf import install_csrf_openapi
 from modules.auth.environment import KeyCloakEnvironmentVariables
 from modules.errors.handlers import register_exception_handlers
 from modules.errors.openapi import install_problem_openapi
@@ -24,12 +26,18 @@ from modules.tenancy.providers import dispose_providers
 
 # サブモジュール読み込み
 from rest_sample.apiapp import router as rest_sample_router
+from scheduler.runner import scheduler_lifespan
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-    """アプリケーションの起動・終了処理。終了時に DB エンジン・レジストリを破棄する。"""
-    yield
+    """アプリケーションの起動・終了処理。
+
+    起動時に定期ジョブのスケジューラを起動する(SCHEDULER_ENABLED。02 §5.5)。
+    終了時にスケジューラを停止し、DB エンジン・レジストリを破棄する。
+    """
+    with scheduler_lifespan():
+        yield
     dispose_providers()
 
 
@@ -38,7 +46,7 @@ OPENAPI_TAGS = [
     {"name": "app", "description": "アプリケーションプレーン(AP)。`/api/v1`。AP セッション(`rf_sid_app`)が必要"},
     {"name": "cp", "description": "コントロールプレーン(CP)。`/api/v1/cp`。CP セッション(`rf_sid_cp`)と `saas_admin` / `saas_viewer` が必要"},
     {"name": "public", "description": "認証なしの公開 API。`/api/v1/public`。ヘルスチェックとテナント存在確認"},
-    {"name": "auth", "description": "ログイン・コールバック・ログアウト・認証状態(BFF)。`/api/auth`"},
+    {"name": "auth", "description": "認証状態・ログアウト(BFF)。`/api/auth`。ログイン開始・コールバックはブラウザを遷移させるリダイレクトのため載せない"},
 ]
 
 # アプリケーション起動
@@ -52,7 +60,10 @@ app = FastAPI(
 # エラー応答を Problem Details に統一する(03 §2)
 register_exception_handlers(app)
 register_cp_exception_handlers(app)
+register_ap_exception_handlers(app)
 install_problem_openapi(app)
+# CSRF 対策のヘッダー(X-Requested-With)を、変更系メソッドだけの必須ヘッダーとして OpenAPI に載せる
+install_csrf_openapi(app)
 
 # 秘密鍵が開発用の既定値のままでないことを起動時に検証する。
 # APP_ENV=development では警告のみ、それ以外では RuntimeError で起動を止める。

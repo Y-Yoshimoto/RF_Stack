@@ -13,16 +13,22 @@ route/
 ├── auth/                   # /api/auth (BFF)
 │   ├── __init__.py         # router を公開
 │   ├── apiapp.py           # OIDC 認証エンドポイントの実装 (AP / CP)
-│   └── dev_login.py        # 開発用ログインバイパス
+│   ├── dev_login.py        # 開発用ログインバイパス
+│   └── login_sync.py       # AP のログイン完了時のユーザー同期の呼び出し (コールバック・開発用ログインが共有)
 ├── public/                 # /api/v1/public (認証なし)
 │   ├── apiapp.py           # api_health / api_tenant_lookup を束ねる
 │   ├── api_health/         # health/live, health/ready
 │   ├── api_tenant_lookup/  # tenants/{tenant_code} (存在確認)
 │   ├── rate_limit.py       # 存在確認の簡易レート制限 (Redis)
 │   └── redis_client.py     # 短いタイムアウトの Redis クライアント
-├── v1/                     # /api/v1 (AP。AP セッション + テナントコンテキスト + CSRF をルーター全体に適用)
+├── v1/                     # /api/v1 (AP。AP セッション + テナントコンテキスト + CSRF + ユーザーの有効確認をルーター全体に適用)
 │   ├── apiapp.py
-│   └── api_me/             # GET /api/v1/me
+│   ├── deps.py             # require_active_app_user、tenant_admin 要求、サービスの依存関数
+│   ├── paging.py           # 一覧のカーソル・sort の解釈
+│   ├── openapi.py          # 成功レスポンスのヘッダー (ETag / Location / Cache-Control) の OpenAPI 定義
+│   ├── api_me/             # GET /api/v1/me
+│   ├── api_users/          # /api/v1/users
+│   └── api_organizations/  # /api/v1/organizations (members 含む)
 └── sample/                 # サンプル (基盤の実装が進んだ段階で削除)
 ```
 
@@ -46,14 +52,16 @@ FastAPI がブラウザの代わりに KeyCloak と通信する。ブラウザ�
 
 | メソッド | パス | 概要 |
 |---|---|---|
-| `GET` | `/api/auth/app/login?tenant_code=` | AP の認可リクエストを開始する。`tenant_code` をテナントレジストリで ACTIVE なテナントのレルムに解決する。利用できないテナントは理由を区別せず `/login?error=tenant_unavailable` へ |
+| `GET` | `/api/auth/app/login?tenant_code=` | AP の認可リクエストを開始する。`tenant_code` をテナントレジストリで ACTIVE なテナントのレルムに解決する。利用できないテナントは理由を区別せず `/?error=tenant_unavailable` へ |
 | `GET` | `/api/auth/cp/login` | CP の認可リクエストを開始する (レルム `control-plane`) |
-| `GET` | `/api/auth/callback` | 認可コードをトークンに交換してセッションを確立する (state からプレーン・レルムを復元) |
+| `GET` | `/api/auth/callback` | 認可コードをトークンに交換してセッションを確立する (state からプレーン・レルムを復元)。成功は AP `/{tenant_code}/`・CP `/cp/` へ、失敗は JSON を返さずログイン画面へ `?error=<code>` で 302 |
 | `GET` | `/api/auth/app/status` / `/api/auth/cp/status` | セッションを検証してユーザー情報を返す (レルム名・クライアント ID は返さない) |
-| `POST` | `/api/auth/app/logout` / `/api/auth/cp/logout` | プレーンのセッションを削除し、KeyCloak のログアウト URL を JSON で返す。`X-Requested-With: rf-stack` と `Origin` が必須 |
+| `POST` | `/api/auth/app/logout` / `/api/auth/cp/logout` | プレーンのセッションを削除し、KeyCloak のログアウト URL を JSON (`{logout_url}`) で返す。`X-Requested-With: rf-stack` と `Origin` が必須 |
 | `GET` | `/api/auth/dev-login?as=&next=` | 開発用ログイン (`APP_ENV=development` かつ `AUTH_DEV_LOGIN_ENABLED=true` のときのみ登録) |
 
-> 全エンドポイントは `include_in_schema=False` のため OpenAPI ドキュメントには表示されない。
+> status / logout は OpenAPI に載せる (応答の型 `AppAuthStatus` / `CpAuthStatus` / `LogoutResult` と 401 / 403 の Problem Details)。
+> login / callback / dev-login はブラウザを遷移させるリダイレクトのため `include_in_schema=False`。
+> 遷移先とコールバックのエラーコードの正は `modules/auth/redirects.py` と `docs/architecture/02-platform-implementation.md` §5.2。
 
 ### プレーン
 
@@ -64,7 +72,9 @@ FastAPI がブラウザの代わりに KeyCloak と通信する。ブラウザ�
 | レルム | `tenant-{tenant_code}` (レジストリで解決) | `control-plane` |
 | クライアント | `KEYCLOAK_CLIENT_ID` (既定 `fastapi-app`) | `KEYCLOAK_CP_CLIENT_ID` (既定 `fastapi-cp`) |
 | ログイン時の追加検証 | トークンの `tenant_id` = レジストリの `tenant_id`、テナントが ACTIVE | `saas_admin` / `saas_viewer` のいずれかを持つ |
+| ログイン後の遷移先 | `/{tenant_code}/` | `/cp/` |
 | ログアウト後の遷移先 | `/{tenant_code}/login` | `/cp/login` |
+| コールバック失敗時の遷移先 | `/{tenant_code}/login?error=<code>` (テナント不明は `/?error=<code>`) | `/cp/login?error=<code>` |
 
 - Cookie は `HttpOnly`、`SameSite=Lax`、`Secure` は `APP_ENV` から導出。値は `itsdangerous` でプレーン毎の salt を使って署名する
 - クライアントシークレットは `KC_CLIENT_SECRET_SEED` から導出する (`modules.keycloak_admin.derive_client_secret`)。保存しない
@@ -75,7 +85,7 @@ FastAPI がブラウザの代わりに KeyCloak と通信する。ブラウザ�
 ```
 Browser          React (5173)       FastAPI (8000)       KeyCloak (8080)
   |                  |                    |                     |
-  |  GET /login      |                    |                     |
+  |  GET /alpha/login|                    |                     |
   |----------------->| (window.location)  |                     |
   |                  | GET /api/auth/app/login?tenant_code=alpha |
   |                  |------------------->|                     |
@@ -97,7 +107,7 @@ Browser          React (5173)       FastAPI (8000)       KeyCloak (8080)
   |                  |    ← access_token, id_token, refresh_token |
   |                  |    JWKS で検証、tenant_id を照合             |
   |                  |    Redis session:app:{sid} に保存           |
-  |                  |    302 redirect + Set-Cookie rf_sid_app    |
+  |                  |    302 /alpha/ + Set-Cookie rf_sid_app     |
   |<----------------------------------------------------|       |
   |  GET /api/auth/app/status (with Cookie)                      |
   |----------------->|------------------->|                     |

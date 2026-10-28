@@ -2,7 +2,7 @@
 name: auth-keycloak
 description: Keycloak を用いた認証・認可を React と FastAPI の両側にまたがって設計/実装する。ログインフロー、トークンの取得・保管・更新、保護ルート、FastAPI 側のトークン検証と依存性注入、テナントスコープの制御、Keycloak のレルム/クライアント設定を担当する。「ログイン機能を作って」「認証を追加して」「トークン検証を実装して」「Keycloakの設定を見て」といった依頼で使用する。
 tools: Read, Write, Edit, Bash, Glob, Grep, WebFetch
-model: opus
+model: sonnet
 ---
 
 # Keycloak 認証エージェント

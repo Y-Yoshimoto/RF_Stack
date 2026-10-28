@@ -79,7 +79,8 @@ def list_tenants(
 ) -> TenantPage:
     """テナントの一覧をカーソル方式で返す（`saas_admin` / `saas_viewer`）。
 
-    名前・テナントコード・状態・作成日時に加え、直近の日次メトリクスのユーザー数（総数・有効数）を含む。
+    名前・テナントコード・状態・作成日時に加え、直近の日次メトリクスのユーザー数（総数・有効数）と、
+    テーマ固有の主要指標（`primary_metrics`。ToDo アプリでは `todo_count`）を含む。
     メトリクスの集計前は `null`。総件数は `include_total=true` のときだけ `total` に入る。
     """
     return build_tenant_page(session, limit=limit, cursor=cursor, include_total=include_total, sort=sort, status_filter=status_filter)

@@ -61,24 +61,38 @@ def test_validate_dev_login_passes_in_development(monkeypatch):
 # ------------------------------------------------------ 遷移先の検証
 
 
-@pytest.mark.parametrize("path", ["/button", "/fetch", "/", "/a/b?c=d"])
+DEFAULT = "/alpha/"
+
+
+@pytest.mark.parametrize("path", ["/alpha/", "/alpha/todos", "/cp/", "/", "/a/b?c=d"])
 def test_validate_next_path_accepts_paths(path):
     """同一オリジン内のパスは許可されること。"""
-    assert dev_login._validate_next_path(path) == path
+    assert dev_login._validate_next_path(path, DEFAULT) == path
+
+
+@pytest.mark.parametrize("path", [None, ""])
+def test_validate_next_path_falls_back_to_default(path):
+    """next が無い・空の場合は既定値になること。"""
+    assert dev_login._validate_next_path(path, DEFAULT) == DEFAULT
 
 
 @pytest.mark.parametrize(
     "path",
-    ["https://evil.example.com", "//evil.example.com", "/\\evil.example.com", "http://localhost:5173/button", "button", ""],
+    ["https://evil.example.com", "//evil.example.com", "/\\evil.example.com", "http://localhost:5173/alpha/", "alpha/", " //evil.example.com"],
 )
 def test_validate_next_path_rejects_external(path):
-    """絶対 URL / プロトコル相対 URL は拒否すること(オープンリダイレクト防止)。"""
-    if path == "":
-        # 空文字は既定値にフォールバックする
-        assert dev_login._validate_next_path(path) == dev_login.DEFAULT_NEXT_PATH
-        return
+    """絶対 URL / プロトコル相対 URL / 相対パスは拒否すること(オープンリダイレクト防止)。"""
     with pytest.raises(ValueError):
-        dev_login._validate_next_path(path)
+        dev_login._validate_next_path(path, DEFAULT)
+
+
+@pytest.mark.parametrize(
+    ("profile_name", "expected"),
+    [("alpha-admin", "/alpha/"), ("alpha-member", "/alpha/"), ("beta-member", "/beta/"), ("cp-admin", "/cp/"), ("cp-viewer", "/cp/")],
+)
+def test_default_next_path_matches_post_login_path(profile_name, expected):
+    """next を省略した場合の遷移先は、通常のログイン成功時と同じ(AP: /{tenant_code}/、CP: /cp/)であること。"""
+    assert dev_login.default_next_path(dev_profiles.DEV_PROFILES[profile_name]) == expected
 
 
 # -------------------------------------------------------- プロファイル
@@ -145,4 +159,4 @@ def test_cp_profile_has_no_tenant_code():
     """CP のプロファイルはテナントコードを持たず、既定の遷移先は /cp/ であること。"""
     profile = dev_profiles.DEV_PROFILES["cp-admin"]
     assert profile.tenant_code is None
-    assert dev_login.DEFAULT_NEXT_PATHS[profile.plane] == "/cp/"
+    assert dev_login.default_next_path(profile) == "/cp/"

@@ -82,6 +82,22 @@ def list_tenants_by_status_updated_before(session: Session, status: str, before:
     return list(session.exec(statement).all())
 
 
+def list_tenant_ids_by_statuses(session: Session, statuses: Sequence[str]) -> list[uuid.UUID]:
+    """指定の状態のいずれかにあるテナントの ID を返す（日次メトリクスの対象の抽出用）。
+
+    Args:
+        session: CP DB のセッション。
+        statuses: 状態。
+
+    Returns:
+        list[uuid.UUID]: 該当テナントの ID（テナントコードの昇順）。
+    """
+    if not statuses:
+        return []
+    statement = select(TTenant.id).where(col(TTenant.status).in_(list(statuses))).order_by(col(TTenant.tenant_code))
+    return list(session.exec(statement).all())
+
+
 def list_tenants_for_deprovisioning(session: Session, pending_status: str, deprovisioning_status: str, requested_before: dt.datetime) -> list[TTenant]:
     """物理削除の対象（猶予期間を過ぎた削除要求中、または前回失敗した削除中）を返す。
 

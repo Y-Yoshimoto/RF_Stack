@@ -19,6 +19,7 @@ from urllib.parse import urlsplit
 from modules.keycloak_admin.client_secret import CLIENT_SECRET_SEED_ENV, INSECURE_DEFAULT_CLIENT_SECRET_SEED, derive_client_secret
 
 from .plane import Plane
+from .redirects import login_page_path, post_login_path
 
 logger = logging.getLogger(__name__)
 
@@ -32,11 +33,6 @@ INSECURE_DEFAULT_VALUES = {
     CLIENT_SECRET_SEED_ENV: INSECURE_DEFAULT_CLIENT_SECRET_SEED,
     "SESSION_SECRET_KEY": "change-me-session-secret",
 }
-
-# ログイン後の遷移先 (フロントエンドのパス)。
-# TODO: AP は React のルートを /{tenant_code}/* に移行した時点で /{tenant_code}/ に変える (01 §11.1)。
-APP_POST_LOGIN_PATH = "/button"
-CP_POST_LOGIN_PATH = "/cp/"
 
 
 def validate_realm_name(realm: str) -> str:
@@ -154,17 +150,32 @@ class KeyCloakEnvironmentVariables:
         """
         return derive_client_secret(self.client_secret_seed, realm, self.client_id_for(plane))
 
-    def post_login_url(self, plane: Plane) -> str:
-        """ログイン完了後のフロントエンドの遷移先 URL を返す。
+    def frontend_redirect_url(self, path: str) -> str:
+        """フロントエンドのパスを ``FRONTEND_URL`` と連結した URL にする。
+
+        ホスト部は常に ``FRONTEND_URL`` とし、外部入力からは決めない (オープンリダイレクトにしない)。
 
         Args:
-            plane: プレーン。
+            path: ``/`` で始まるパス (クエリを含んでよい)。
 
         Returns:
             str: 遷移先 URL。
         """
-        path = CP_POST_LOGIN_PATH if plane == Plane.CP else APP_POST_LOGIN_PATH
         return f"{self.frontend_url}{path}"
+
+    def post_login_url(self, plane: Plane, tenant_code: str | None = None) -> str:
+        """ログイン完了後のフロントエンドの遷移先 URL を返す。
+
+        AP は ``/{tenant_code}/``、CP は ``/cp/`` (01 §11.1)。AP で tenant_code が分からない場合はランディング (``/``)。
+
+        Args:
+            plane: プレーン。
+            tenant_code: AP のテナントコード。
+
+        Returns:
+            str: 遷移先 URL。
+        """
+        return self.frontend_redirect_url(post_login_path(plane, tenant_code))
 
     def post_logout_url(self, plane: Plane, tenant_code: str | None = None) -> str:
         """ログアウト後のフロントエンドの遷移先 URL を返す。
@@ -179,11 +190,7 @@ class KeyCloakEnvironmentVariables:
         Returns:
             str: 遷移先 URL。
         """
-        if plane == Plane.CP:
-            return f"{self.frontend_url}/cp/login"
-        if tenant_code:
-            return f"{self.frontend_url}/{tenant_code}/login"
-        return f"{self.frontend_url}/"
+        return self.frontend_redirect_url(login_page_path(plane, tenant_code))
 
     def trusted_origins(self) -> frozenset[str]:
         """変更系リクエストで許可する ``Origin`` の集合を返す (CSRF 対策)。

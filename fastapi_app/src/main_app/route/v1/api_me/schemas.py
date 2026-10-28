@@ -16,7 +16,7 @@ class MeTenant(BaseModel):
 class MeUser(BaseModel):
     """ログイン中のユーザー。"""
 
-    id: str = Field(description="ユーザーの識別子（認証基盤の `sub`）")
+    id: uuid.UUID = Field(description="ユーザー ID（AP のユーザー ID。`GET /api/v1/users` の `id`、組織のメンバー ID と同じ値。認証基盤の `sub` ではない）")
     username: str | None = Field(description="ユーザー名")
     email: str | None = Field(description="メールアドレス")
     roles: list[str] = Field(description="テナント内のロール（`tenant_admin` / `member`）")

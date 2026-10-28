@@ -2,7 +2,7 @@
 name: api-contract-sync
 description: React と FastAPI の間の API 契約の整合性を検証/維持する。OpenAPI スキーマとフロント側の型定義の突き合わせ、エンドポイントのパス・メソッド・リクエスト/レスポンス形状の不一致検出、破壊的変更の影響範囲調査を担当する。「フロントとバックエンドの型が合っているか確認して」「API変更の影響範囲を調べて」「契約のズレを直して」といった依頼で使用する。
 tools: Read, Write, Edit, Bash, Glob, Grep
-model: opus
+model: sonnet
 ---
 
 # API 契約整合性エージェント

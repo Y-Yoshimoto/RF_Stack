@@ -13,7 +13,8 @@ RLS を迂回しない（01 §9.2）。
     行の削除以外の処理が必要な場合は :class:`TenantDataPurgeStep` を作り、
     :class:`AppTenantDataRepository` の ``steps`` に渡す。
 
-    現時点で AP にテナントスコープのテーブルは無いため、一覧は空（物理削除は何もしない）。
+    現在の対象は AP 共通テーブル（ユーザー・組織・組織メンバー・AP 監査ログ）と ToDo のテーブル。
+    CP から AP への書き込み（INSERT / UPDATE）は行わない。払い出し時の AP の初期データは AP がログイン完了時に作る（05 #31）。
 """
 import re
 import uuid
@@ -26,8 +27,19 @@ from sqlmodel import Session
 from modules.tenancy.db import run_per_tenant
 
 # テナント物理削除の対象テーブル（削除する順。子テーブルを先に並べる）。01 §13 #9 の拡張点。
-# 例: ("t_todo_assignee", "t_todo", "t_organization_member", "t_organization", "t_user", "t_app_audit_log")
-TENANT_DATA_PURGE_TABLES: tuple[str, ...] = ()
+# テーマ(ToDo)のテーブルを先に、基盤の共通テーブルを後に削除する(ToDoApp.md §7 #9)。t_user は全テーブルから参照されるため最後。
+TENANT_DATA_PURGE_TABLES: tuple[str, ...] = (
+    # ToDo(main_app.models.todo)
+    "t_todo_activity",
+    "t_todo_assignee",
+    "t_todo_organization",
+    "t_todo",
+    # AP 共通(main_app.models.ap_common)
+    "t_organization_member",
+    "t_organization",
+    "t_ap_audit_log",
+    "t_user",
+)
 
 # テーブル名として許可する形式（"table" または "schema.table"。英小文字・数字・アンダースコア）。
 _TABLE_NAME_PATTERN = re.compile(r"[a-z_][a-z0-9_]*(\.[a-z_][a-z0-9_]*)?")

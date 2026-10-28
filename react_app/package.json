@@ -18,6 +18,7 @@
     "test:ui": "vitest --ui",
     "coverage": "vitest run --coverage --silent",
     "playwright": "playwright test",
+    "playwright:keycloak": "E2E_KEYCLOAK=1 playwright test",
     "playwright:ui": "playwright test --ui-host=0.0.0.0",
     "playwright:codegen": "playwright codegen ",
     "playwright:report": "playwright show-report --port 9323",
@@ -36,7 +37,8 @@
     "lint: ESLint(CLI, HTMLレポート出力、修正)を実行",
     "test: Vitestでユニットテストを実行",
     "coverage: Vitestでカバレッジレポートを生成",
-    "playwright: PlaywrightでE2Eテストを実行",
+    "playwright: PlaywrightでE2Eテストを実行(開発用ログインで認証状態を作る)",
+    "playwright:keycloak: Keycloakのログイン画面を実際に通るE2Eを実行(playwright-test/keycloak/。Viteのdevサーバーを使う)",
     "nyc: 別生成したNYCでカバレッジレポートを生成",
     "madge: madgeを使って依存関係の可視化を生成",
     "update: npm-check-updatesを使って依存関係を更新"

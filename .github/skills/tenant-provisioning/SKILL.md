@@ -84,6 +84,7 @@ make d-run SERVICE=fastapi_app CMD="uv run python -m modules.keycloak_admin.cli 
 開発用シードの認証情報は `fastapi_app/src/modules/auth/dev_profiles.py`（`DEV_TENANTS` / `DEV_TENANT_USERS` / `DEV_CP_USERS` / `DEV_USERS`）に 1 箇所で定義し、開発用ログインのプロファイル（`DEV_PROFILES`）と共有する。
 
 **AP から `tenant-user-admin` でロールを付与する場合**: `tenant-user-admin` は `GET /roles/{name}`（`view-realm` が必要）を呼べないため、`ensure_user_realm_roles` は使えない。ロールの ID は `GET /users/{id}/role-mappings/realm/available` から取得して `POST /users/{id}/role-mappings/realm` する。付与できるロールは `tenant_admin` / `member` に限定する（`realm-management` のロールをテナントユーザーに付与させない）。
+この手順は `modules/keycloak_admin/tenant_users.py`（`create_user` / `set_user_realm_roles` / `set_user_enabled` / `logout_user` / `update_user_names` / `delete_user_if_exists`）に実装済みで、管理クライアントは `templates.create_tenant_user_admin_client(realm_name)` で作る（1 操作ごとに `with`）。AP のユーザー管理は `main_app/services/user_service.py` の `UserService` から使う（tenant-isolation スキル §4.1）。`create_user` は冪等にしない（既存のユーザー名・メールは 409。`ensure_user` は既存ユーザーを採用してパスワードを上書きするため AP からは使わない）。
 
 ### 3.3 テスト
 

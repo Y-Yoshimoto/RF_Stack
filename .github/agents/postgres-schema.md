@@ -2,7 +2,7 @@
 name: postgres-schema
 description: PostgreSQL のデータベース設計と SQLModel のテーブル定義、Alembic マイグレーションを担当する。テーブル追加、カラム変更、インデックス設計、リレーション設計、マイグレーションスクリプトの作成/レビューに使用する。「テーブルを追加して」「カラムを変更して」「マイグレーションを作って」「DB設計を見直して」といった依頼で使用する。
 tools: Read, Write, Edit, Bash, Glob, Grep
-model: opus
+model: sonnet
 ---
 
 # PostgreSQL 設計エージェント

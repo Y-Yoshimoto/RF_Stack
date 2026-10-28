@@ -171,6 +171,8 @@ GET    /api/v1/todos/{id}/activities
 | 8 | API | 6 章 |
 | 9 | 物理削除の対象 | アクティビティ → 担当者 → 公開先組織 → ToDo の順に削除し、その後に基盤のテーブルを削除する |
 
+- 実装の注記（#5）: 指標の定義は `fastapi_app/src/main_app/repositories/todos/metrics.py` の `TODO_METRICS`（`t_todo` を `deleted_at IS NULL` で絞り、`status` 別に 1 回のクエリで数える）。`modules/tenant_metrics/registry.py` の `THEME_METRIC_SOURCES` に登録し、CP の日次ジョブ `metrics_snapshot` が `t_tenant_daily_metric` に保存する（[02](../architecture/02-platform-implementation.md) §5.5）。主要指標 `todo_count` は `primary_keys` で宣言し、CP のテナント一覧 API（`GET /api/v1/cp/tenants`）の `primary_metrics` に直近の日次メトリクスの値を載せる
+
 ---
 
 ## 8. 画面（ToDo 固有）
@@ -191,16 +193,20 @@ CP のテナント一覧・詳細には、7 章 #5 のメトリクスを表示�
 
 ### 9.1 テーブル
 
-| 論理名 | テーブル |
-| --- | --- |
-| ToDo | `t_todo` |
-| ToDo の公開先組織 | `t_todo_organization` |
-| ToDo の担当者 | `t_todo_assignee` |
-| ToDo アクティビティ | `t_todo_activity` |
+| 論理名 | テーブル | 主キー | 実装上の注記 |
+| --- | --- | --- | --- |
+| ToDo | `t_todo` | `id`（UUIDv7） | `title` は 1〜200 文字、`description` は最大 10,000 文字を CHECK で強制。既定値は `status = 'open'`、`priority = 'medium'`、`visibility = 'private'`、`version = 1`。`created_by` / `updated_by` は NOT NULL（作成時は `updated_by` = 作成者）。5 章のインデックスは `deleted_at IS NULL` の部分インデックス |
+| ToDo の公開先組織 | `t_todo_organization` | `(tenant_id, todo_id, organization_id)` | 組織が論理削除されても行は残し、判定時に除外する（AP-VIS-08）。逆引き用に `(tenant_id, organization_id)` |
+| ToDo の担当者 | `t_todo_assignee` | `(tenant_id, todo_id, user_id)` | `assigned_at` / `assigned_by`（NOT NULL）に加えて共通列 `created_at` / `updated_at` を持つ。全置換では残る担当者の行を維持する想定（`assigned_at` を保つ） |
+| ToDo アクティビティ | `t_todo_activity` | `id`（UUIDv7） | `actor_id` は NOT NULL。`payload` は `jsonb`（NOT NULL、既定 `{}`）。追記のみのため `updated_at` を持たない。一覧用に `(tenant_id, todo_id, created_at)` |
 
-- `app_db` に作成し、マイグレーションは `alembic/alembic_app.ini`
+- `app_db` に作成し、マイグレーションは `alembic/alembic_app.ini`（リビジョン `0002_create_todo_tables`）。モデルは `fastapi_app/src/main_app/models/todo.py`
 - 各テーブルのリビジョンで `enable_tenant_rls()` を呼ぶ（`db-migration` スキル）
-- 列挙値（`status` / `priority` / `visibility`）は PostgreSQL の enum 型ではなく `text` + CHECK 制約とする（値の追加をマイグレーションで扱いやすくするため）
+- 列挙値（`status` / `priority` / `visibility`）は PostgreSQL の enum 型ではなく `text` + CHECK 制約とする（値の追加をマイグレーションで扱いやすくするため）。値の正はモデルの `TodoStatus` / `TodoPriority` / `TodoVisibility`
+- アクティビティの `action`（AP-ACT-01）も `text` + CHECK とし、値は `created` / `updated`（項目の変更）/ `status_changed` / `assignees_changed` / `visibility_changed`（閲覧範囲・公開先組織の変更）/ `deleted`（`TodoActivityAction`）。1 回の更新で複数に当たる場合は種別毎に記録する
+- 外部キーはすべて `(tenant_id, <列>) → (tenant_id, id)` の複合キー（`created_by` / `updated_by` / `assigned_by` / `user_id` / `actor_id` → `t_user`、`organization_id` → `t_organization`、`todo_id` → `t_todo`）。`ON DELETE` は指定しない
+- 担当者の上限（20 人。AP-ASN-01）、無効化ユーザーの新規割り当て禁止（AP-ASN-02）、`organization` の組織 1 つ以上（AP-VIS-07）はアプリ層で検証する（DB では強制しない）
+- 物理削除（7 章 #9）は `control_plane_app/repositories/app_tenant_data.py` の `TENANT_DATA_PURGE_TABLES` に登録済み
 
 ### 9.2 コード配置
 

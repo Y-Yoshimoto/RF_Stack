@@ -1,9 +1,8 @@
 // Fetchコンポーネント
 import React from 'react';
-import { use, useState } from 'react';
+import { use } from 'react';
 // 共通型定義, フック, 関数読み込み
-import { FetchComponentProps, SuccessProps } from './type';
-import { requestFetch } from './common'
+import { FetchComponentProps } from './type';
 import { useFetchPromiseMemo } from './hook.ts';
 
 // ErrorBoundary及びSuspenseのラッパーコンポーネント

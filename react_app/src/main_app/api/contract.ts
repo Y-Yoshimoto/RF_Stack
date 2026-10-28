@@ -11,6 +11,22 @@ export const APP_API_PATHS = {
     ME: '/api/v1/me',
 } as const;
 
+//// 公開 API (`/api/v1/public`、tags: public。認証なし)。ログイン前の AP 画面が使う。
+export const PUBLIC_API_PATHS = {
+    tenant: (tenant_code: string) => `/api/v1/public/tenants/${encodeURIComponent(tenant_code)}`,
+} as const;
+
+/**
+ * `GET /api/v1/public/tenants/{tenant_code}` のレスポンス (OpenAPI: PublicTenantRead)。
+ * 存在しない・削除済み・形式不正・予約語は区別せず 404 (not_found)。レート制限を超えると 429 (Retry-After)。
+ */
+export type PublicTenantRead = {
+    /** テナントコード。 */
+    tenant_code: string;
+    /** ライフサイクル状態。ログインできるのは `ACTIVE` のみ。 */
+    status: 'PROVISIONING' | 'ACTIVE' | 'FAILED' | 'SUSPENDED' | 'PENDING_DELETION' | 'DEPROVISIONING' | 'DELETED';
+};
+
 /**
  * ログイン中のテナント (OpenAPI: MeTenant)。
  */

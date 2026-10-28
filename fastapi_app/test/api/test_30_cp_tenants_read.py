@@ -113,7 +113,7 @@ class TestListPagination:
         """要素に realm_name・tier・created_by・updated_by を含めない。日時は UTC(Z)。"""
         items, _ = traverse(client, viewer, limit=50)
         item = next(i for i in items if i["id"] == str(five_tenants[1][0]))
-        check.equal(set(item), {"id", "tenant_code", "name", "status", "version", "created_at", "updated_at", "deletion_requested_at", "deleted_at", "users_total", "users_active", "metrics_date"})
+        check.equal(set(item), {"id", "tenant_code", "name", "status", "version", "created_at", "updated_at", "deletion_requested_at", "deleted_at", "users_total", "users_active", "metrics_date", "primary_metrics"})
         check.is_true(item["created_at"].endswith("Z"))
         check.is_none(item["users_total"])
 

@@ -9,6 +9,7 @@
  * playwright.config.ts に対応する project を足す。
  */
 import { test as setup, expect } from '@playwright/test';
+import { APP_HOME_PATH, DEV_PROFILE, TENANT_CODE } from './constants';
 
 /**
  * 認証状態の保存先。playwright.config.ts の storageState と対応させる。
@@ -17,15 +18,12 @@ import { test as setup, expect } from '@playwright/test';
  */
 export const AUTH_STATE_FILE = './playwright-test/.auth/default.json';
 
-/** 使用するプロファイル名。FastAPI 側の DEV_PROFILES (modules/auth/dev_profiles.py) と対応する。 */
-const PROFILE = 'alpha-admin';
-
 setup('開発用ログインで認証状態を作成する', async ({ browser, baseURL }) => {
     const context = await browser.newContext({ baseURL });
 
     // リダイレクト先はフロントエンドの FRONTEND_URL (別ポート) になるため追従しない。
     // ここで必要なのは Set-Cookie によるセッション Cookie のみ。
-    const response = await context.request.get(`/api/auth/dev-login?as=${PROFILE}`, {
+    const response = await context.request.get(`/api/auth/dev-login?as=${DEV_PROFILE}`, {
         maxRedirects: 0,
     });
 
@@ -44,12 +42,18 @@ setup('開発用ログインで認証状態を作成する', async ({ browser, b
         );
     }
 
+    // ログイン成功後の遷移先は AP のホーム (/{tenant_code}/。FastAPI: modules/auth/redirects.py)
+    const location = new URL(response.headers()['location'] ?? '', 'http://placeholder');
+    expect(location.pathname, 'dev-login のリダイレクト先が AP のホームではありません').toBe(APP_HOME_PATH);
+
     // セッションが実際に有効であることを確認してから保存する
     // alpha-admin プロファイルはアプリケーションプレーン (Cookie rf_sid_app) のセッションを作る
     const status_response = await context.request.get('/api/auth/app/status');
     expect(status_response.ok()).toBeTruthy();
     const status = await status_response.json();
     expect(status.authenticated).toBe(true);
+    // AP のルートガードは URL のテナントコードとセッションのテナントコードを照合する
+    expect(status.tenant_code).toBe(TENANT_CODE);
 
     await context.storageState({ path: AUTH_STATE_FILE });
     await context.close();

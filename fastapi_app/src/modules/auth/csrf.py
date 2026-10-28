@@ -30,10 +30,17 @@ Cookie の ``SameSite=Lax`` (``modules.auth.session.set_session_cookie``) と合
 (``react_app/src/utils/libs/FetchComponents/common.ts`` の ``generateRequestObject`` が付与する)。
 
 拒否時は 403 (``CSRF validation failed``)。どちらの検査で拒否したかは返さない。
+
+OpenAPI:
+    ``X-Requested-With`` は依存関数の ``Header`` 引数として宣言しているため、依存関数を付けたエンドポイントの
+    パラメータに現れる。:func:`install_csrf_openapi` が生成後の OpenAPI を直し、変更系メソッドでは必須
+    (値は ``rf-stack`` のみ)、参照系メソッドでは載せない (検査しないため)。``Origin`` はブラウザが付ける
+    ヘッダーであり、クライアントのコードからは設定できないためパラメータには載せず、説明文にだけ書く。
 """
 import logging
+from typing import Annotated, Any
 
-from fastapi import HTTPException, Request
+from fastapi import FastAPI, Header, HTTPException, Request
 
 from .environment import KeyCloakEnvironmentVariables
 
@@ -51,13 +58,23 @@ CSRF_REJECTED_DETAIL = "CSRF validation failed"
 _config = KeyCloakEnvironmentVariables()
 
 
-async def require_csrf_protection(request: Request) -> None:
+CSRF_HEADER_DESCRIPTION = (
+    f"CSRF 対策のカスタムヘッダー。状態を変える操作(POST / PUT / PATCH / DELETE)では `{CSRF_HEADER_VALUE}` が必須。"
+    "あわせてブラウザが付ける `Origin` が許可したオリジンと一致する必要がある。不足・不一致は 403(`csrf_validation_failed`)"
+)
+
+
+async def require_csrf_protection(
+    request: Request,
+    x_requested_with: Annotated[str | None, Header(alias=CSRF_HEADER_NAME, description=CSRF_HEADER_DESCRIPTION)] = None,
+) -> None:
     """変更系メソッドのリクエストに CSRF 対策のヘッダーがあることを検証する FastAPI Dependency。
 
     I/O を伴わないため ``async def`` とし、スレッドプールを使わない。
 
     Args:
-        request: リクエスト。
+        request: リクエスト (メソッドと ``Origin`` を参照する)。
+        x_requested_with: ``X-Requested-With`` ヘッダーの値 (複数ある場合は先頭)。
 
     Raises:
         HTTPException(403): 変更系メソッドで ``X-Requested-With`` が ``rf-stack`` でない、
@@ -66,7 +83,7 @@ async def require_csrf_protection(request: Request) -> None:
     if request.method.upper() in SAFE_METHODS:
         return
 
-    if request.headers.get(CSRF_HEADER_NAME) != CSRF_HEADER_VALUE:
+    if x_requested_with != CSRF_HEADER_VALUE:
         logger.warning("csrf rejected: missing or invalid %s (path=%s)", CSRF_HEADER_NAME, request.url.path)
         raise HTTPException(status_code=403, detail=CSRF_REJECTED_DETAIL)
 
@@ -74,3 +91,59 @@ async def require_csrf_protection(request: Request) -> None:
     if not origin or origin not in _config.trusted_origins():
         logger.warning("csrf rejected: untrusted origin (path=%s)", request.url.path)
         raise HTTPException(status_code=403, detail=CSRF_REJECTED_DETAIL)
+
+
+# ------------------------------------------------------------------ OpenAPI
+
+_HTTP_METHODS = frozenset({"get", "put", "post", "delete", "options", "head", "patch", "trace"})
+
+
+def _is_csrf_header(parameter: dict[str, Any]) -> bool:
+    """OpenAPI のパラメータが ``X-Requested-With`` ヘッダーかどうかを返す。"""
+    return parameter.get("in") == "header" and str(parameter.get("name", "")).lower() == CSRF_HEADER_NAME.lower()
+
+
+def _rewrite_csrf_parameters(schema: dict[str, Any]) -> None:
+    """生成済みの OpenAPI の ``X-Requested-With`` を直す (何度呼んでも結果は同じ)。
+
+    - 参照系メソッド: パラメータから取り除く (検査しないため)。
+    - 変更系メソッド: 必須にし、値を ``rf-stack`` に限る。
+    - 入力が CSRF のヘッダーだけの操作からは、FastAPI がパラメータの存在だけを理由に付ける 422 を取り除く
+      (ヘッダーは任意の文字列を受け付け、不足・不一致は 422 ではなく 403 になるため)。
+    """
+    for path_item in schema.get("paths", {}).values():
+        for method, operation in path_item.items():
+            if method not in _HTTP_METHODS or "parameters" not in operation:
+                continue
+            parameters = operation["parameters"]
+            if not any(_is_csrf_header(parameter) for parameter in parameters):
+                continue
+            if method.upper() in SAFE_METHODS:
+                parameters = [parameter for parameter in parameters if not _is_csrf_header(parameter)]
+            else:
+                for parameter in parameters:
+                    if _is_csrf_header(parameter):
+                        parameter["required"] = True
+                        parameter["schema"] = {"type": "string", "enum": [CSRF_HEADER_VALUE], "title": CSRF_HEADER_NAME}
+            if parameters:
+                operation["parameters"] = parameters
+            else:
+                del operation["parameters"]
+            if "requestBody" not in operation and all(_is_csrf_header(parameter) for parameter in parameters):
+                operation.get("responses", {}).pop("422", None)
+
+
+def install_csrf_openapi(app: FastAPI) -> None:
+    """``app.openapi()`` の結果の ``X-Requested-With`` を、変更系メソッドだけの必須ヘッダーに直すようにする。
+
+    Args:
+        app: FastAPI アプリ。
+    """
+    original_openapi = app.openapi
+
+    def openapi() -> dict[str, Any]:
+        schema = original_openapi()
+        _rewrite_csrf_parameters(schema)
+        return schema
+
+    app.openapi = openapi  # type: ignore[method-assign]

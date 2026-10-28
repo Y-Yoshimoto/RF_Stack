@@ -115,8 +115,14 @@ class TestAppLogin:
         check.equal(session_data["user"]["plane"], "app")
         check.equal(session_data["user"]["tenant_id"], TENANT_ID)
         check.equal((session_data["user"]["sub"], session_data["user"]["preferred_username"], session_data["user"]["email"]), ("user-1", "tester", "tester@example.com"))
+        check.is_none(session_data["user"]["name"], "name クレームが無ければ None")
         check.equal(session_data["tokens"]["refresh_token"], "refresh-token")
         check.is_in("access_token_expires_at", session_data["tokens"])
+
+    def test_name_claim_is_kept_for_user_sync(self, config, app_issuer):
+        """id_token の name クレーム(姓・名から作られる表示名)をセッションのユーザーに載せる(ログイン時のユーザー同期に使う)。"""
+        response = app_issuer.response(roles=["member"], id_overrides={"tenant_id": TENANT_ID, "name": "Taro Yamada"})
+        check.equal(_login_app(config, app_issuer, response)["user"]["name"], "Taro Yamada")
 
     def test_tenant_id_claim_may_come_from_access_token(self, config, app_issuer):
         """tenant_id クレームは id_token に無ければ access token から読む。"""

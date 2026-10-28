@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, FastAPI
 from fastapi.testclient import TestClient
 
 from modules.auth import csrf
-from modules.auth.csrf import CSRF_REJECTED_DETAIL, require_csrf_protection
+from modules.auth.csrf import CSRF_REJECTED_DETAIL, install_csrf_openapi, require_csrf_protection
 from modules.auth.environment import KeyCloakEnvironmentVariables
 
 ALLOWED_ORIGIN = "http://localhost:5173"
@@ -153,3 +153,63 @@ class TestAsEndpointDependency:
         check.equal(test_client.get("/status").status_code, 200)
         check.equal(test_client.post("/logout").status_code, 403)
         check.equal(test_client.post("/logout", headers={**GOOD_HEADER, "Origin": ALLOWED_ORIGIN}).status_code, 200)
+
+
+class TestOpenApi:
+    """OpenAPI での表現(変更系だけの必須ヘッダー)。"""
+
+    @pytest.fixture
+    def spec(self, config) -> dict:
+        """ルーター単位で require_csrf_protection を付けた、メソッドごとに別の関数を持つアプリの OpenAPI。"""
+        router = APIRouter(dependencies=[Depends(require_csrf_protection)])
+        for method in ("GET", "HEAD", "OPTIONS", "TRACE", "POST", "PUT", "PATCH", "DELETE"):
+            router.add_api_route("/x", lambda: {"ok": True}, methods=[method], operation_id=f"x_{method.lower()}")
+        app = FastAPI()
+        app.include_router(router)
+        install_csrf_openapi(app)
+        return app.openapi()
+
+    @pytest.mark.parametrize("method", ["post", "put", "patch", "delete"])
+    def test_unsafe_methods_require_the_header(self, spec, method):
+        """変更系は X-Requested-With を必須(値は rf-stack のみ)として載せ、ヘッダーしか入力が無いので 422 は載せない。"""
+        operation = spec["paths"]["/x"][method]
+        check.equal([(p["in"], p["name"], p["required"], p["schema"]["enum"]) for p in operation["parameters"]], [("header", "X-Requested-With", True, ["rf-stack"])])
+        check.is_in("Origin", operation["parameters"][0]["description"])
+        check.is_not_in("422", operation["responses"])
+
+    @pytest.mark.parametrize("method", ["get", "head", "options", "trace"])
+    def test_safe_methods_do_not_show_the_header(self, spec, method):
+        """参照系は検査しないので載せない。"""
+        operation = spec["paths"]["/x"][method]
+        check.is_not_in("parameters", operation)
+        check.is_not_in("422", operation["responses"])
+
+    def test_rewrite_is_idempotent_and_keeps_other_parameters(self, config):
+        """何度 openapi() を呼んでも同じ結果。他のパラメータと、それによる 422 は残す。"""
+        app = FastAPI()
+
+        @app.post("/items/{item_id}", dependencies=[Depends(require_csrf_protection)])
+        def update(item_id: int):
+            return {"id": item_id}
+
+        @app.get("/items/{item_id}", dependencies=[Depends(require_csrf_protection)])
+        def read(item_id: int):
+            return {"id": item_id}
+
+        install_csrf_openapi(app)
+        first = app.openapi()
+        second = app.openapi()
+        check.equal(first, second)
+        post = first["paths"]["/items/{item_id}"]["post"]
+        get = first["paths"]["/items/{item_id}"]["get"]
+        check.equal(sorted(p["name"] for p in post["parameters"]), ["X-Requested-With", "item_id"])
+        check.equal([p["name"] for p in get["parameters"]], ["item_id"])
+        check.is_in("422", post["responses"])
+        check.is_in("422", get["responses"])
+
+    def test_first_header_value_is_used(self, client):
+        """ヘッダーが複数ある場合は先頭の値で判定する(Header 引数にしても request.headers.get と同じ)。"""
+        good_first = [("X-Requested-With", "rf-stack"), ("X-Requested-With", "other"), ("Origin", ALLOWED_ORIGIN)]
+        bad_first = [("X-Requested-With", "other"), ("X-Requested-With", "rf-stack"), ("Origin", ALLOWED_ORIGIN)]
+        check.equal(client.post("/x", headers=good_first).status_code, 200)
+        check.equal(client.post("/x", headers=bad_first).status_code, 403)

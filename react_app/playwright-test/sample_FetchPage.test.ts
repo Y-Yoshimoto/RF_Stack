@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { samplePath } from './constants';
 
 
 test.describe('FetchPageのテスト', () => {
@@ -12,7 +13,7 @@ test.describe('FetchPageのテスト', () => {
             });
         });
         // FetchPageを開く
-        await page.goto('/fetch');
+        await page.goto(samplePath('fetch'));
         // 全てのボタンのテキストを取得
         const [requestButton] = await Promise.all([
             page.getByTestId('request-button'), page.getByText('Fetch Component'),

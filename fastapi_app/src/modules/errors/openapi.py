@@ -8,6 +8,7 @@ FastAPI は ``responses={404: {"model": ProblemDetails}}`` を ``application/jso
 
 - ``ProblemDetails`` を参照するレスポンスの媒体種別を ``application/problem+json`` にする。
 - 422 のレスポンスを ``ProblemDetails`` にし、未使用になった ``HTTPValidationError`` / ``ValidationError`` を取り除く。
+- ``If-Match`` ヘッダーのパラメータを整える（名前を ``If-Match`` にし、``modules.api_common.etag.require_if_match`` のものは必須にする）。
 """
 from typing import Any
 
@@ -17,6 +18,8 @@ from .problem import PROBLEM_MEDIA_TYPE, FieldError, ProblemDetails
 
 _PROBLEM_REF = "#/components/schemas/ProblemDetails"
 _JSON_MEDIA_TYPE = "application/json"
+# ``modules.api_common.etag.OPENAPI_REQUIRED_MARKER`` と同じ値（api_common が本モジュールに依存するため、循環を避けて値を重複させる）
+_REQUIRED_MARKER = "x-required"
 _HTTP_METHODS = frozenset({"get", "put", "post", "delete", "options", "head", "patch", "trace"})
 
 
@@ -56,6 +59,17 @@ def _ensure_problem_schemas(schema: dict[str, Any]) -> None:
     schemas.setdefault("FieldError", definitions.get("FieldError", FieldError.model_json_schema()))
 
 
+def _fix_if_match_parameters(operation: dict[str, Any]) -> None:
+    """``If-Match`` ヘッダーのパラメータを直す（必須の目印があれば必須にし、``null`` を許す型にしない）。"""
+    for parameter in operation.get("parameters", []):
+        if parameter.get("in") != "header" or str(parameter.get("name", "")).lower() != "if-match":
+            continue
+        required = bool(parameter.get("schema", {}).get(_REQUIRED_MARKER, False))
+        parameter["name"] = "If-Match"
+        parameter["required"] = required
+        parameter["schema"] = {"type": "string", "title": "If-Match"}
+
+
 def _rewrite(schema: dict[str, Any]) -> None:
     """生成済みの OpenAPI を Problem Details 向けに直す（何度呼んでも結果は同じ）。"""
     _ensure_problem_schemas(schema)
@@ -63,6 +77,7 @@ def _rewrite(schema: dict[str, Any]) -> None:
         for method, operation in path_item.items():
             if method not in _HTTP_METHODS:
                 continue
+            _fix_if_match_parameters(operation)
             for status, response in operation.get("responses", {}).items():
                 content = response.get("content", {})
                 if status == "422":

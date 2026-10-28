@@ -8,6 +8,7 @@ DB のテーブルモデル（``TTenant``）はそのまま返さず、公開し
 """
 import datetime as dt
 import uuid
+from decimal import Decimal
 
 from pydantic import BaseModel, Field
 
@@ -31,12 +32,21 @@ class TenantRead(BaseModel):
     deleted_at: UtcDatetime | None = Field(description="削除日時（UTC）。物理削除の完了時刻")
 
 
+class PrimaryMetricRead(BaseModel):
+    """テナント一覧に出す、テーマ固有の主要指標(01 §13 #5)。直近の日次スナップショットの値。"""
+
+    metric_key: str = Field(description="指標のキー(例: ToDo アプリでは `todo_count`)。表示名はフロントがキーから決める")
+    value: Decimal | None = Field(description="指標の値(10 進数の文字列)。集計データが無ければ `null`")
+    date: dt.date | None = Field(description="値の集計対象日(UTC)。集計データが無ければ `null`")
+
+
 class TenantListItem(TenantRead):
-    """テナント一覧の要素。直近の日次メトリクスのユーザー数を含む。"""
+    """テナント一覧の要素。直近の日次メトリクスのユーザー数と、テーマ固有の主要指標を含む。"""
 
     users_total: int | None = Field(default=None, description="ユーザー数（総数）。直近の日次スナップショット。データが無ければ `null`")
     users_active: int | None = Field(default=None, description="ユーザー数（有効数）。直近の日次スナップショット。データが無ければ `null`")
     metrics_date: dt.date | None = Field(default=None, description="ユーザー数の集計対象日（UTC）。データが無ければ `null`")
+    primary_metrics: list[PrimaryMetricRead] = Field(description="テーマ固有の主要指標(テーマが宣言した順。テーマが宣言していなければ空配列)。集計前の指標は `value` が `null`")
 
 
 class TenantPage(CursorPage[TenantListItem]):

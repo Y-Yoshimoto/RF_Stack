@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 """modules.auth.plane(プレーンの定義・ロールの許可リスト・テナントコード形式)のテスト。"""
-import inspect
 import re
 
 import pytest
@@ -37,11 +36,13 @@ class TestPlaneDefinitions:
         check.equal({p.value for p in Plane}, {"app", "cp"})
 
     def test_cookie_names_are_distinct_per_plane(self):
-        """Cookie 名はプレーンごとに別で、FastAPI の Cookie 引数名(rf_sid_app / rf_sid_cp)と一致する。"""
+        """Cookie 名はプレーンごとに別で、依存関数が読む Cookie(APIKeyCookie の名前)と一致する。"""
         check.equal(SESSION_COOKIE_NAMES, {Plane.APP: "rf_sid_app", Plane.CP: "rf_sid_cp"})
         check.equal(len(set(SESSION_COOKIE_NAMES.values())), 2)
-        check.is_in(SESSION_COOKIE_NAMES[Plane.APP], inspect.signature(dependency.get_current_app_session).parameters)
-        check.is_in(SESSION_COOKIE_NAMES[Plane.CP], inspect.signature(dependency.get_current_cp_session).parameters)
+        check.equal(dependency.app_session_cookie.model.name, SESSION_COOKIE_NAMES[Plane.APP])
+        check.equal(dependency.cp_session_cookie.model.name, SESSION_COOKIE_NAMES[Plane.CP])
+        check.is_false(dependency.app_session_cookie.auto_error, "Cookie が無い場合の 401 は load_session が決める")
+        check.is_false(dependency.cp_session_cookie.auto_error)
 
     def test_role_allow_lists_are_disjoint(self):
         """AP のロールと CP のロールは重ならない(プレーンをまたいで通用するロールを作らない)。"""
