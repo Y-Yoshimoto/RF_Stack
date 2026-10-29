@@ -1,4 +1,4 @@
-// useUser / useUserActions のテスト (ETag の受け渡し・ロールの取り直し・412 / 428 / 403 / 409・member・自分自身・一時パスワード)
+// useUser / useUserActions のテスト (ETag の受け渡し・更新の応答のロールの扱い・412 / 428 / 403 / 409・member・自分自身・一時パスワード)
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { APP_STATUS_KEY, AppTestProvider, appStatusReply, OTHER_USER_ID, SELF_USER_ID, userDetailOf, userOf } from '@/main_app/testing/app_test_support';
@@ -73,9 +73,9 @@ describe('useUser', () => {
 });
 
 describe('useUserActions: ETag と If-Match', () => {
-    it('保持している ETag を If-Match に付け、送った項目だけを PATCH し、成功時は新しい ETag とロール以外を詳細に反映する', async () => {
+    it('保持している ETag を If-Match に付け、送った項目だけを PATCH し、成功時は応答 (姓・名・ロールを含む) と新しい ETag を詳細に反映する', async () => {
         const { result, spy } = await renderDetailWithActions({
-            [PATCH_KEY]: { status: 200, body: userOf({ display_name: '太郎 山田', version: 4 }), headers: { ETag: '"4"' } },
+            [PATCH_KEY]: { status: 200, body: userDetailOf({ display_name: '太郎 山田', first_name: '太郎', last_name: '山田', version: 4 }), headers: { ETag: '"4"' } },
         });
         let outcome: UserActionResult | undefined;
         await act(async () => {
@@ -83,7 +83,7 @@ describe('useUserActions: ETag と If-Match', () => {
         });
         expect(outcome).toMatchObject({ ok: true, action: 'update', etag: '"4"', roles_stale: false });
         expect(result.current.detail.etag).toBe('"4"');
-        expect(result.current.detail.user).toMatchObject({ display_name: '太郎 山田', version: 4, roles: ['member'] });
+        expect(result.current.detail.user).toMatchObject({ display_name: '太郎 山田', first_name: '太郎', last_name: '山田', version: 4, roles: ['member'] });
 
         const request = calledRequests(spy).find((item) => item.method === 'PATCH');
         expect(request?.headers.get('If-Match')).toBe('"3"');
@@ -92,24 +92,53 @@ describe('useUserActions: ETag と If-Match', () => {
         expect(calledKeys(spy).filter((key) => key === DETAIL_KEY)).toHaveLength(1);
     });
 
-    it('ロールを変えた更新は、応答にロールが無いため詳細を取り直す', async () => {
+    it('ロールを変えた更新は、応答のロールをそのまま反映し、詳細を取り直さない', async () => {
+        const { result, spy } = await renderDetailWithActions({
+            [PATCH_KEY]: { status: 200, body: userDetailOf({ version: 4, roles: ['tenant_admin', 'member'] }), headers: { ETag: '"4"' } },
+        });
+        let outcome: UserActionResult | undefined;
+        await act(async () => {
+            outcome = await result.current.actions.update({ user_id: OTHER_USER_ID, etag: result.current.detail.etag }, { roles: ['tenant_admin'] });
+        });
+        expect(outcome).toMatchObject({ ok: true, roles_stale: false, user: { roles: ['tenant_admin', 'member'] } });
+        expect(result.current.detail.user?.roles).toEqual(['tenant_admin', 'member']);
+        expect(result.current.detail.etag).toBe('"4"');
+        expect(calledKeys(spy).filter((key) => key === DETAIL_KEY)).toHaveLength(1);
+        expect(await calledRequests(spy).find((item) => item.method === 'PATCH')?.clone().json()).toEqual({ roles: ['tenant_admin'] });
+    });
+
+    it('応答のロールが送ったロールと食い違う (写しが IdP と食い違っていた) 場合は roles_stale にし、詳細を取り直す', async () => {
         let detail_calls = 0;
         const { result, spy } = await renderDetailWithActions({
             [DETAIL_KEY]: () => {
                 detail_calls += 1;
                 return detail_calls === 1
                     ? { status: 200, body: userDetailOf({ version: 3 }), headers: { ETag: '"3"' } }
-                    : { status: 200, body: userDetailOf({ version: 4, roles: ['tenant_admin', 'member'] }), headers: { ETag: '"4"' } };
+                    : { status: 200, body: userDetailOf({ version: 5, roles: ['tenant_admin', 'member'] }), headers: { ETag: '"5"' } };
             },
-            [PATCH_KEY]: { status: 200, body: userOf({ version: 4 }), headers: { ETag: '"4"' } },
+            // IdP 上は既に tenant_admin だったため変化が無く、写し (member のみ) がそのまま返った
+            [PATCH_KEY]: { status: 200, body: userDetailOf({ version: 3, roles: ['member'] }), headers: { ETag: '"3"' } },
+        });
+        let outcome: UserActionResult | undefined;
+        await act(async () => {
+            outcome = await result.current.actions.update({ user_id: OTHER_USER_ID, etag: result.current.detail.etag }, { roles: ['tenant_admin', 'member'] });
+        });
+        expect(outcome).toMatchObject({ ok: true, roles_stale: true });
+        await waitFor(() => expect(result.current.detail.user?.roles).toEqual(['tenant_admin', 'member']));
+        // 取り直した詳細の ETag (写しを更新したため version が上がる) を使う
+        expect(result.current.detail.etag).toBe('"5"');
+        expect(calledKeys(spy).filter((key) => key === DETAIL_KEY)).toHaveLength(2);
+    });
+
+    it('ロールを送らない更新は、応答のロール (写し) を反映し、取り直さない', async () => {
+        const { result, spy } = await renderDetailWithActions({
+            [PATCH_KEY]: { status: 200, body: userDetailOf({ version: 4, is_active: false, roles: ['member'] }), headers: { ETag: '"4"' } },
         });
         await act(async () => {
-            await result.current.actions.update({ user_id: OTHER_USER_ID, etag: result.current.detail.etag }, { roles: ['tenant_admin', 'member'] });
+            await result.current.actions.update({ user_id: OTHER_USER_ID, etag: result.current.detail.etag }, { is_active: false });
         });
-        await waitFor(() => expect(result.current.detail.user?.roles).toEqual(['tenant_admin', 'member']));
-        expect(result.current.detail.etag).toBe('"4"');
-        expect(calledKeys(spy).filter((key) => key === DETAIL_KEY)).toHaveLength(2);
-        expect(await calledRequests(spy).find((item) => item.method === 'PATCH')?.clone().json()).toEqual({ roles: ['tenant_admin', 'member'] });
+        expect(result.current.detail.user).toMatchObject({ is_active: false, roles: ['member'], version: 4 });
+        expect(calledKeys(spy).filter((key) => key === DETAIL_KEY)).toHaveLength(1);
     });
 
     it('412 user_version_conflict は再取得を促す失敗にし、ETag は変えない', async () => {

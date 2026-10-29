@@ -1,7 +1,9 @@
 /**
- * @desc サンプル画面のルート (`/{tenant_code}/sample/*`。AP の認証後画面として扱う)
- * 基盤の実装が進んだ段階で sample/ ごと削除する (02 §6.1)。
- * AP のルート (main_app/routes.tsx) から遅延読み込みされる。
+ * @desc サンプル画面のルート (参考用。アプリに登録していない)
+ * src/sample/ はアプリのルーティングに登録していない参考用のコードである (02 §6.1)。どこからも読み込まれず、バンドルにも含まれない。
+ * 呼び出し先の FastAPI のサンプル API (/RestSample/*、/sample/todos、/api/demo/login) もアプリへの登録を外しているため、それらを呼ぶ画面は動かない。
+ * lint・型チェック・vitest の対象には残すため、壊さないよう保守する。
+ * 登録していた頃は AP のルート (main_app/routes.tsx) の `sample/*` (`/{tenant_code}/sample/*`) から遅延読み込みしていた。
  * 旧ルートのうち、ローダー (データルーター) を前提とする fetch-loader と、旧ログアウト画面 (/logout) は削除した。
  */
 import { Route, Routes } from 'react-router-dom';

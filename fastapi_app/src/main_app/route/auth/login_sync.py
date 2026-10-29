@@ -52,8 +52,38 @@ def login_display_name(user: dict[str, Any]) -> str | None:
     return None
 
 
+def login_name_part(user: dict[str, Any], key: str) -> str | None:
+    """ログイン同期に渡す姓・名 (``given_name`` / ``family_name``)。
+
+    セッションにキーがあれば (:func:`~modules.auth.login.build_login_session` が作ったセッション)、クレームが無い・空でも
+    ``""`` を返して写しを NULL にする (IdP で未設定になった値を残さない)。キーが無ければ ``None`` (写しを更新しない)。
+
+    Args:
+        user: セッションのユーザー情報。
+        key: ``given_name`` または ``family_name``。
+
+    Returns:
+        str | None: 値。``None`` は「更新しない」。
+    """
+    if key not in user:
+        return None
+    value = user.get(key)
+    return value if isinstance(value, str) else ""
+
+
+def login_roles(user: dict[str, Any]) -> list[str] | None:
+    """ログイン同期に渡すロール (セッションの ``roles``。AP の許可リストで絞り込み済み)。リストでなければ ``None`` (写しを更新しない)。"""
+    roles = user.get("roles")
+    if not isinstance(roles, list):
+        return None
+    return [role for role in roles if isinstance(role, str)]
+
+
 def sync_app_user_on_login(session_data: dict[str, Any], *, tenant_id: uuid.UUID, tenant_code: str) -> UserSyncResult:
     """AP のログイン完了時に、テナントのコンテキストでユーザー行を同期する (デフォルト組織の作成を含む)。
+
+    表示名・メールに加えて、一覧表示用の写し (姓・名・ロール) も渡す (姓・名は ``given_name`` / ``family_name``、
+    ロールはセッションの ``roles`` = アクセストークンのレルムロールのうち ``tenant_admin`` / ``member``)。
 
     Args:
         session_data: これから作る AP のセッションの内容 (:func:`~modules.auth.login.build_login_session` の戻り値)。
@@ -74,4 +104,13 @@ def sync_app_user_on_login(session_data: dict[str, Any], *, tenant_id: uuid.UUID
         raise ValueError("session user has no subject")
     ctx = TenantContext(tenant_id=tenant_id, tenant_code=tenant_code, user_id=_parse_uuid(idp_subject), plane="app")
     with tenant_scope(ctx), open_app_session() as session:
-        return sync_user_on_login(session, tenant_id=tenant_id, idp_subject=idp_subject, email=user.get("email"), display_name=login_display_name(user))
+        return sync_user_on_login(
+            session,
+            tenant_id=tenant_id,
+            idp_subject=idp_subject,
+            email=user.get("email"),
+            display_name=login_display_name(user),
+            first_name=login_name_part(user, "given_name"),
+            last_name=login_name_part(user, "family_name"),
+            roles=login_roles(user),
+        )

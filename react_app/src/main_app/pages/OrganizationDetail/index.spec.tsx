@@ -1,4 +1,4 @@
-// 組織詳細画面のテスト (member は閲覧のみ・名前変更・メンバーの設定・削除して一覧へ戻る・メンバー名の全ページ取得)
+// 組織詳細画面のテスト (member は閲覧のみ・名前変更・メンバーの設定・削除して一覧へ戻る・メンバー名の ID 指定取得・候補は選択 UI を開いたときだけ取得)
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import '@testing-library/jest-dom';
 import { screen, within } from '@testing-library/react';
@@ -7,7 +7,7 @@ import { Route } from 'react-router-dom';
 import { calledKeys, calledRequests, mockFetch, problemReply, type MockHandler } from '@/shared/testing/fetch_mock';
 import { ORGANIZATION_ID, OTHER_USER_ID, SELF_USER_ID, organizationDetailOf, organizationOf } from '@/main_app/testing/app_test_support';
 import { renderAppScreen } from '@/main_app/testing/render_screen';
-import { SAMPLE_USERS, THIRD_USER_ID, pageOf } from '@/main_app/testing/story_data';
+import { SAMPLE_USERS, THIRD_USER_ID, pageOf, usersReplyOf } from '@/main_app/testing/story_data';
 import { AppOrganizationDetailPage } from '.';
 
 const DETAIL_KEY = `GET /api/v1/organizations/${ORGANIZATION_ID}`;
@@ -20,7 +20,7 @@ afterEach(() => {
 const renderDetail = (replies: Record<string, MockHandler> = {}, roles?: string[]) => {
     const spy = mockFetch({
         [DETAIL_KEY]: { status: 200, body: organizationDetailOf({ member_ids: [SELF_USER_ID, OTHER_USER_ID] }), headers: { ETag: '"3"' } },
-        [USERS_KEY]: { status: 200, body: pageOf(SAMPLE_USERS) },
+        [USERS_KEY]: usersReplyOf(),
         ...replies,
     });
     renderAppScreen(
@@ -47,18 +47,77 @@ describe('組織詳細画面', () => {
         expect(screen.getByTestId('organization-detail-readonly')).toBeInTheDocument();
     });
 
-    it('ユーザー一覧が複数ページに渡っても、全ページを取得してメンバーの名前を表示する', async () => {
-        const spy = renderDetail({
-            [USERS_KEY]: (request) => (new URL(request.url).searchParams.get('cursor') === null
-                ? { status: 200, body: pageOf(SAMPLE_USERS.slice(0, 1), 'next-1') }
-                : { status: 200, body: pageOf(SAMPLE_USERS.slice(1), null) }),
-        }, ['member']);
+    it('メンバーの名前は、メンバーの ID だけを指定して取得し、ユーザーの全件は取得しない (member)', async () => {
+        const spy = renderDetail({}, ['member']);
         await screen.findByTestId('organization-members-list');
-        expect(screen.getByTestId(`organization-member-${OTHER_USER_ID}`)).toHaveTextContent('Taro Yamada');
-        expect(calledKeys(spy).filter((key) => key === USERS_KEY)).toHaveLength(2);
+        const user_requests = calledRequests(spy).filter((request) => new URL(request.url).pathname === '/api/v1/users');
+        expect(user_requests).toHaveLength(1);
+        expect(new URL(user_requests[0].url).searchParams.get('ids')?.split(',').sort()).toEqual([SELF_USER_ID, OTHER_USER_ID].sort());
     });
 
-    it('一覧に無いメンバーは、不明なユーザーとして表示する', async () => {
+    it('無効なメンバーは、名前に「無効」と文字で示す', async () => {
+        renderDetail({ [DETAIL_KEY]: { status: 200, body: organizationDetailOf({ member_ids: [THIRD_USER_ID] }), headers: { ETag: '"3"' } } }, ['member']);
+        expect(await screen.findByTestId(`organization-member-${THIRD_USER_ID}`)).toHaveTextContent('Jiro Suzuki');
+        expect(screen.getByTestId(`organization-member-${THIRD_USER_ID}`)).toHaveTextContent('[無効]');
+    });
+
+    it('tenant_admin でも、選択 UI を開くまでは、ユーザーの全件を取得しない (開くと全ページを取得する)', async () => {
+        const user = userEvent.setup();
+        const spy = renderDetail({
+            [USERS_KEY]: (request) => {
+                const params = new URL(request.url).searchParams;
+                if (params.get('ids') !== null) return usersReplyOf()(request);
+                return params.get('cursor') === null
+                    ? { status: 200, body: pageOf(SAMPLE_USERS.slice(0, 2), 'next-1') }
+                    : { status: 200, body: pageOf(SAMPLE_USERS.slice(2), null) };
+            },
+        });
+        await screen.findByTestId('organization-members-select');
+        // 選択済みのメンバーはチップで名前が分かる
+        await vi.waitFor(() => expect(screen.getByTestId('organization-members-select')).toHaveTextContent('Taro Yamada'));
+        const allUserRequests = () => calledRequests(spy).filter((request) => new URL(request.url).pathname === '/api/v1/users' && new URL(request.url).searchParams.get('ids') === null);
+        expect(allUserRequests()).toHaveLength(0);
+        await user.click(screen.getByRole('combobox', { name: 'メンバー' }));
+        expect(await screen.findByRole('option', { name: /Jiro Suzuki/ })).toBeInTheDocument();
+        expect(allUserRequests()).toHaveLength(2);
+    });
+
+    it('候補の取得に失敗すると、エラーと再試行を表示する (メンバーの名前は表示したまま)', async () => {
+        const user = userEvent.setup();
+        let all_calls = 0;
+        renderDetail({
+            [USERS_KEY]: (request) => {
+                if (new URL(request.url).searchParams.get('ids') !== null) return usersReplyOf()(request);
+                all_calls += 1;
+                return all_calls === 1 ? problemReply(500, 'internal_error') : { status: 200, body: pageOf(SAMPLE_USERS) };
+            },
+        });
+        await screen.findByTestId('organization-members-select');
+        await user.click(screen.getByRole('combobox', { name: 'メンバー' }));
+        const alert = await screen.findByTestId('organization-candidates-error');
+        expect(alert).toHaveAttribute('role', 'alert');
+        expect(screen.getByTestId('organization-members-select')).toHaveTextContent('Taro Yamada');
+        await user.click(screen.getByTestId('organization-candidates-error-reload'));
+        await vi.waitFor(() => expect(screen.queryByTestId('organization-candidates-error')).toBeNull());
+    });
+
+    it('メンバーの名前の取得に失敗すると、メンバーの欄にエラーと再試行を表示し、組織名の変更は使える', async () => {
+        const user = userEvent.setup();
+        let calls = 0;
+        renderDetail({
+            [USERS_KEY]: (request) => {
+                calls += 1;
+                return calls === 1 ? problemReply(500, 'internal_error') : usersReplyOf()(request);
+            },
+        });
+        const alert = await screen.findByTestId('organization-members-error');
+        expect(alert).toHaveAttribute('role', 'alert');
+        expect(screen.getByTestId('organization-rename-name')).toBeInTheDocument();
+        await user.click(screen.getByTestId('organization-members-error-reload'));
+        await vi.waitFor(() => expect(screen.getByTestId('organization-members-select')).toHaveTextContent('Taro Yamada'));
+    });
+
+    it('ID 指定で見つからないメンバーは、不明なユーザーとして表示する', async () => {
         renderDetail({ [DETAIL_KEY]: { status: 200, body: organizationDetailOf({ member_ids: ['01900000-0000-7000-8000-0000000000ff'] }), headers: { ETag: '"3"' } } }, ['member']);
         expect(await screen.findByTestId('organization-members-list')).toHaveTextContent('不明なユーザー');
     });

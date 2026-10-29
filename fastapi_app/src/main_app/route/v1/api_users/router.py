@@ -17,6 +17,7 @@ from main_app.route.v1.deps import UserServiceDep, require_tenant_admin, require
 from main_app.route.v1.openapi import success_headers
 from main_app.route.v1.paging import decode_after, encode_next_cursor, parse_sort
 from main_app.services.common import UNSET, UserView
+from main_app.services.errors import UserValidationError
 from main_app.services.user_service import USER_SORT_KEYS
 from modules.api_common.etag import IfMatchVersion, set_etag
 from modules.api_common.pagination import CursorQuery, LimitQuery
@@ -28,6 +29,20 @@ router = APIRouter(dependencies=[Depends(require_tenant_member)])
 _NO_STORE = "no-store"
 
 
+def _parse_ids(raw: str | None) -> list[uuid.UUID] | None:
+    """`ids` クエリ(カンマ区切りのユーザー ID)を解釈する。指定が無ければ `None`、空文字は空のリスト(0 件)。
+
+    Raises:
+        UserValidationError: UUID でない値を含む(422)。件数の上限(重複を除いて 100)の検証はサービスが行う。
+    """
+    if raw is None:
+        return None
+    try:
+        return [uuid.UUID(part.strip()) for part in raw.split(",") if part.strip()]
+    except ValueError:
+        raise UserValidationError("ids", "format") from None
+
+
 @router.get("", summary="ユーザー一覧", responses=problem_responses(422))
 def list_users(
     service: UserServiceDep,
@@ -35,14 +50,24 @@ def list_users(
     cursor: CursorQuery = None,
     sort: Annotated[str, Query(description="並び順。`display_name` / `created_at`。先頭に `-` を付けると降順。同順位は `id` で安定させる")] = user_repo.DEFAULT_USER_SORT,
     is_active: Annotated[bool | None, Query(description="`true` で有効なユーザーのみ、`false` で無効化されたユーザーのみ。省略時は両方")] = None,
+    ids: Annotated[
+        str | None,
+        Query(
+            description=(
+                "ユーザー ID で絞り込む(カンマ区切りの UUID。重複を除いて最大 100 件。組織のメンバー・ToDo の担当者の表示名の解決用)。"
+                "存在しない ID・他テナントの ID は結果に含まれない。空文字は 0 件。UUID でない値・100 件超は 422"
+            )
+        ),
+    ] = None,
 ) -> UserPage:
     """テナント内のユーザーの一覧をカーソル方式で返す(`tenant_admin` / `member`)。
 
-    無効化されたユーザーも含む(`is_active` で絞り込める)。ロールは含まない(`GET /users/{user_id}` で取得する)。
+    無効化されたユーザーも含む(`is_active` で絞り込める)。`ids` で ID を指定して取得できる(`limit` を超える場合は `next_cursor` で続きを取得する)。
+    姓・名・ロールは AP の DB の写し(最後に同期した時点の値。IdP には問い合わせない。最新の値は `GET /users/{user_id}` で取得する)。
     各要素の `version` は更新系の `If-Match` に使える。
     """
     list_sort = parse_sort(sort, USER_SORT_KEYS)
-    page = service.list_users(limit=limit, sort=str(list_sort), after=decode_after(cursor, list_sort), is_active=is_active)
+    page = service.list_users(limit=limit, sort=str(list_sort), after=decode_after(cursor, list_sort), is_active=is_active, ids=_parse_ids(ids))
     return UserPage(items=[UserRead.model_validate(view, from_attributes=True) for view in page.items], next_cursor=encode_next_cursor(list_sort, page.next_after))
 
 
@@ -66,7 +91,8 @@ def create_user(body: UserCreate, response: Response, service: UserServiceDep) -
     set_etag(response, result.user.version)
     response.headers["Location"] = f"/api/v1/users/{result.user.id}"
     response.headers["Cache-Control"] = _NO_STORE
-    detail = UserDetail.model_validate({**UserRead.model_validate(result.user, from_attributes=True).model_dump(), "roles": list(result.roles)})
+    # roles は写し(実効ロール。一覧・詳細と同じ)を返す。result.roles(直接付与したロール)で上書きしない
+    detail = UserDetail.model_validate(result.user, from_attributes=True)
     return UserCreated(user=detail, credentials=UserCredentials(username=result.username, temporary_password=result.temporary_password))
 
 
@@ -76,30 +102,29 @@ def create_user(body: UserCreate, response: Response, service: UserServiceDep) -
     responses={**success_headers(200, "ユーザー(ロールを含む)"), **problem_responses(404, 422, 502)},
 )
 def get_user(user_id: uuid.UUID, response: Response, service: UserServiceDep) -> UserDetail:
-    """ユーザーの詳細をロール付きで返す(`tenant_admin` / `member`)。
+    """ユーザーの詳細を返す(`tenant_admin` / `member`)。
 
-    ロールは認証基盤から取得する(失敗は 502)。他テナントのユーザーも存在しないユーザーも同じ 404。
+    姓・名・メール・ロールは認証基盤から取り直す(失敗は 502)。AP の DB の写しと違えば写しも更新する。他テナントのユーザーも存在しないユーザーも同じ 404。
     `ETag` ヘッダーにバージョンを返す。更新(`PATCH`)の `If-Match` に使う。
     """
     view = service.get_user(user_id)
-    roles = service.get_user_roles(user_id)
     set_etag(response, view.version)
-    return UserDetail.model_validate({**UserRead.model_validate(view, from_attributes=True).model_dump(), "roles": roles})
+    return UserDetail.model_validate(view, from_attributes=True)
 
 
 @router.patch(
     "/{user_id}",
     summary="ユーザーの更新",
-    responses={**success_headers(200, "更新後のユーザー(ロールは含まない)"), **problem_responses(403, 404, 409, 412, 422, 428, 502)},
+    responses={**success_headers(200, "更新後のユーザー"), **problem_responses(403, 404, 409, 412, 422, 428, 502)},
     dependencies=[Depends(require_tenant_admin)],
 )
-def update_user(user_id: uuid.UUID, body: UserUpdate, version: IfMatchVersion, response: Response, service: UserServiceDep) -> UserRead:
+def update_user(user_id: uuid.UUID, body: UserUpdate, version: IfMatchVersion, response: Response, service: UserServiceDep) -> UserDetail:
     """ユーザーの姓・名(表示名)・ロール・有効/無効を更新する(`tenant_admin` のみ。送った項目だけ)。
 
     `If-Match` が必須(無ければ 428、不一致は 412)。変更が無ければ何もせず、`version` も変わらない。
     `is_active=false` で無効化すると、認証基盤のユーザーも無効化し、そのユーザーのセッションは次のリクエストで失効する。
     自分自身の無効化・`tenant_admin` の解除は 409(`user_self_modification_forbidden`)。
-    更新後のロールは `GET /users/{user_id}` で取得する。
+    応答の姓・名・ロールは AP の DB の写し(姓・名・ロールを変えた場合は更新後の値。それ以外で未同期なら `null` / 空配列のことがある)。最新の値は `GET /users/{user_id}` で取得する。
     """
     changes = {name: getattr(body, name) for name in body.model_fields_set}
     view: UserView = service.update_user(
@@ -111,4 +136,4 @@ def update_user(user_id: uuid.UUID, body: UserUpdate, version: IfMatchVersion, r
         is_active=changes.get("is_active", UNSET),
     )
     set_etag(response, view.version)
-    return UserRead.model_validate(view, from_attributes=True)
+    return UserDetail.model_validate(view, from_attributes=True)

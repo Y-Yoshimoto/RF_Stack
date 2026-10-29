@@ -35,7 +35,7 @@ def recorded(monkeypatch) -> dict:
         state["opened"].append(get_tenant_context())
         yield "app-session"
 
-    def fake_sync(session, *, tenant_id, idp_subject, email, display_name):
+    def fake_sync(session, *, tenant_id, idp_subject, email, display_name, first_name=None, last_name=None, roles=None):
         state["calls"].append({"session": session, "ctx": get_tenant_context(), "tenant_id": tenant_id, "idp_subject": idp_subject, "email": email, "display_name": display_name})
         if state["error"] is not None:
             raise state["error"]

@@ -9,12 +9,11 @@
  *   /:tenantCode/organizations, organizations/:organizationId   組織管理 (一覧・詳細/編集)
  *   /:tenantCode/profile   プロフィール
  *   /:tenantCode/todos, todos/new, todos/:todoId   ToDo (一覧・作成・詳細/編集)
- *   /:tenantCode/sample/*  サンプル画面 (認証後。基盤の実装が進んだ段階で削除する)
  *   /:tenantCode/*         未定義 (認証後に NotFound)
  *
  * URL のテナントコードが形式違反・予約語の場合は、API を呼ばずにテナント不在のエラー画面を出す。
+ * サンプル画面 (src/sample/) はアプリに登録しない参考用のコードのため、ここから読み込まない (02 §6.1)。
  */
-import { lazy, Suspense } from 'react';
 import { Route, Routes } from 'react-router-dom';
 import { AppAuthProvider } from '@/main_app/auth/AppAuthProvider';
 import { AppLoginRoute } from '@/main_app/auth/AppLoginRoute';
@@ -33,13 +32,9 @@ import { AppUserCreatePage } from '@/main_app/pages/UserCreate';
 import { AppUserDetailPage } from '@/main_app/pages/UserDetail';
 import { AppUserListPage } from '@/main_app/pages/UserList';
 import { APP_ROUTE, appHomePath } from '@/main_app/paths';
-import { PageLoading } from '@/shared/components/PageLoading';
 import { AuthLayout } from '@/shared/layouts/AuthLayout';
 import { NotFoundPage } from '@/shared/pages/NotFound';
 import { tenantCodeViolationOf } from '@/shared/tenant_code';
-
-// サンプル画面は AP の中でもさらに遅延読み込みする
-const SampleRoutes = lazy(() => import('@/sample/routes'));
 
 export const MainAppRoutes = () => {
     const tenant_code = useUrlTenantCode();
@@ -63,7 +58,6 @@ export const MainAppRoutes = () => {
                         <Route path={APP_ROUTE.TODOS} element={<AppTodoListPage />} />
                         <Route path={APP_ROUTE.TODO_NEW} element={<AppTodoCreatePage />} />
                         <Route path={APP_ROUTE.TODO} element={<AppTodoDetailPage />} />
-                        <Route path={APP_ROUTE.SAMPLE} element={<Suspense fallback={<PageLoading />}><SampleRoutes /></Suspense>} />
                         <Route path="*" element={<NotFoundPage embedded home_path={appHomePath(tenant_code)} home_label="ホームへ戻る" />} />
                     </Route>
                 </Route>

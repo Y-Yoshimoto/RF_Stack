@@ -287,14 +287,6 @@ def find_user_states(session: Session, user_ids: Collection[uuid.UUID]) -> dict[
     return {user_id: is_active for user_id, is_active in session.exec(statement).all()}
 
 
-def load_display_names(session: Session, user_ids: Collection[uuid.UUID]) -> dict[uuid.UUID, str]:
-    """ユーザーの表示名をまとめて取得する（アクティビティの操作者の表示用）。"""
-    if not user_ids:
-        return {}
-    statement = select(TUser.id, TUser.display_name).where(col(TUser.id).in_(list(user_ids)))
-    return {user_id: name for user_id, name in session.exec(statement).all()}
-
-
 # --------------------------------------------------------------------------- 公開先組織
 
 

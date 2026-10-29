@@ -4,7 +4,7 @@ import { Route } from 'react-router-dom';
 import { ORGANIZATION_ID } from '@/main_app/testing/app_test_support';
 import { withAppAuth } from '@/main_app/testing/auth_decorators';
 import { AppStoryFrame, appApiBeforeEach, problemStoryReply, type AppApiStoryParameters } from '@/main_app/testing/story_api';
-import { SAMPLE_ORGANIZATION_DETAILS, SAMPLE_USERS, SECOND_ORGANIZATION_ID, pageOf } from '@/main_app/testing/story_data';
+import { SAMPLE_ORGANIZATION_DETAILS, SECOND_ORGANIZATION_ID, usersReplyOf } from '@/main_app/testing/story_data';
 import { withMemoryRouter } from '@/shared/testing/story_decorators';
 import { AppOrganizationDetailPage } from '.';
 
@@ -33,7 +33,7 @@ const parametersOf = (organization_id: string) => ({
     initial_path: `/alpha/organizations/${organization_id}`,
     app_api: {
         [`GET /api/v1/organizations/${organization_id}`]: { status: 200, body: SAMPLE_ORGANIZATION_DETAILS[organization_id], headers: { ETag: `"${SAMPLE_ORGANIZATION_DETAILS[organization_id].version}"` } },
-        'GET /api/v1/users': { status: 200, body: pageOf(SAMPLE_USERS) },
+        'GET /api/v1/users': usersReplyOf(),
     } satisfies AppApiStoryParameters,
 });
 
@@ -56,6 +56,14 @@ export const Member: Story = {
     },
 };
 
+/** メンバーの名前を取得できない (名前は取得失敗を表示し、再試行できる) */
+export const MembersLoadError: Story = {
+    parameters: { ...parametersOf(ORGANIZATION_ID), app_api: { ...parametersOf(ORGANIZATION_ID).app_api, 'GET /api/v1/users': problemStoryReply(500, 'internal_error') } },
+    play: async ({ canvasElement: canvas_element }) => {
+        await expect(await within(canvas_element).findByTestId('organization-members-error')).toHaveAttribute('role', 'alert');
+    },
+};
+
 /** メンバーがいない組織 */
 export const NoMembers: Story = { parameters: { ...parametersOf(SECOND_ORGANIZATION_ID), app_auth: { user_name: 'taro', roles: ['member'] } } };
 
@@ -68,6 +76,6 @@ export const Loading: Story = {
 export const NotFound: Story = {
     parameters: {
         initial_path: `/alpha/organizations/${ORGANIZATION_ID}`,
-        app_api: { [`GET /api/v1/organizations/${ORGANIZATION_ID}`]: problemStoryReply(404, 'organization_not_found'), 'GET /api/v1/users': { status: 200, body: pageOf(SAMPLE_USERS) } },
+        app_api: { [`GET /api/v1/organizations/${ORGANIZATION_ID}`]: problemStoryReply(404, 'organization_not_found'), 'GET /api/v1/users': usersReplyOf() },
     },
 };

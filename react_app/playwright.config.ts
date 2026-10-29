@@ -15,6 +15,9 @@ const KEYCLOAK_E2E = process.env.E2E_KEYCLOAK === '1';
 // 新しい画面の E2E (playwright-test/screens/)。データを作成・変更する (変更系の API は preview の Origin では CSRF で拒否される) ため、
 // Vite の dev サーバー (SCREEN_BASEURL) を対象にする別プロジェクトで実行する。認証状態は setup が作る (Cookie はポートに依存しない)。
 const SCREEN_TESTS = /screens[\\/].*\.test\.(js|jsx|ts|tsx)/;
+// サンプル画面・サンプル API (/RestSample 等) に依存する E2E。サンプル API をアプリから外し、サンプル画面もルーティングから外したため、実行対象から外している。
+// コードは参考として残してあり、サンプルを復活させる場合はこの定義から外す (testIgnore に SAMPLE_TESTS を渡している箇所)。
+const SAMPLE_TESTS = /(sample_ButtonPueh|sample_FetchPage|sample_PageTitle)\.test\.(js|jsx|ts|tsx)/;
 // BFF は Keycloak からのコールバック先とログイン後の遷移先に APP_CALLBACK_URL / FRONTEND_URL (Vite の dev サーバー) を使うため、
 // ブラウザは preview (4173) ではなく dev サーバーで操作する。
 // ワーカー数。Keycloak のプロジェクトは setup を持たず、複数のワーカーが最初に同時に test-results を作ると、
@@ -85,10 +88,13 @@ export default defineConfig({
         },
     ] : [
         // 開発用ログインで認証状態を作る。他の project はこれに依存する。
-        { name: 'setup', testMatch: /.*\.setup\.ts/ },
+        // teardown: 依存する全プロジェクトの完了後に cleanup が 1 回実行され、E2E が作った使い捨てデータを削除する (失敗してもテストは赤にしない)。
+        // Keycloak のプロジェクトはデータを作らず setup にも依存しないため、teardown も使わない。
+        { name: 'setup', testMatch: /.*\.setup\.ts/, teardown: 'cleanup' },
+        { name: 'cleanup', testMatch: /.*\.teardown\.ts/ },
         {
             name: 'Chrome Desktop',
-            testIgnore: [KEYCLOAK_TESTS, SCREEN_TESTS],
+            testIgnore: [KEYCLOAK_TESTS, SCREEN_TESTS, SAMPLE_TESTS],
             use: {
                 ...devices['Desktop Chrome'],
                 channel: 'chromium',
@@ -103,7 +109,7 @@ export default defineConfig({
         },
         {
             name: 'Chrome Mobile',
-            testIgnore: [KEYCLOAK_TESTS, SCREEN_TESTS],
+            testIgnore: [KEYCLOAK_TESTS, SCREEN_TESTS, SAMPLE_TESTS],
             use: {
                 ...devices['Pixel 5'],
                 channel: 'chromium',

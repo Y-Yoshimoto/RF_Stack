@@ -1,5 +1,9 @@
 #!/usr/bin/env python
 # coding:utf-8
+"""REST API のサンプル実装(/RestSample/*)。
+
+アプリに登録していない参考用のコード。`app.py` から `include_router` していないため、このルートは公開されない(import もされない)。
+"""
 # モデル読み込み
 # ログ設定
 import logging

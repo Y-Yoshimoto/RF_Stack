@@ -17,7 +17,6 @@ export const APP_ROUTE = {
     TODOS: 'todos',
     TODO_NEW: 'todos/new',
     TODO: 'todos/:todoId',
-    SAMPLE: 'sample/*',
 } as const;
 
 /**
@@ -33,14 +32,6 @@ export const appHomePath = (tenant_code: string): string => `/${encodeURICompone
  * @returns {string} `/{tenant_code}/login`
 */
 export const appLoginPath = (tenant_code: string): string => `/${encodeURIComponent(tenant_code)}/${APP_ROUTE.LOGIN}`;
-
-/**
- * AP のサンプル画面のパスを返す関数 (基盤の実装が進んだ段階で sample/ ごと削除する)
- * @param {string} tenant_code テナントコード
- * @param {string} name サンプル名 (例: button)
- * @returns {string} `/{tenant_code}/sample/{name}`
-*/
-export const appSamplePath = (tenant_code: string, name: string): string => `/${encodeURIComponent(tenant_code)}/sample/${name}`;
 
 /**
  * AP のユーザー一覧のパスを返す関数

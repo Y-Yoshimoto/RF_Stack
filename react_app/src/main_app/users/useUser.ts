@@ -1,12 +1,15 @@
 /**
  * @description:
- * AP のユーザー詳細 (ロールを含む) と ETag を取得・保持するカスタムフック
+ * AP のユーザー詳細 (姓・名・ロールを含む) と ETag を取得・保持するカスタムフック
  * 保持している ETag は useUserActions の update の If-Match に渡す。
- * 更新 (PATCH) の応答にロールは含まれないため、ロールを変えた更新を applyUpdate で受け取ると取り直す。
+ * - 詳細の GET は姓・名・ロールを IdP から取り直す。写しと違えばサーバーが写しを更新するため、一覧の version より新しい
+ *   version (と ETag) が返ることがある。If-Match には常にこのフックの etag (GET / 更新の応答の ETag) を使う。
+ * - 更新 (PATCH) の応答は UserDetail (ロールを含む) のため、applyUpdate は取り直さずに応答をそのまま重ねる。
+ *   ただし応答のロールが送ったロールと食い違う場合 (写しが IdP と食い違っていた) は roles_stale: true で通知され、取り直す。
 */
 import { useCallback } from 'react';
 import { useAppApiClient } from '@/main_app/api/client';
-import type { UserDetail, UserRead } from '@/main_app/api/contract';
+import type { UserDetail } from '@/main_app/api/contract';
 import { classifyAppError, type AppErrorInfo } from '@/main_app/api/errors';
 import { fetchUser } from '@/main_app/api/users';
 import type { WithEtag } from '@/shared/api/etag';
@@ -16,10 +19,13 @@ import { useVersionedResource } from '@/shared/hooks/useVersionedResource';
  * ユーザーの最新の状態とその ETag (作成・更新の結果)。
  */
 export type UserVersioned = {
-    /** 更新後のユーザー (更新の応答はロールを含まない)。 */
-    user: UserRead;
+    /** 作成・更新後のユーザー (姓・名・ロールを含む。変更しない項目の姓・名・ロールは写しの値)。 */
+    user: UserDetail;
     etag: string;
-    /** ロールを変えたため、詳細のロールを取り直す必要がある。 */
+    /**
+     * 応答のロールを信用せず、詳細を取り直す必要がある。
+     * 更新の応答はロールを含むため通常は false。送ったロールと応答のロールが食い違う場合 (写しが IdP と食い違っていた) だけ true。
+     */
     roles_stale: boolean;
 };
 
@@ -32,27 +38,26 @@ export type UserDetailState = {
     user: UserDetail | null;
     /** 保持している ETag (取得前・失敗時は null)。 */
     etag: string | null;
-    /** 取得の失敗 (status === 'error' のとき。404 user_not_found、ロールの取得失敗は 502)。 */
+    /** 取得の失敗 (status === 'error' のとき。404 user_not_found、IdP からの取得失敗は 502)。 */
     error: AppErrorInfo | null;
     /** 取り直す (取得中は status が loading になる)。412 などで requires_reload のときに使う。 */
     reload: () => void;
     /**
      * 更新操作の結果を反映する (useUserActions の onUpdated につなぐ)。別のユーザーへの更新は無視する。
-     * roles_stale の更新は取り直す (ロールは GET でしか分からないため)。
+     * 応答 (ロールを含む) をそのまま重ねる。roles_stale の更新だけは取り直す。
      */
     applyUpdate: (update: UserVersioned) => void;
 };
 
 /**
- * 詳細に更新後のユーザーを重ねる関数 (ロールは詳細のものを残す)
+ * 詳細に更新後のユーザーを重ねる関数 (更新の応答は詳細と同じ項目を持つため、応答で置き換える)
  * @param {WithEtag<UserDetail>} current 現在の詳細
  * @param {UserVersioned} update 更新後のユーザーと ETag
- * @returns {WithEtag<UserDetail>} 反映後の詳細
+ * @returns {WithEtag<UserDetail>} 反映後の詳細 (別のユーザーへの更新なら current)
 */
 export const mergeUserUpdate = (current: WithEtag<UserDetail>, update: UserVersioned): WithEtag<UserDetail> => {
     if (update.user.id !== current.body.id) return current;
-    const { id, email, display_name, is_active, last_login_at, version, created_at, updated_at } = update.user;
-    return { body: { ...current.body, id, email, display_name, is_active, last_login_at, version, created_at, updated_at }, etag: update.etag };
+    return { body: { ...current.body, ...update.user }, etag: update.etag };
 };
 
 /**

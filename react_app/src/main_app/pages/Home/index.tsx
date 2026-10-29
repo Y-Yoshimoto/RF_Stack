@@ -4,10 +4,9 @@
  * 使えるフック: useAppSession (テナントコード・ユーザー)。AP の API 呼び出し (useAppApiClient) は、データを出す機能が加わる段階で使う。
  */
 import { Link as RouterLink } from 'react-router-dom';
-import { Box, Card, CardActionArea, CardContent, Chip, Link, Stack, Typography } from '@mui/material';
+import { Box, Card, CardActionArea, CardContent, Chip, Stack, Typography } from '@mui/material';
 import { useAppSession } from '@/main_app/auth/useAppAuth';
 import { appNavItemsOf, appRoleLabelsOf } from '@/main_app/layouts/AppLayout/labels';
-import { appSamplePath } from '@/main_app/paths';
 
 export const AppHomePage = () => {
     const { tenant_code, user } = useAppSession();
@@ -57,10 +56,6 @@ export const AppHomePage = () => {
                     ))}
                 </Box>
             </Box>
-
-            <Typography variant="caption" color="text.secondary">
-                開発用: <Link component={RouterLink} to={appSamplePath(tenant_code, 'button')} data-testid="app-home-samples-link">サンプル画面</Link>
-            </Typography>
         </Stack>
     );
 };

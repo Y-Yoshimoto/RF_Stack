@@ -85,7 +85,9 @@ def find_existing_user_ids(session: Session, user_ids: Collection[uuid.UUID]) ->
     return set(session.exec(select(TUser.id).where(col(TUser.id).in_(list(user_ids)))).all())
 
 
-def list_users(session: Session, *, sort: ListSort, after: tuple[Any, uuid.UUID] | None, limit: int, is_active: bool | None = None) -> Page[TUser]:
+def list_users(
+    session: Session, *, sort: ListSort, after: tuple[Any, uuid.UUID] | None, limit: int, is_active: bool | None = None, ids: Collection[uuid.UUID] | None = None
+) -> Page[TUser]:
     """ユーザーの一覧をキーセット方式で取得する。
 
     Args:
@@ -94,12 +96,36 @@ def list_users(session: Session, *, sort: ListSort, after: tuple[Any, uuid.UUID]
         after: 起点。
         limit: 件数（補正済み）。
         is_active: 有効/無効で絞り込む（``None`` なら絞り込まない）。
+        ids: ユーザー ID で絞り込む（``None`` なら絞り込まない。空なら 0 件）。件数の上限はサービスで確認する。
 
     Returns:
         Page[TUser]: ページ。
     """
+    if ids is not None and not ids:
+        return Page(items=[], next_after=None)
     statement = select(TUser)
     if is_active is not None:
         statement = statement.where(TUser.is_active == is_active)
+    if ids is not None:
+        statement = statement.where(col(TUser.id).in_(list(ids)))
     statement = apply_keyset(statement, USER_SORT_COLUMNS[sort.key], col(TUser.id), sort, after, limit)
     return build_page(session.exec(statement).all(), limit, sort.key)
+
+
+def list_user_names(session: Session, tenant_id: uuid.UUID, user_ids: Collection[uuid.UUID]) -> list[tuple[uuid.UUID, str, bool]]:
+    """ユーザー ID から ``(id, display_name, is_active)`` をまとめて取得する（無効化されたユーザーを含む）。
+
+    他テナントの行は RLS でも見えないが、``tenant_id`` の条件も明示する（存在しない ID・他テナントの ID は結果に含まれない）。
+
+    Args:
+        session: AP のセッション。
+        tenant_id: テナント ID（コンテキストの値）。
+        user_ids: ユーザー ID。
+
+    Returns:
+        list[tuple[uuid.UUID, str, bool]]: 見つかったユーザー（順不同）。
+    """
+    if not user_ids:
+        return []
+    statement = select(TUser.id, TUser.display_name, TUser.is_active).where(col(TUser.tenant_id) == tenant_id, col(TUser.id).in_(list(user_ids)))
+    return [(user_id, name, active) for user_id, name, active in session.exec(statement).all()]

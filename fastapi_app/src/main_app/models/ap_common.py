@@ -18,8 +18,8 @@ import datetime as dt
 import uuid
 from typing import Any
 
-from sqlalchemy import Column, Index, PrimaryKeyConstraint, Text, UniqueConstraint, text
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import CheckConstraint, Column, Index, PrimaryKeyConstraint, Text, UniqueConstraint, text
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlmodel import Field
 
 from main_app.models.base import AppPlaneBase
@@ -36,6 +36,8 @@ class TUser(TenantScopedBase, table=True):
         - ユーザーは論理削除せず、`is_active` で無効化する(PF-USR-03)。
         - `email` は IdP 側で未設定の場合に備えて NULL を許可する(NULL 同士は一意制約に掛からない)。
         - 楽観ロック(03 §5.2)の対象(`PATCH /api/v1/users/{id}`)。
+        - `first_name` / `last_name` / `roles` は Keycloak が正で、一覧表示用の写し(ログイン時の同期と管理者の変更時に更新する。01 §9.4)。
+          `roles` は `tenant_admin` / `member` のみ(CHECK)。同期前の行は `{}`(空配列)。
     """
     __tablename__ = "t_user"
     __table_args__ = (
@@ -45,6 +47,7 @@ class TUser(TenantScopedBase, table=True):
         tenant_scoped_fk("created_by", "t_user"),
         tenant_scoped_fk("updated_by", "t_user"),
         version_positive_check(),
+        CheckConstraint("roles <@ ARRAY['tenant_admin', 'member']::text[]", name="roles"),
         {"comment": "ユーザー(テナント内)"},
     )
     idp_subject: str = Field(
@@ -56,6 +59,16 @@ class TUser(TenantScopedBase, table=True):
     display_name: str = Field(
         description="表示名(ログイン時に IdP から同期する)",
         sa_type=Text, nullable=False)
+    first_name: str | None = Field(
+        description="名(Keycloak が正で、一覧表示用の写し。未同期は NULL)",
+        default=None, sa_type=Text, nullable=True)
+    last_name: str | None = Field(
+        description="姓(Keycloak が正で、一覧表示用の写し。未同期は NULL)",
+        default=None, sa_type=Text, nullable=True)
+    roles: list[str] = Field(
+        description="ロール(Keycloak が正で、一覧表示用の写し。tenant_admin / member。未同期は空配列)",
+        default_factory=list,
+        sa_column=Column(ARRAY(Text), nullable=False, server_default=text("'{}'::text[]")))
     is_active: bool = Field(
         description="有効フラグ(false = 無効化。IdP 側も無効化する)",
         default=True, nullable=False,

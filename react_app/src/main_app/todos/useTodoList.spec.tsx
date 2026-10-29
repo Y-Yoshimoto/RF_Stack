@@ -115,6 +115,27 @@ describe('useTodoActivities', () => {
         expect(paramsOf(spy, `/api/v1/todos/${TODO_ID}/activities`).map((params) => params.toString())).toEqual(['limit=1', 'limit=1&cursor=c1', 'limit=1']);
     });
 
+    it('ページごとの users を読み込み済みの全ページ分まとめ、userName で名前を引く (キーが無い ID は「不明なユーザー」)', async () => {
+        const unknown_id = '01900000-0000-7000-8000-00000000a999';
+        mockFetch({
+            [APP_STATUS_KEY]: appStatusReply(['member']),
+            [ACTIVITIES_KEY]: (request) => (new URL(request.url).searchParams.get('cursor') === 'c1'
+                ? { status: 200, body: { items: [activityOf({ id: 'old', actor_id: OTHER_USER_ID })], next_cursor: null, users: { [OTHER_USER_ID]: { display_name: 'Taro Yamada', is_active: false } } } }
+                : { status: 200, body: { items: [activityOf({ id: 'new', action: 'assignees_changed', payload: { added: [unknown_id], removed: [] } })], next_cursor: 'c1', users: { [SELF_USER_ID]: { display_name: 'Hanako Suzuki', is_active: true } } } }),
+        });
+        const { result } = renderHook(() => useTodoActivities(TODO_ID), { wrapper: AppTestProvider });
+        await waitFor(() => expect(result.current.status).toBe('success'));
+        expect(result.current.users).toEqual({ [SELF_USER_ID]: { display_name: 'Hanako Suzuki', is_active: true } });
+        expect(result.current.userName(unknown_id)).toBe('不明なユーザー');
+
+        act(() => result.current.loadMore());
+        await waitFor(() => expect(result.current.items.map((item) => item.id)).toEqual(['new', 'old']));
+        expect(result.current.userName(SELF_USER_ID)).toBe('Hanako Suzuki');
+        expect(result.current.userName(OTHER_USER_ID)).toBe('Taro Yamada');
+        expect(result.current.users[OTHER_USER_ID].is_active).toBe(false);
+        expect(result.current.items[1].page_users).toHaveProperty(OTHER_USER_ID);
+    });
+
     it('閲覧できない ToDo は 404 todo_not_found', async () => {
         mockFetch({ [APP_STATUS_KEY]: appStatusReply(), [ACTIVITIES_KEY]: problemReply(404, 'todo_not_found') });
         const { result } = renderHook(() => useTodoActivities(TODO_ID), { wrapper: AppTestProvider });

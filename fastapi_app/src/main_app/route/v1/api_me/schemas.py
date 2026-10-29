@@ -22,8 +22,16 @@ class MeUser(BaseModel):
     roles: list[str] = Field(description="テナント内のロール（`tenant_admin` / `member`）")
 
 
+class MeOrganization(BaseModel):
+    """ログイン中のユーザーが所属する組織。"""
+
+    id: uuid.UUID = Field(description="組織 ID(UUIDv7。`GET /api/v1/organizations` の `id` と同じ値)")
+    name: str = Field(description="組織名")
+
+
 class MeRead(BaseModel):
     """ログイン中のテナントとユーザー。"""
 
     tenant: MeTenant = Field(description="テナント")
     user: MeUser = Field(description="ユーザー")
+    organizations: list[MeOrganization] = Field(description="ユーザーが所属する有効な組織(論理削除済みを除く。組織名順。所属が無ければ空配列)")

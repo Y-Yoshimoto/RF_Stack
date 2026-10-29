@@ -4,7 +4,7 @@
 
 DB のテーブルモデル(``TUser``)はそのまま返さず、公開してよい項目だけを定義する。
 IdP の利用者 ID(``idp_subject``)・``created_by`` / ``updated_by`` は返さない。日時は UTC(``Z``)の ISO 8601(03 §4)。
-ロールは AP の DB に持たず IdP が正のため、一覧には含めず、詳細(``GET /users/{id}``)と作成の結果に含める。
+姓・名・ロールは IdP が正で、一覧・更新の応答は AP の DB の写し(最後に同期した時点の値)、詳細(``GET /users/{id}``)は IdP から取り直した値になる。
 """
 import uuid
 from typing import Annotated, Literal
@@ -26,6 +26,9 @@ class UserRead(BaseModel):
     id: uuid.UUID = Field(description="ユーザー ID(UUIDv7)。`/api/v1/me` の `user.id`、組織のメンバー ID と同じ値")
     email: str | None = Field(description="メールアドレス(テナント内で一意)")
     display_name: str = Field(description="表示名(`\"{名} {姓}\"`)")
+    first_name: str | None = Field(description="名。AP の DB の写し(一覧・更新の応答は最後に同期した時点の値、詳細は IdP から取り直した値)。未同期・未設定なら `null`")
+    last_name: str | None = Field(description="姓。`first_name` と同じ扱い")
+    roles: list[AppRole] = Field(description="テナントのロール(`tenant_admin` / `member`。この順)。`first_name` と同じく写しの値で、未同期なら空配列。最新のロールは詳細(`GET /users/{user_id}`)で取得する")
     is_active: bool = Field(description="有効か。無効化されたユーザーはログインできず、既存のセッションも次のリクエストで失効する")
     last_login_at: UtcDatetime | None = Field(description="最終ログイン日時(UTC)。一度もログインしていなければ `null`")
     version: int = Field(description="楽観ロック用のバージョン。更新系の `If-Match` に `\"<version>\"` で指定する")
@@ -34,13 +37,11 @@ class UserRead(BaseModel):
 
 
 class UserDetail(UserRead):
-    """ユーザーの詳細。IdP から取得したロールを含む。"""
-
-    roles: list[AppRole] = Field(description="テナントのロール(`tenant_admin` / `member`)")
+    """ユーザーの詳細(`GET /users/{id}`、作成・更新の結果)。`UserRead` と同じ項目。詳細の取得では姓・名・ロールを IdP から取り直した値で返す。"""
 
 
 class UserPage(CursorPage[UserRead]):
-    """ユーザー一覧(カーソル方式。ロールは含まない)。"""
+    """ユーザー一覧(カーソル方式。姓・名・ロールは最後に同期した時点の値)。"""
 
 
 class UserCreate(BaseModel):

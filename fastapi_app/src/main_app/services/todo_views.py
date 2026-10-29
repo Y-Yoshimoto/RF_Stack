@@ -6,10 +6,13 @@
 """
 import datetime as dt
 import uuid
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from typing import Any
 
 from main_app.models import TodoActivityAction, TodoPriority, TodoStatus, TodoVisibility
+from main_app.repositories.keyset import Page
+from main_app.services.common import UserNameView
 from main_app.services.todo_policy import TodoPermissions
 
 
@@ -128,3 +131,19 @@ class TodoActivityView:
     action: TodoActivityAction
     payload: dict[str, Any]
     created_at: dt.datetime
+
+
+@dataclass(frozen=True, slots=True)
+class TodoActivityPage(Page[TodoActivityView]):
+    """アクティビティの 1 ページと、参照されるユーザーの表示名（:meth:`main_app.services.todo_service.TodoService.list_activities`）。
+
+    :class:`~main_app.repositories.keyset.Page` の ``items`` / ``next_after`` に ``users`` を加えたもの（``Page`` として扱える）。
+
+    Attributes:
+        users: ユーザー ID → 表示名・有効か。ページ内の操作者（``actor_id``）と ``payload`` が参照するユーザー
+            （``created`` の ``values.assignee_ids``、``assignees_changed`` の ``added`` / ``removed``）。
+            無効化されたユーザー・担当者から外れたユーザーも含む。テナント内に存在しない ID（他テナントの ID を含む）は含めない
+            （画面では「不明なユーザー」等と表示する）。
+    """
+
+    users: Mapping[uuid.UUID, UserNameView] = field(default_factory=dict)

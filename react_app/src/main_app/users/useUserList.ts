@@ -1,8 +1,10 @@
 /**
  * @description:
  * AP のユーザー一覧を取得するカスタムフック (カーソル方式の「さらに読み込む」)
- * 並び順・有効/無効の絞り込みが変わるか reload を呼ぶと先頭ページから取り直す。古い取得の結果は捨てる。
- * 一覧の要素にロールは含まれない (useUser で取得する)。各要素の version から ifMatchOf で If-Match を作れる。
+ * 並び順・有効/無効・ID の絞り込みが変わるか reload を呼ぶと先頭ページから取り直す。古い取得の結果は捨てる。
+ * 一覧の要素の姓・名・ロールは AP の DB の写し (最後に同期した時点の値)。最新の値は useUser (詳細) で取得する。
+ * 各要素の version から ifMatchOf で If-Match を作れる。
+ * ID の絞り込み (filter.ids) は 1 回 100 件まで (超えると 422)。名前の解決には分割して取得する useUsersByIds を使う。
 */
 import { useAppApiClient } from '@/main_app/api/client';
 import type { UserListQuery, UserRead } from '@/main_app/api/contract';
@@ -18,7 +20,7 @@ export type UserListState = CursorListState<UserRead>;
 
 /**
  * AP のユーザー一覧を取得するカスタムフック (AppAuthProvider の内側で使う)
- * @param {UserListFilter} filter 並び順・有効/無効の絞り込み・件数
+ * @param {UserListFilter} filter 並び順・有効/無効・ID の絞り込み・件数
  * @returns {UserListState} 一覧の状態と操作
 */
 export const useUserList = (filter: UserListFilter = {}): UserListState => {

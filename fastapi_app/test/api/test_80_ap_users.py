@@ -93,7 +93,7 @@ class TestCreate:
         check.equal(body["credentials"], {"username": "new.user@example.com", "temporary_password": SENTINEL_TEMP_PASSWORD})
         user = body["user"]
         check.equal((user["email"], user["display_name"], user["is_active"], user["version"], user["roles"], user["last_login_at"]), ("new.user@example.com", "New User", True, 1, ["member"], None))
-        check.equal(set(user), {"id", "email", "display_name", "is_active", "last_login_at", "version", "created_at", "updated_at", "roles"})
+        check.equal(set(user), {"id", "email", "display_name", "first_name", "last_name", "is_active", "last_login_at", "version", "created_at", "updated_at", "roles"})
         idp_user = next(u for u in idp.users(world.a.realm).values() if u["email"] == "new.user@example.com")
         check.is_not_in(idp_user["id"], response.text)
         check.equal(idp.factory_realms[-1], world.a.realm)
@@ -181,12 +181,22 @@ class TestGetAndList:
         check.is_not_in("idp_subject", response.text)
         check.is_not_in(world.admin_a.sub, response.text)
 
-    def test_list_does_not_include_roles(self, client, world):
-        """一覧の要素にはロールを含めない。自テナントの 2 人だけ(管理者・メンバー)。"""
+    def test_list_includes_names_and_roles(self, client, world):
+        """一覧の要素に姓・名・ロール(AP の DB の写し)を含む。自テナントの 2 人だけ(管理者・メンバー)。"""
         body = client.get(USERS, headers=world.admin_a.headers).json()
         check.equal(sorted(i["id"] for i in body["items"]), sorted([str(world.admin_a.user_id), str(world.member_a.user_id)]))
-        check.is_true(all("roles" not in item for item in body["items"]))
+        check.is_true(all({"first_name", "last_name", "roles"} <= set(item) for item in body["items"]))
         check.is_none(body["next_cursor"])
+
+    def test_list_filter_by_ids(self, client, world):
+        """ids(カンマ区切り)で絞り込める。存在しない ID・他テナントの ID は含まれず、空文字は 0 件、UUID でない値・101 件は 422。"""
+        wanted = [str(world.member_a.user_id), str(world.admin_b.user_id), str(uuid.uuid4())]
+        body = client.get(USERS, headers=world.admin_a.headers, params={"ids": ",".join(wanted)}).json()
+        check.equal([i["id"] for i in body["items"]], [str(world.member_a.user_id)])
+        check.equal(client.get(USERS, headers=world.admin_a.headers, params={"ids": ""}).json()["items"], [])
+        for bad in ("abc", ",".join(str(uuid.uuid4()) for _ in range(101))):
+            response = client.get(USERS, headers=world.admin_a.headers, params={"ids": bad})
+            check.equal((response.status_code, response.json()["code"], response.json()["errors"][0]["field"]), (422, "invalid_user_input", "ids"))
 
     def test_cursor_pagination_has_no_gaps_or_duplicates(self, client, world):
         """limit=2 でカーソルを辿ると、全ユーザーが重複・欠落なく並ぶ(sort 指定ごと)。"""
@@ -258,12 +268,13 @@ class TestUpdate:
         check.is_true(ap_db.user(world.a.ctx, world.member_a.user_id)["is_active"])
 
     def test_update_names_and_etag(self, client, world, idp):
-        """姓・名を更新すると 200、ETag と version が +1、display_name が変わる。ロールは本文に含まない。IdP の姓・名も変わる。"""
+        """姓・名を更新すると 200、ETag と version が +1、display_name が変わる。本文に姓・名・ロール(写し)を含む。IdP の姓・名も変わる。"""
         url = f"{USERS}/{world.member_a.user_id}"
         response = client.patch(url, json={"first_name": "Grace", "last_name": "Hopper"}, headers=with_csrf(world.admin_a.headers, **etag(1)))
         body = response.json()
         check.equal((response.status_code, response.headers["ETag"], body["version"], body["display_name"]), (200, '"2"', 2, "Grace Hopper"))
-        check.is_not_in("roles", body)
+        check.equal((body["first_name"], body["last_name"]), ("Grace", "Hopper"))
+        check.is_in("roles", body)
         check.equal(idp.users(world.a.realm)[world.member_a.sub]["firstName"], "Grace")
         again = client.patch(url, json={"first_name": "G", "last_name": "H"}, headers=with_csrf(world.admin_a.headers, **etag(1)))
         check.equal(again.status_code, 412)

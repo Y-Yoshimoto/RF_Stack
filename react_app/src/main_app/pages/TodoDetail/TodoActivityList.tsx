@@ -1,20 +1,21 @@
 /**
  * @desc ToDo のアクティビティ (変更履歴) の時系列表示 (新しい順。「さらに読み込む」)
+ * 操作者・担当者の名前は応答の users (activities.users) で解決する。無効なユーザーは「(無効)」、引けないユーザーは「不明なユーザー」と表示する。
  */
 import { Box, Button, CircularProgress, List, ListItem, Stack, Typography } from '@mui/material';
 import type { TodoActivitiesState } from '@/main_app/todos/useTodoActivities';
 import { formatDateTime } from '@/main_app/components/format';
+import { todoActivityActorOf } from '@/main_app/todos/activity_users';
 import { TodoErrorAlert } from '@/main_app/pages/TodoCommon/TodoErrorAlert';
 import { PageLoading } from '@/shared/components/PageLoading';
-import { activityLinesOf, type NameLookup } from './activity_text';
+import { activityLinesOf, userRefTextOf, type NameLookup } from './activity_text';
 
 export type TodoActivityListProps = {
     activities: TodoActivitiesState;
-    userName: NameLookup;
     organizationName: NameLookup;
 };
 
-export const TodoActivityList = ({ activities, userName, organizationName }: TodoActivityListProps) => (
+export const TodoActivityList = ({ activities, organizationName }: TodoActivityListProps) => (
     <Box data-testid="todo-activities">
         {activities.status === 'loading' && <PageLoading />}
         {activities.status === 'error' && activities.error && <TodoErrorAlert error={activities.error} test_id="todo-activities-error" onReload={activities.reload} always_retry />}
@@ -26,9 +27,9 @@ export const TodoActivityList = ({ activities, userName, organizationName }: Tod
                         <Stack spacing={0.25}>
                             <Typography variant="body2" color="text.secondary">
                                 <time dateTime={activity.created_at}>{formatDateTime(activity.created_at)}</time>
-                                {` ・ ${activity.actor_display_name ?? '不明なユーザー'}`}
+                                <span data-testid={`todo-activity-actor-${activity.id}`}>{` ・ ${userRefTextOf(todoActivityActorOf(activity, activities.users))}`}</span>
                             </Typography>
-                            {activityLinesOf(activity, { user: userName, organization: organizationName }).map((line) => <Typography key={line} variant="body1" sx={{ overflowWrap: 'anywhere' }}>{line}</Typography>)}
+                            {activityLinesOf(activity, { users: activities.users, organization: organizationName }).map((line) => <Typography key={line} variant="body1" sx={{ overflowWrap: 'anywhere' }}>{line}</Typography>)}
                         </Stack>
                     </ListItem>
                 ))}

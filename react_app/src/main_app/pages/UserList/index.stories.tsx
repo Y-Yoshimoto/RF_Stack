@@ -46,6 +46,15 @@ export const Member: Story = {
     },
 };
 
+/** ロール・姓名が未同期のユーザーを含む (ロールの列は「未同期」と表示する) */
+export const RolesNotSynced: Story = {
+    parameters: { app_api: { [LIST_KEY]: { status: 200, body: pageOf([SAMPLE_USERS[0], { ...SAMPLE_USERS[1], first_name: null, last_name: null, roles: [] }]) } } },
+    play: async ({ canvasElement: canvas_element }) => {
+        const canvas = within(canvas_element);
+        await expect(await canvas.findByTestId(`user-roles-${SAMPLE_USERS[1].id}`)).toHaveTextContent('未同期');
+    },
+};
+
 /** 読み込み中 */
 export const Loading: Story = { parameters: { app_api: { [LIST_KEY]: { status: 200, never_settles: true } } } };
 

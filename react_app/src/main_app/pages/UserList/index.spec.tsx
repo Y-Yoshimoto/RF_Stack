@@ -31,17 +31,27 @@ const renderList = (reply: MockHandler, { path = '/alpha/users', roles }: { path
 const PAGE = { status: 200, body: pageOf(SAMPLE_USERS) };
 
 describe('ユーザー一覧画面', () => {
-    it('表に、表示名・メールアドレス・状態・最終ログインを表示し、見出しを th にする', async () => {
+    it('表に、表示名・メールアドレス・ロール・状態・最終ログインを表示し、見出しを th にする', async () => {
         renderList(PAGE);
         const table = await screen.findByTestId('user-table');
-        expect(within(table).getAllByRole('columnheader').map((header) => header.textContent)).toEqual(['表示名', 'メールアドレス', '状態', '最終ログイン']);
+        expect(within(table).getAllByRole('columnheader').map((header) => header.textContent)).toEqual(['表示名', 'メールアドレス', 'ロール', '状態', '最終ログイン']);
         expect(screen.getByTestId(`user-link-${OTHER_USER_ID}`)).toHaveTextContent('Taro Yamada');
         expect(screen.getByTestId(`user-link-${OTHER_USER_ID}`)).toHaveAttribute('href', `/alpha/users/${OTHER_USER_ID}`);
         expect(screen.getByTestId(`user-email-${OTHER_USER_ID}`)).toHaveTextContent('taro@alpha.example');
+        expect(screen.getByTestId(`user-roles-${SELF_USER_ID}`)).toHaveTextContent(/テナント管理者.*メンバー/);
+        expect(screen.getByTestId(`user-roles-${OTHER_USER_ID}`)).toHaveTextContent('メンバー');
+        expect(screen.getByTestId(`user-roles-${OTHER_USER_ID}`)).not.toHaveTextContent('テナント管理者');
         expect(screen.getByTestId(`user-status-${SELF_USER_ID}`)).toHaveTextContent('有効');
         expect(screen.getByTestId(`user-status-${THIRD_USER_ID}`)).toHaveTextContent('無効');
         expect(screen.getByTestId(`user-last-login-${OTHER_USER_ID}`)).toHaveTextContent('未ログイン');
         expect(screen.getByTestId('user-list-count')).toHaveTextContent('3 人を表示');
+    });
+
+    it('ロールが未同期 (roles が空) のユーザーは、色に頼らず「未同期」と文字で表示する', async () => {
+        renderList({ status: 200, body: pageOf([SAMPLE_USERS[1], { ...SAMPLE_USERS[2], first_name: null, last_name: null, roles: [] }]) });
+        await screen.findByTestId('user-table');
+        expect(screen.getByTestId(`user-roles-${THIRD_USER_ID}`)).toHaveTextContent('未同期');
+        expect(screen.getByTestId(`user-roles-${OTHER_USER_ID}`)).not.toHaveTextContent('未同期');
     });
 
     it('tenant_admin にだけ、ユーザー作成の導線を表示する', async () => {

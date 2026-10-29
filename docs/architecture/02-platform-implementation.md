@@ -148,7 +148,7 @@ ALTER TABLE t_todo_assignee
 - `SQLModel.metadata.create_all()` は使わない。スキーマ変更はすべてリビジョンとして残す
 - プレーン毎の基底: CP は `ControlPlaneBase`（`control_plane_app/models/base.py`）、AP は `AppPlaneBase`（`main_app/models/base.py`）。AP のモデルは `main_app/models/__init__.py` で import して MetaData に載せる
 - CP の初期リビジョンは `0001_create_t_tenant`（既存の `t_tenant` をそのまま作成）。`0002_revise_cp_tables` で 01 の 9.5 に沿って改訂した（4.6）
-- AP のリビジョンは `0001_create_ap_common_tables`（01 の 9.4 の共通テーブル）、`0002_create_todo_tables`（ToDo のテーブル。[ToDoApp.md](../spec/ToDoApp.md) §9.1）。テーマのテーブルは基盤の共通テーブルとリビジョンを分ける（4.7）
+- AP のリビジョンは `0001_create_ap_common_tables`（01 の 9.4 の共通テーブル）、`0002_create_todo_tables`（ToDo のテーブル。[ToDoApp.md](../spec/ToDoApp.md) §9.1）、`0003_add_user_name_and_roles`（`t_user` の姓・名・ロールの写し）。テーマのテーブルは基盤の共通テーブルとリビジョンを分ける（4.7）
 - ビュー・GRANT / REVOKE は autogenerate で検出されないため、リビジョンに手で書く。ロール名はハードコードせず、マイグレーション実行時の環境変数（`CP_DB_REGISTRY_READER_USER` 等）から取ってクォートする
 
 ### 4.5 プレーン間アクセスの実装
@@ -178,11 +178,11 @@ ALTER TABLE t_todo_assignee
 
 ### 4.7 AP のテーブル
 
-01 の 9.4 の実装。モデルは `main_app/models/ap_common.py`、スキーマはリビジョン `0001_create_ap_common_tables`。テーマ（ToDo）のテーブルは [ToDoApp.md](../spec/ToDoApp.md) §9.1。
+01 の 9.4 の実装。モデルは `main_app/models/ap_common.py`、スキーマはリビジョン `0001_create_ap_common_tables`（`t_user` の姓・名・ロールは `0003_add_user_name_and_roles`）。テーマ（ToDo）のテーブルは [ToDoApp.md](../spec/ToDoApp.md) §9.1。
 
 | 01 の名称 | テーブル | 主キー | 実装上の注記 |
 | --- | --- | --- | --- |
-| ユーザー | `t_user` | `id`（UUIDv7） | 一意は `UNIQUE (tenant_id, idp_subject)` と一意インデックス `(tenant_id, lower(email))`。`idp_subject` はテナントレルムの `sub`。`email` は IdP 側で未設定の場合に備えて NULL 可（NULL 同士は一意制約に掛からない）。論理削除せず `is_active` で無効化する。楽観ロックの `version`。`created_by` / `updated_by` はログイン時の自動作成・同期などシステム処理では NULL |
+| ユーザー | `t_user` | `id`（UUIDv7） | 一意は `UNIQUE (tenant_id, idp_subject)` と一意インデックス `(tenant_id, lower(email))`。`idp_subject` はテナントレルムの `sub`。`email` は IdP 側で未設定の場合に備えて NULL 可（NULL 同士は一意制約に掛からない）。論理削除せず `is_active` で無効化する。楽観ロックの `version`。`created_by` / `updated_by` はログイン時の自動作成・同期などシステム処理では NULL。`first_name` / `last_name`（text, NULL 可）と `roles`（`text[]` NOT NULL 既定 `{}`、要素は `tenant_admin` / `member` のみの CHECK `t_user_roles_check`）は **Keycloak が正で、一覧表示用の写し**（ログイン時の同期と管理者の変更時に更新。未同期の行は `roles = {}`・姓名 NULL で、次回ログインの同期で埋まる） |
 | 組織 | `t_organization` | `id`（UUIDv7） | 論理削除。組織名は有効な組織の中でテナント内一意（`(tenant_id, lower(name)) WHERE deleted_at IS NULL` の部分一意インデックス）。楽観ロックの `version` |
 | 組織メンバー | `t_organization_member` | `(tenant_id, organization_id, user_id)` | 行の追加・削除のみ（更新しない）。組織を論理削除しても行は残す。逆引き用に `(tenant_id, user_id)` |
 | AP 監査ログ | `t_ap_audit_log` | `id`（UUIDv7） | 03 の 7 章の列（操作者は `actor_id`、システム処理は NULL）。`app_runtime` から UPDATE / DELETE を REVOKE し追記のみとする（`app_cp_agent` の SELECT / DELETE は既定権限のまま）。`actor_id` / `target_id` に外部キーは張らない。`updated_at` は持たない |
@@ -230,6 +230,8 @@ fastapi_app/
     scheduler/
       schedule.py             # ジョブと周期の定義
       runner.py               # APScheduler の起動・停止とジョブ登録、有効/無効の判定
+    dev_tools/                # 開発専用の補助処理（APP_ENV=development かつ開発用ログインが有効な場合だけ動く）
+      e2e_cleanup.py          # Playwright の E2E が作る使い捨てデータの後片付け
   alembic/
     control_plane/            # CP DB のマイグレーション
     app/                      # AP DB のマイグレーション
@@ -253,23 +255,30 @@ fastapi_app/
 
 | モジュール | 内容 |
 | --- | --- |
-| `main_app/services/user_sync.py` | `sync_user_on_login(session, *, tenant_id, idp_subject, email, display_name) -> UserSyncResult`（01 PF-USR-04 / 05。行の作成・表示名とメールの同期・`last_login_at`、デフォルト組織の作成。コミットする。無効なユーザーは `UserDeactivatedError`）、`require_active_session_user(session, *, idp_subject)`（PF-USR-03。各リクエストで呼ぶ） |
-| `main_app/services/user_service.py` | `UserService(session, kc_admin_factory)`（`list_users` / `get_user` / `get_user_roles` / `create_user` / `update_user`）。作成は Keycloak → AP の順で、AP 側が失敗したら Keycloak のユーザーを削除する。一時パスワードは戻り値で一度だけ返す |
-| `main_app/services/organization_service.py` | `OrganizationService(session)`（`list_organizations` / `get_organization` / `list_member_ids` / `create_organization` / `update_organization` / `delete_organization`（論理削除）/ `set_members`（全置換）） |
+| `main_app/services/user_sync.py` | `sync_user_on_login(session, *, tenant_id, idp_subject, email, display_name, first_name=None, last_name=None, roles=None) -> UserSyncResult`（01 PF-USR-04 / 05。行の作成・表示名とメールと写し（姓・名・ロール）の同期・`last_login_at`、デフォルト組織の作成。コミットする。無効なユーザーは `UserDeactivatedError`。`first_name` / `last_name` / `roles` の `None` は「写しを更新しない」）、`apply_idp_profile`（IdP の値を行に反映する共通処理。ログイン時と詳細の取得時に使う）、`require_active_session_user(session, *, idp_subject)`（PF-USR-03。各リクエストで呼ぶ） |
+| `main_app/services/user_service.py` | `UserService(session, kc_admin_factory)`（`list_users(*, limit, sort, after, is_active, ids)` / `get_user` / `get_user_roles` / `create_user` / `update_user`）。作成は Keycloak → AP の順で、AP 側が失敗したら Keycloak のユーザーを削除する。一時パスワードは戻り値で一度だけ返す。`ids` は ID 指定の絞り込み（重複を除き最大 100 件、超えたら `UserValidationError(field="ids", reason="too_many")`。他テナント・存在しない ID は結果に含まれないだけ）。`get_user` は Keycloak から姓・名・メール・実効ロールを取り直し、写しと違えば更新してコミットする（Keycloak の失敗は `IdentityProviderOperationError`） |
+| `main_app/services/organization_service.py` | `OrganizationService(session)`（`list_organizations` / `get_organization` / `list_member_ids` / `list_user_organizations(user_id)`（ユーザーが所属する有効な組織。組織名順、1 クエリ。`/api/v1/me` 用）/ `create_organization` / `update_organization` / `delete_organization`（論理削除）/ `set_members`（全置換）） |
 | `main_app/services/errors.py` | 例外と Problem Details の `code`・HTTP ステータスの対応（他テナント・存在しないリソースは同じ 404） |
-| `main_app/services/common.py` | `UserView` / `OrganizationView`、PATCH の未指定を表す `UNSET`、監査ログ・操作者の解決 |
+| `main_app/services/common.py` | `UserView`（`first_name` / `last_name` / `roles` の写しを含む）/ `UserNameView`（`id` / `display_name` / `is_active`。ID から表示名を引く用途）/ `OrganizationView`、PATCH の未指定を表す `UNSET`、ロールの正規化 `normalize_tenant_roles`、監査ログ・操作者の解決 |
 | `main_app/repositories/` | `users.py` / `organizations.py`（既定で論理削除済みを除く）/ `audit_log.py` / `keyset.py`（キーセット方式の一覧。カーソル文字列化は API 層） |
 | `modules/keycloak_admin/tenant_users.py` | `tenant-user-admin` の権限で動く Keycloak 操作（作成は冪等にせず 409 を返す、ロールは `role-mappings/realm/available` から付与、無効化・セッション失効）。管理クライアントは `templates.create_tenant_user_admin_client(realm_name)` |
 
   - FastAPI 非依存。テナントコンテキスト下の AP セッション（`AppSessionDep` / `open_app_session()`）を受け取り、コミットはサービスが行う。テナントはコンテキストから得る（`sync_user_on_login` の `tenant_id` はコンテキストとの一致確認のみ）
-  - 楽観ロック: `update_*` / `delete_*` / `set_members` は `expected_version`（`If-Match`）を取り、行ロックの下で確認して `version` を +1 する。変更が無い更新は何もしない（`version` も変えない）。ログイン時の同期は表示名・メールが変わったときだけ +1（`last_login_at` だけなら変えない）
-  - 監査ログ（`t_ap_audit_log`）: `user.create`（`source` が `admin` / `login`）/ `user.sync` / `user.update` / `user.activate` / `user.deactivate` / `organization.create`（`source` が `admin` / `default`）/ `organization.update` / `organization.delete` / `organization.set_members`。操作者は `t_user.id`（セッションの `sub` から解決。ログイン時の同期・デフォルト組織は NULL）。一時パスワードは残さない
-  - ロール: 付与できるのは `tenant_admin` / `member` のみ（`update_user(roles=...)` は直接付与の集合。`member` は既定ロールでも付与される）。ロールは AP の DB に持たず Keycloak が正。自分自身の無効化・`tenant_admin` の解除は 409
+  - 楽観ロック: `update_*` / `delete_*` / `set_members` は `expected_version`（`If-Match`）を取り、行ロックの下で確認して `version` を +1 する。変更が無い更新は何もしない（`version` も変えない）。ログイン時の同期と詳細の取得時の再同期は、表示名・メール・姓・名・ロールが変わったときだけ +1（`last_login_at` だけなら変えない。写しの初回の埋め込み = 姓・名が NULL・ロールが空の行に値を入れるだけなら変えず、監査ログも残さない）
+  - 監査ログ（`t_ap_audit_log`）: `user.create`（`source` が `admin` / `login`）/ `user.sync`（`source` が `login` / `idp`）/ `user.update` / `user.activate` / `user.deactivate` / `organization.create`（`source` が `admin` / `default`）/ `organization.update` / `organization.delete` / `organization.set_members`。操作者は `t_user.id`（セッションの `sub` から解決。ログイン時の同期・デフォルト組織は NULL）。一時パスワードは残さない
+  - ロール: 付与できるのは `tenant_admin` / `member` のみ（`update_user(roles=...)` は直接付与の集合。`member` は既定ロールでも付与される）。ロールは Keycloak が正。自分自身の無効化・`tenant_admin` の解除は 409
+  - **姓・名・ロールの写し**（`t_user.first_name` / `last_name` / `roles`。4.7）: 一覧でユーザーごとに Keycloak へ問い合わせないための写し。ロールは実効ロールのうち `tenant_admin` / `member`（`["tenant_admin", "member"]` の順）。更新のタイミングは、ログイン時の同期（トークンの `given_name` / `family_name` / レルムロール）、`create_user` / `update_user`（Keycloak に設定した値。ロールは直接付与 + 既定ロールで、Keycloak に問い合わせ直さない）、`get_user`（Keycloak から取り直す）。Keycloak の管理画面で直接変えた値は、次のログインか詳細の取得まで一覧に反映されない。`is_active` は AP の DB が正で、写しの同期では変えない
   - 表示名は Keycloak の姓・名から `"{名} {姓}"`（`name` クレームと同じ）で作る。ログイン時の同期で上書きされないよう、変更は Keycloak の姓・名に対して行う（`update_user(first_name=..., last_name=...)`）。ログイン処理は `display_name` に `name` クレーム（無ければ `preferred_username`）を渡す
   - **無効化したユーザーのセッション失効（01 PF-USR-03、05 #32）**: `update_user(is_active=False)` は Keycloak のユーザーを無効化し、Keycloak のセッションを失効させる（`POST /users/{id}/logout`。BFF のトークン更新が失敗し、遅くともアクセストークンの期限でセッションが破棄される）。即時の失効は AP 側で行う: `/api/v1` の各リクエストで `require_active_session_user` を呼び、`UserDeactivatedError` / `UserNotSyncedError` なら Redis のセッションを破棄して 401 を返す（`t_user.is_active` を正とし、キャッシュしない。一意制約 `(tenant_id, idp_subject)` による 1 回の SELECT）。`tenant_admin` を外した場合も Keycloak のセッションを失効させる（BFF のセッションのロールはログイン時の値のため）
   - ログイン処理への組み込み（実装済み。5.2 の「ログイン時のユーザー同期」）: コールバックと開発用ログインの AP の分岐が、セッションを作る前に `main_app/route/auth/login_sync.py` の `sync_app_user_on_login` 経由で `sync_user_on_login` を呼ぶ
   - `/api/v1` への組み込み（実装済み。5.6）: ルーター全体に依存関数 `require_active_app_user`（`require_active_session_user` を呼び、失効時は Redis のセッションを削除して 401）、`/api/v1/users`・`/api/v1/organizations`・`/api/v1/todos` が各サービスを呼ぶ（`main_app/route/v1/`）
 - 例外: AP のテナントレジストリ参照は `modules/tenancy/registry.py` の読み取り専用インターフェース経由
+- 開発専用の補助処理（`dev_tools/`）: CP と AP をまたいで後片付けするため、`control_plane_app` と `main_app` の両方を import してよい（逆に、両プレーンから `dev_tools` を import しない。呼び出しは開発専用の API とテストのティアダウンから）
+
+| モジュール | 内容 |
+| --- | --- |
+| `dev_tools/e2e_cleanup.py` | `cleanup_e2e_data(*, dry_run=False) -> E2ECleanupResult`（件数の内訳と失敗）。CLI は `python -m dev_tools.e2e_cleanup [--dry-run]`。`APP_ENV=development` かつ `AUTH_DEV_LOGIN_ENABLED`（dev-login と同じ条件）でなければ `E2ECleanupNotAllowedError` で何もしない。対象は E2E の命名（テナント `e2e-<8桁>`、ユーザー `e2e-<8桁>@example.com`、ToDo `E2E ToDo <8桁>`、組織 `E2E Org <8桁>`）でモジュールの定数に固定し、シードのテナント・ユーザー（`DEV_TENANTS` / `DEV_USERS`）とデフォルト組織は明示的に除外する。CP は対象テナントを削除要求 → 猶予 0 で `deprovision`（`PROVISIONING` は 10 分経過したものだけ）、AP は `ACTIVE` なテナントで対象の行を `app_cp_agent` で物理削除し、ユーザーは Keycloak（`tenant-user-admin`）からも削除する。AP 監査ログは対象（target）が削除した行のものだけ消し、操作者（actor）では消さない。冪等 |
+
 - 各層の担当エージェント: ルーター・スキーマ → `fastapi-api-schema`、サービス・共通部品 → `fastapi-domain`、モデル・マイグレーション → `postgres-schema`、テスト → `fastapi-pytest`、認証 → `auth-keycloak`
 
 ### 5.2 認証（BFF）
@@ -363,6 +372,7 @@ fastapi_app/
 | プレフィックス | タグ | 実装 | ルーター全体に適用するもの |
 | --- | --- | --- | --- |
 | `/api/auth` | `auth` | `main_app/route/auth/` | なし（BFF のフロー）。status / logout は OpenAPI に載せる。login / callback / dev-login はブラウザを遷移させるリダイレクトのため載せない（`include_in_schema=False`） |
+| `/api/dev` | なし | `main_app/route/dev/` | **開発専用。** dev-login と同じ条件（`APP_ENV=development` かつ `AUTH_DEV_LOGIN_ENABLED=true`）のときだけ、`/api/auth` の dev-login と同じ場所で登録する（無効なら 404）。OpenAPI には載せない。`require_cp_roles("saas_admin")` → `require_csrf_protection` |
 | `/api/v1/cp` | `cp` | `control_plane_app/apiapp.py` | `require_cp_roles("saas_admin", "saas_viewer")` → `require_csrf_protection`。変更系のエンドポイントはさらに `require_cp_roles("saas_admin")` |
 | `/api/v1/public` | `public` | `main_app/route/public/apiapp.py` | なし |
 | `/api/v1` | `app` | `main_app/route/v1/apiapp.py` | `get_app_tenant_context` → `require_csrf_protection` → `require_active_app_user`（セッションのユーザーが AP で有効か。下記）。各エンドポイントのロール確認はこの後 |
@@ -374,11 +384,11 @@ fastapi_app/
 | GET | `/api/auth/app/status` | AP セッション | `AppAuthStatus`: `{authenticated, plane: "app", tenant_code, user: {sub, preferred_username, email, roles}}`。未認証・CP のセッションのみは 401。レルム名・クライアント ID・`tenant_id` は返さない |
 | GET | `/api/auth/cp/status` | CP セッション | `CpAuthStatus`: `{authenticated, plane: "cp", user}`。未認証・AP のセッションのみは 401 |
 | POST | `/api/auth/app/logout` / `cp/logout` | なし（CSRF 対策のみ） | `LogoutResult`: `{logout_url}`（Keycloak のログアウト URL。完了後は 5.2 の遷移先へ）。プレーンの Cookie を削除する。セッションが無くても 200。CSRF の不足は 403 |
-| GET | `/api/v1/me` | AP セッション | テナント（`id`, `tenant_code`）とユーザー（`id`, `username`, `email`, `roles`）。`user.id` は **AP のユーザー ID（`t_user.id`）**で、IdP の `sub` ではない（`users` の `id`・組織のメンバー ID と同じ値） |
-| GET | `/api/v1/users` | `tenant_admin` / `member` | 一覧。カーソル方式（`limit` / `cursor`）、`sort`（`display_name` 既定 / `created_at`、先頭 `-` で降順）、`is_active`。無効化されたユーザーも含む。ロールは含まない。`include_total` は無い（`total` は常に `null`） |
+| GET | `/api/v1/me` | AP セッション | テナント（`id`, `tenant_code`）、ユーザー（`id`, `username`, `email`, `roles`）、所属組織 `organizations`（`[{id, name}]`。有効な組織のみ・組織名順・所属が無ければ空）。`user.id` は **AP のユーザー ID（`t_user.id`）**で、IdP の `sub` ではない（`users` の `id`・組織のメンバー ID と同じ値） |
+| GET | `/api/v1/users` | `tenant_admin` / `member` | 一覧。カーソル方式（`limit` / `cursor`）、`sort`（`display_name` 既定 / `created_at`、先頭 `-` で降順）、`is_active`。無効化されたユーザーも含む。各要素に `first_name` / `last_name` / `roles`（AP の DB の写し＝最後に同期した時点の値。未同期は `null` / 空配列）を含む。`ids`（カンマ区切りの UUID。重複を除き最大 100、UUID でない値・超過は 422 `invalid_user_input`。存在しない ID・他テナントの ID は含まれず、空文字は 0 件）で絞り込める。`include_total` は無い（`total` は常に `null`） |
 | POST | `/api/v1/users` | `tenant_admin` | 201、`Location` と `ETag`、`Cache-Control: no-store`。`{user, credentials: {username, temporary_password}}`。一時パスワードは一度だけ返す（保存しない・ログに出さない）。メール・ユーザー名の重複は 409、Keycloak の失敗は 502（AP にはユーザーを作らない） |
-| GET | `/api/v1/users/{id}` | `tenant_admin` / `member` | ロール付きの詳細（Keycloak に問い合わせる。失敗は 502）。`ETag`。他テナント・存在しないユーザーは同じ 404 |
-| PATCH | `/api/v1/users/{id}` | `tenant_admin` | `first_name` + `last_name`（両方）/ `roles` / `is_active`（送った項目だけ。`null` は 422）。`If-Match` 必須（428 / 412）。200 とユーザー（ロールは含まない）、新しい `ETag`。自分自身の無効化・`tenant_admin` の解除は 409。無効化時の動きは 5.1 |
+| GET | `/api/v1/users/{id}` | `tenant_admin` / `member` | 詳細（姓・名・メール・ロールを Keycloak から取り直し、写しも更新する。失敗は 502）。一覧と同じ項目。`ETag`（取り直しで `version` が上がることがある）。他テナント・存在しないユーザーは同じ 404 |
+| PATCH | `/api/v1/users/{id}` | `tenant_admin` | `first_name` + `last_name`（両方）/ `roles` / `is_active`（送った項目だけ。`null` は 422）。`If-Match` 必須（428 / 412）。200 とユーザー（一覧と同じ項目。姓・名・ロールは写しで、変更した項目は更新後の値）、新しい `ETag`。自分自身の無効化・`tenant_admin` の解除は 409。無効化時の動きは 5.1 |
 | GET | `/api/v1/organizations` | `tenant_admin` / `member` | 一覧（論理削除を除く）。カーソル方式、`sort`（`name` 既定 / `created_at`）。メンバーは含まない |
 | POST | `/api/v1/organizations` | `tenant_admin` | 201、`Location` と `ETag`。組織名の重複（大文字小文字を区別しない）は 409 |
 | GET | `/api/v1/organizations/{id}` | `tenant_admin` / `member` | 詳細。`member_ids`（ユーザー ID）を含む。`ETag`。他テナント・存在しない・論理削除済みは同じ 404 |
@@ -391,7 +401,7 @@ fastapi_app/
 | PATCH | `/api/v1/todos/{id}` | `tenant_admin` / `member` | 送った項目だけ（閲覧範囲・公開先組織を含む）。`If-Match` 必須。200 と ToDo、新しい `ETag`。権限は実際に値が変わる項目で判定（担当者はステータスのみ可。無ければ 403 `todo_operation_forbidden`） |
 | DELETE | `/api/v1/todos/{id}` | `tenant_admin` / `member` | 論理削除（作成者・`tenant_admin`）。`If-Match` 必須。204 |
 | PUT | `/api/v1/todos/{id}/assignees` | `tenant_admin` / `member` | `{user_ids}` の全置換。`If-Match` 必須。200 と ToDo、新しい `ETag`。存在しない・無効化されたユーザーの新規割り当ては 422（`invalid_todo_assignees`、拡張メンバー `user_ids`） |
-| GET | `/api/v1/todos/{id}/activities` | `tenant_admin` / `member` | アクティビティ（新しい順。カーソル方式）。閲覧できない ToDo は 404 |
+| GET | `/api/v1/todos/{id}/activities` | `tenant_admin` / `member` | アクティビティ（新しい順。カーソル方式）。`users`（`{<user_id>: {display_name, is_active}}`）に、操作者と `payload` が参照するユーザーの表示名を返す。閲覧できない ToDo は 404 |
 | GET | `/api/v1/cp/tenants` | CP 参照 | 一覧。カーソル方式（`limit` / `cursor` / `include_total`）、`sort`（`created_at` 既定 `-created_at` / `tenant_code` / `name`）、`status`（カンマ区切り）。直近の日次メトリクスのユーザー数と、テーマ固有の主要指標（`primary_metrics`: `{metric_key, value, date}` の配列。`modules.tenant_metrics.registry.theme_primary_metric_keys()` の順。ToDo は `todo_count`。集計前は `value` / `date` が `null`）を含む |
 | POST | `/api/v1/cp/tenants` | `saas_admin` | 同期払い出し。201、`Location` と `ETag`。一時パスワードを本文で一度だけ返し、`Cache-Control: no-store` |
 | GET | `/api/v1/cp/tenants/{id}` | CP 参照 | 詳細と払い出し履歴。`ETag` |
@@ -400,6 +410,7 @@ fastapi_app/
 | POST | `/api/v1/cp/tenants/{id}/provisioning/retry` | `saas_admin` | 再実行。初期管理者を本文で受け取る（台帳に保存していないため）。`If-Match` は任意。一時パスワードは新しい値を一度だけ返す |
 | GET | `/api/v1/cp/tenants/{id}/metrics?from=&to=` | CP 参照 | `t_tenant_daily_metric` の推移（既定は直近 30 日、最大 366 日）。データが無ければ `items` は空。値は 10 進数の文字列 |
 | GET | `/api/v1/cp/metrics/summary` | CP 参照 | 状態ごとのテナント数と、指標ごとの最新値の合計（削除済みを除く） |
+| POST | `/api/dev/e2e-cleanup?dry_run=` | CP の `saas_admin`（開発専用） | Playwright の E2E が作る使い捨てデータの後片付け（`dev_tools.e2e_cleanup.cleanup_e2e_data`。対象は E2E の命名に固定）。200 で `{dry_run, tenants, app_tenants, failures, ok}`（失敗があっても 200 で `ok=false`）。実行中は 409（`e2e_cleanup_in_progress`）。同期処理でテナントごとに Keycloak を呼ぶため、呼び出し側は 5 分以上のタイムアウトを指定する（切断してもサーバー側は続き、冪等なので再実行で収束する）。OpenAPI に載せない |
 | GET | `/api/v1/public/health/live` | なし | プロセスの生存のみ |
 | GET | `/api/v1/public/health/ready` | なし | CP DB・AP DB・Redis に接続できるか。失敗は 503 |
 | GET | `/api/v1/public/tenants/{tenant_code}` | なし | `{tenant_code, status}` のみ。存在しない・削除済み・形式不正・予約語は区別せず 404 |
@@ -466,6 +477,7 @@ react_app/src/
 
 - バックエンドと同じ `main_app` / `control_plane_app` の名前を使う
 - 現在の `pages/authentication`、`store/AuthNZ`、`utils/libs` は、それぞれ各プレーンの `auth/` と `shared/` に移行する。`sample/` は基盤の実装が進んだ段階で削除する
+- `sample/` はルーティングに登録しない参考用のコード（どこからも読み込まず、バンドルに含まれない。呼び出し先の FastAPI のサンプル API も登録していない）。lint・型チェック・vitest の対象には残す
 - 各プレーンの `routes.tsx` は `React.lazy` で遅延読み込みする
 
 ### 6.2 API 呼び出し
@@ -475,10 +487,13 @@ react_app/src/
 - 401 を受けたら各プレーンのログイン画面へ、403 はエラー画面へ遷移する
 - API の型は現状は手書き（`main_app/api/contract.ts`・`todo_contract.ts`、`control_plane_app/api/contract.ts`）で、`api-contract-sync` が OpenAPI との整合を確認する。OpenAPI からの生成（openapi-typescript 等。生成物をコミットし CI で差分を検出）への移行は今後の判断事項とする。生成してもヘッダー・`errors[].code`・Problem Details の拡張メンバーは表現されないため、契約テスト（`test/api/test_70_problem_details.py`）は残す
 - CP のデータ取得は、エンドポイント関数・エラー分類を `control_plane_app/api/`（`tenants.ts` / `metrics.ts` / `errors.ts`）に、画面が使うフックを `control_plane_app/tenants/`・`control_plane_app/metrics/` に置き、`pages/` からは fetch を直接呼ばない
-- AP のデータ取得も同じ形にする。エンドポイント関数・エラー分類を `main_app/api/`（`me.ts` / `users.ts` / `organizations.ts` / `errors.ts`。型は `contract.ts`）に、画面が使うフックを `main_app/me/`（`useMe`）・`main_app/users/`（`useUserList` / `useUser` / `useUserActions`）・`main_app/organizations/`（`useOrganizationList` / `useOrganization` / `useOrganizationActions`）に置く。権限（`tenant_admin` か）は `main_app/auth/` の `useAppPermissions`
+- AP のデータ取得も同じ形にする。エンドポイント関数・エラー分類を `main_app/api/`（`me.ts` / `users.ts` / `organizations.ts` / `errors.ts`。型は `contract.ts`）に、画面が使うフックを `main_app/me/`（`useMe`）・`main_app/users/`（`useUserList` / `useUsersByIds` / `useUser` / `useUserActions`）・`main_app/organizations/`（`useOrganizationList` / `useOrganization` / `useOrganizationActions`）に置く。権限（`tenant_admin` か）は `main_app/auth/` の `useAppPermissions`
+  + ID から名前を引くために一覧の全ページを取得しない。ユーザーは `useUsersByIds`（`GET /api/v1/users?ids=`。1 回 100 件までのため 100 件ずつに分けて取得し、`limit` を超えた分は `next_cursor` で続きを取得する。UUID でない ID は送らない（含むと全体が 422）。見つからない ID は `missing_ids`）、自分の所属組織は `useMe` の `organizations`（`/api/v1/me` に含まれる。`myOrganizationsOf` で取得状態の形にする）、ToDo のアクティビティが参照するユーザーは応答の `users`（`useTodoActivities` の `users` / `userName`）を使う。選択肢（候補）は検索 API が無いため一覧の全ページを使う
+  + ユーザーの姓・名・ロールは、一覧（`UserRead`）では AP の DB の写し（最後に同期した時点の値）、詳細（`useUser`）では IdP から取り直した値。詳細の GET は写しを更新して `version` を上げることがあるため、`If-Match` には常に詳細（または更新の応答）の ETag を使う
+  + 更新（PATCH）の応答は `UserDetail`（ロールを含む）のため、`useUserActions` の `update` 後は応答をそのまま詳細に重ね、取り直さない。応答のロールは、送ったロールが IdP 上で変化した場合は「直接付与 + 既定ロール」、変化しなかった・送らなかった場合は写しの値。送ったロールと応答のロールが食い違う（写しが IdP と食い違っていた）場合だけ `roles_stale: true` で通知し、`useUser` が詳細を取り直す。ロールを送らない更新の応答のロールは、詳細の GET の後に IdP 側で直接変更された場合は古いことがある（詳細の GET 時点の値と同じ古さで、表示が後退することはない）
 - ToDo（テーマ固有。ToDoApp.md §9.5）も同じ形にする。エンドポイント関数は `main_app/api/todos.ts`、型は `main_app/api/todo_contract.ts`（`contract.ts` から再公開。パス・エラーコードは `contract.ts`）。画面が使うものは `main_app/todos/` に置く
-  + フック: `useTodoList`（表示範囲・絞り込み・並び替え・カーソル）/ `useTodo`（詳細・ETag・`permissions`・操作の対象 `target`）/ `useTodoActions`（`create` / `update` / `changeStatus` / `setAssignees` / `remove`）/ `useTodoActivities`（カーソル）/ `useTodoAssigneeChoices`・`useTodoOrganizationChoices`（ユーザー一覧・組織一覧の全ページから選択肢を作る。無効なユーザーは割り当て済みのものだけ残す）
-  + 純粋関数: `list_search.ts`（一覧の絞り込みと画面の URL クエリの相互変換。クエリ名は API と同じ）、`todo_changes.ts`（実際に変わる項目の差分・`permissions` による事前の確認）、`activity_payload.ts`（アクティビティの `payload` の読み取り）
+  + フック: `useTodoList`（表示範囲・絞り込み・並び替え・カーソル）/ `useTodo`（詳細・ETag・`permissions`・操作の対象 `target`）/ `useTodoActions`（`create` / `update` / `changeStatus` / `setAssignees` / `remove`）/ `useTodoActivities`（カーソル。応答のページごとの `users` を読み込み済みの全ページ分まとめた `users` と、名前を引く `userName` を返す。要素は `page_users` 付き）/ `useTodoAssigneeChoices`・`useTodoOrganizationChoices`（ユーザー一覧・組織一覧の全ページから選択肢を作る。無効なユーザーは割り当て済みのものだけ残す。割り当て済みの表示は ToDo の `assignees` / `organizations` の名前で補うため、ID 指定の取得は使わない）
+  + 純粋関数: `list_search.ts`（一覧の絞り込みと画面の URL クエリの相互変換。クエリ名は API と同じ）、`todo_changes.ts`（実際に変わる項目の差分・`permissions` による事前の確認）、`activity_payload.ts`（アクティビティの `payload` の読み取り）、`activity_users.ts`（応答の `users` による操作者・担当者の名前の解決。キーが無い ID は「不明なユーザー」）
   + 変更操作は、AP のロール（`can_write`）ではなく ToDo ごとの `permissions` で事前に弾く（`tenant_admin` / `member` のどちらも使える）。更新は実際に値が変わる項目だけを送り、その項目で確かめる（ToDoApp.md §10 #7）。`permissions` を持たない一覧の要素からの操作は API に任せる。API の 403 `todo_operation_forbidden` は `permissions` が古いため `requires_reload` にする
 - プレーン共通の部品は `shared/` に置き、プレーン固有の値（エンドポイント・エラーコード・ロール）は引数で渡す: ETag / If-Match（`shared/api/etag.ts`）、エラーの分類（`shared/api/errors.ts`。`kind` / `code` / `requires_reload`。各プレーンの `classifyCpError` / `classifyAppError` が固有の code を足す）、カーソル一覧（`shared/hooks/useCursorList.ts`）、ETag 付きの詳細（`shared/hooks/useVersionedResource.ts`）、変更操作の実行状態（`shared/hooks/useActionRunner.ts`）、一時パスワードの保持（`shared/hooks/useEphemeralValue.ts`）
 - 変更操作のフックの共通方針: 変更権限の無いロール（CP の `saas_viewer`、AP の `member`）・ETag 未取得・二重実行・業務上の禁止操作（AP の自分自身の無効化と `tenant_admin` の解除）は API を呼ばずに失敗にする。412 / 428 は `requires_reload` の失敗にし、画面は詳細を取り直してからやり直させる。操作は reject せず結果（`ok` / `failure`）を返す。一時パスワードはフックの状態にだけ保持し、閉じる・次の操作の開始・一定時間（既定 10 分）・アンマウントで消す（戻り値・通知・ログには含めない）
@@ -531,6 +546,7 @@ GET /api/auth/dev-login?as=<profile>&next=<path>
 - `APP_ENV=development` かつ `AUTH_DEV_LOGIN_ENABLED=true` のときのみルートを登録する（現行どおり）
 - Direct Access Grant で本物のトークンを取得し、通常のコールバックと同じ内容のセッションを作る（現行どおり）
 - AP のプロファイルは、通常のコールバックと同じくレルムをレジストリで ACTIVE なテナントに解決して `tenant_id` クレームとの一致を確認し（未登録・非 ACTIVE・テナントコードの食い違いは 403）、セッションを作る前にユーザー同期を行う（5.2）。シードユーザーの AP のユーザー行は、各ユーザーの最初のログインで作られる
+- 同じ条件で、E2E の後片付け API `POST /api/dev/e2e-cleanup?dry_run=`（5.6）も登録する。Playwright のティアダウンが `cp-admin` の Cookie と `X-Requested-With: rf-stack` / `Origin` を付けて呼ぶ。CLI は `uv run python -m dev_tools.e2e_cleanup [--dry-run]`（同じ処理。同時実行は排他ロックで拒否される）。`cp-viewer` は 403、AP の Cookie は 401、必須ヘッダーが無ければ 403
 - プロファイルと開発用の認証情報は `fastapi_app/src/modules/auth/dev_profiles.py` に定義する（`as` 省略時は `alpha-admin`）。旧プロファイル `default`（`tenant-a` / `user001`）は、テナントコード `a` が 01 の形式に合わないため削除した
 
 ---
@@ -548,10 +564,10 @@ GET /api/auth/dev-login?as=<profile>&next=<path>
 | 公開 API | （済）`/api/v1/public/*`（ヘルスチェック、テナント存在確認） | — |
 | AP の API | （済）`/api/v1/me`、`/api/v1/users`、`/api/v1/organizations`、`/api/v1/todos`（01 §10.2。`user.id` は `t_user.id`） | — |
 | AP のユーザー同期・組織管理 | （済）サービス層（5.1 の `main_app/services/`）、ログイン処理への `sync_user_on_login`（5.2）、`/api/v1` への有効確認 `require_active_app_user`（PF-USR-03。5.6）。払い出し時の AP の初期データはログイン完了時に AP が作る（05 #31） | — |
-| エラー形式 | （済）RFC 9457 Problem Details（`modules/errors`）。`/api/auth/*` と旧サンプルも同じハンドラで変換される | — |
+| エラー形式 | （済）RFC 9457 Problem Details（`modules/errors`）。`/api/auth/*` も同じハンドラで変換される | — |
 | CSRF 対策 | （済）依存関数 `require_csrf_protection`（`/api/v1`、`/api/v1/cp`、ログアウトに適用） | — |
 | テナント台帳 | （済）01 の 9.5 に沿って改訂（4.6） | （済）CP API（`/api/v1/cp/*`）から利用 |
 | DB ロール | （済）プレーン・用途毎に分離 | 既存の開発環境は `make d-reset-db` で作り直す |
 | Alembic | （済）プレーン毎の 2 環境、`create_all()` を廃止 | — |
 | Keycloak セットアップ | （済）Python の `modules/keycloak_admin` | （済）払い出しサービスから利用 |
-| デモ用 API | `/api/demo/login`、`rest_sample`、`sample` | 基盤の実装が進んだ段階で削除 |
+| デモ用 API | （済）`app.py` から登録を外した。コードは参考用に残す（`rest_sample/`、`main_app/route/sample/`〔`/api/demo/login` を含む〕、`proxy/`。いずれも import されず、OpenAPI にも載らない） | 参考用のコードは基盤の実装が進んだ段階で削除 |

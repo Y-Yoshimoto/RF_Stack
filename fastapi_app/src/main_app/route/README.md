@@ -15,6 +15,8 @@ route/
 │   ├── apiapp.py           # OIDC 認証エンドポイントの実装 (AP / CP)
 │   ├── dev_login.py        # 開発用ログインバイパス
 │   └── login_sync.py       # AP のログイン完了時のユーザー同期の呼び出し (コールバック・開発用ログインが共有)
+├── dev/                    # /api/dev (開発専用。dev-login と同じ条件でのみ登録)
+│   └── e2e_cleanup.py      # POST /api/dev/e2e-cleanup (E2E データの後片付け。CP の saas_admin + CSRF。OpenAPI に載せない)
 ├── public/                 # /api/v1/public (認証なし)
 │   ├── apiapp.py           # api_health / api_tenant_lookup を束ねる
 │   ├── api_health/         # health/live, health/ready
@@ -30,8 +32,11 @@ route/
 │   ├── api_users/          # /api/v1/users
 │   ├── api_organizations/  # /api/v1/organizations (members 含む)
 │   └── api_todos/          # /api/v1/todos (ToDo アプリ。assignees・activities 含む。docs/spec/ToDoApp.md §9.5)
-└── sample/                 # サンプル (基盤の実装が進んだ段階で削除)
+└── sample/                 # 参考用のコード (app.py に登録していない。下記)
 ```
+
+`sample/` は `app.py` に登録していない参考用のコード (認証で保護した TODO API の例 `apiapp.py`、簡易デモ用の `/api/demo/login` の `demo_login.py`)。
+同様に `rest_sample/` と `proxy/` も登録していない。コードは残してあり、ruff・ユニットテストの対象のまま。基盤の実装が進んだ段階で削除する。
 
 `/api/v1/cp` (CP) は `control_plane_app/apiapp.py`。`app.py` では `cp` / `public` を AP (`v1`) より先に登録する
 (`/api/v1/cp`・`/api/v1/public` は予約パス。01 §10.1)。各エンドポイントの一覧とエラー形式は

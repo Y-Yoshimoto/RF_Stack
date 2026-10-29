@@ -478,6 +478,9 @@ class TestActivities:
         first = body["items"][0]
         check.equal((first["actor_id"], first["actor_display_name"], first["todo_id"]), (str(world.creator.user_id), "Creator Actor", todo_id))
         check.is_none(body["next_cursor"])
+        # users: 操作者と payload が参照するユーザー(ID をキーに display_name / is_active)
+        check.is_in(str(world.creator.user_id), body["users"])
+        check.equal(set(body["users"][str(world.assignee.user_id)]), {"display_name", "is_active"})
         stamps = [a["created_at"] for a in body["items"]]
         check.equal(stamps, sorted(stamps, reverse=True))
 

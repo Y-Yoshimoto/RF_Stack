@@ -9,6 +9,7 @@ FastAPI は ``responses={404: {"model": ProblemDetails}}`` を ``application/jso
 - ``ProblemDetails`` を参照するレスポンスの媒体種別を ``application/problem+json`` にする。
 - 422 のレスポンスを ``ProblemDetails`` にし、未使用になった ``HTTPValidationError`` / ``ValidationError`` を取り除く。
 - ``If-Match`` ヘッダーのパラメータを整える（名前を ``If-Match`` にし、``modules.api_common.etag.require_if_match`` のものは必須にする）。
+- ``If-Match`` を受け取る操作に、形式不正の 400（``invalid_if_match``）を Problem Details で加える。
 """
 from typing import Any
 
@@ -20,6 +21,7 @@ _PROBLEM_REF = "#/components/schemas/ProblemDetails"
 _JSON_MEDIA_TYPE = "application/json"
 # ``modules.api_common.etag.OPENAPI_REQUIRED_MARKER`` と同じ値（api_common が本モジュールに依存するため、循環を避けて値を重複させる）
 _REQUIRED_MARKER = "x-required"
+_IF_MATCH_400_DESCRIPTION = "If-Match ヘッダーの形式が不正（`invalid_if_match`）"
 _HTTP_METHODS = frozenset({"get", "put", "post", "delete", "options", "head", "patch", "trace"})
 
 
@@ -60,7 +62,11 @@ def _ensure_problem_schemas(schema: dict[str, Any]) -> None:
 
 
 def _fix_if_match_parameters(operation: dict[str, Any]) -> None:
-    """``If-Match`` ヘッダーのパラメータを直す（必須の目印があれば必須にし、``null`` を許す型にしない）。"""
+    """``If-Match`` ヘッダーのパラメータを直す（必須の目印があれば必須にし、``null`` を許す型にしない）。
+
+    ``If-Match`` を受け取る操作には、形式不正の 400（``invalid_if_match``）が無ければ Problem Details で加える。
+    """
+    has_if_match = False
     for parameter in operation.get("parameters", []):
         if parameter.get("in") != "header" or str(parameter.get("name", "")).lower() != "if-match":
             continue
@@ -69,6 +75,9 @@ def _fix_if_match_parameters(operation: dict[str, Any]) -> None:
         parameter["name"] = "If-Match"
         parameter["required"] = required
         parameter["schema"] = {"type": "string", "title": "If-Match"}
+        has_if_match = True
+    if has_if_match:
+        operation.setdefault("responses", {}).setdefault("400", {"description": _IF_MATCH_400_DESCRIPTION, "content": {PROBLEM_MEDIA_TYPE: {"schema": {"$ref": _PROBLEM_REF}}}})
 
 
 def _rewrite(schema: dict[str, Any]) -> None:

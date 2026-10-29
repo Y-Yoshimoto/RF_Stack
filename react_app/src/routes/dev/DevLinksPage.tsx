@@ -4,8 +4,7 @@
  */
 import { Link } from 'react-router-dom';
 import { CP_HOME_PATH, CP_LOGIN_PATH } from '@/control_plane_app/paths';
-import { appHomePath, appLoginPath, appSamplePath, LANDING_PATH } from '@/main_app/paths';
-import { SAMPLE_NAMES } from '@/sample/sample_names';
+import { appHomePath, appLoginPath, LANDING_PATH } from '@/main_app/paths';
 import { DEV_LOGIN_PATH } from './DevLoginPage';
 
 /** 開発用のテナント (シード。02 §7.1) */
@@ -19,7 +18,6 @@ export const DEV_LINKS: ReadonlyArray<{ label: string; path: string }> = [
     ...DEV_PROFILES.map((profile) => ({ label: `dev-login as ${profile}`, path: `${DEV_LOGIN_PATH}?${new URLSearchParams({ as: profile }).toString()}` })),
     { label: `AP login (${DEV_TENANT_CODE})`, path: appLoginPath(DEV_TENANT_CODE) },
     { label: `AP home (${DEV_TENANT_CODE})`, path: appHomePath(DEV_TENANT_CODE) },
-    ...SAMPLE_NAMES.map((name) => ({ label: `sample: ${name}`, path: appSamplePath(DEV_TENANT_CODE, name) })),
     { label: 'CP login', path: CP_LOGIN_PATH },
     { label: 'CP home', path: CP_HOME_PATH },
 ];

@@ -40,6 +40,9 @@ export const userOf = (overrides: Partial<UserRead> = {}): UserRead => ({
     id: OTHER_USER_ID,
     email: 'taro@alpha.example',
     display_name: 'Taro Yamada',
+    first_name: 'Taro',
+    last_name: 'Yamada',
+    roles: ['member'],
     is_active: true,
     last_login_at: null,
     version: 3,
@@ -49,11 +52,11 @@ export const userOf = (overrides: Partial<UserRead> = {}): UserRead => ({
 });
 
 /**
- * ユーザー詳細のテストデータを作る関数
+ * ユーザー詳細のテストデータを作る関数 (UserDetail は UserRead と同じ項目)
  * @param {Partial<UserDetail>} overrides 上書きする項目
  * @returns {UserDetail} 詳細
 */
-export const userDetailOf = (overrides: Partial<UserDetail> = {}): UserDetail => ({ ...userOf(), roles: ['member'], ...overrides });
+export const userDetailOf = (overrides: Partial<UserDetail> = {}): UserDetail => userOf(overrides);
 
 /**
  * 組織のテストデータを作る関数

@@ -7,7 +7,8 @@
 // | visibility_changed | {changes?: {visibility: {before, after}}, organization_ids?: {added, removed}} (変わった方だけ) |
 // | assignees_changed | {added: [...], removed: [...]} |
 // | deleted | {title} |
-// ID はユーザー・組織の ID (名前は useTodoAssigneeChoices / useTodoOrganizationChoices の選択肢などで引く)。
+// ID はユーザー・組織の ID。ユーザーの名前は応答の users で引く (activity_users.ts。useTodoActivities の users / userName)。
+// 組織の名前は応答に含まれないため、useTodoOrganizationChoices の選択肢などで引く。
 import type { TodoActivityRead } from '@/main_app/api/contract';
 
 /**

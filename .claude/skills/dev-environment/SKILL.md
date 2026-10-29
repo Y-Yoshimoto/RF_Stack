@@ -162,7 +162,7 @@ make d-reset-db   # ★★ 全データが失われる。必ず確認を取る
 | FastAPI で `ModuleNotFoundError` | `PYTHONPATH=/work/fastapi_app/src/` に依存している。compose の environment を確認する |
 | DB に接続できない | `postgres_c` の起動と、`DB_HOST=postgres_c` / `DB_PORT=5432` および `CP_DB_*` / `APP_DB_*` 環境変数を確認。`role ... does not exist` なら旧構成の initdb のままなので `make d-reset-db`（要確認） |
 | ポートが衝突する | 4173 / 5173 / 6006 / 8000 / 8080 / 8443 / 9000 / 9323 / 5432 のいずれかをホスト側で他プロセスが使用している |
-| react_app コンテナ内で `localhost:8080`(Keycloak)に接続できない | `keycloak_forward` が動いているか `make d-ps` で確認する。`react_app` だけを `docker restart` / 再作成した場合は `docker compose restart keycloak_forward`（`docker compose up -d` なら自動で作り直される。`react_app` のネットワーク名前空間が変わると中継が効かなくなるため） |
+| react_app コンテナ内で `localhost:8080`(Keycloak)に接続できない | `keycloak_forward` が動いているか `make d-ps` で確認する。`react_app` だけを `docker restart` / 再作成した場合（`docker compose up -d --build react_app` を含む）は `docker compose up -d --force-recreate keycloak_forward`（引数なしの `docker compose up -d` なら自動で作り直される。`react_app` のネットワーク名前空間が変わると中継が効かなくなるため） |
 | アクセスログに `?code=...` が出る | `fastapi_app` が `--log-config`(`fastapi_app/src/uvicorn_log_config.json`)付きで起動していない。compose の `command` を確認し、`docker compose up -d fastapi_app` で作り直す |
 | Dev Container の設定変更が反映されない | VS Code の再ビルド（Rebuild Container）が必要 |
 

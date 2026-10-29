@@ -5,17 +5,16 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 import uvicorn
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-# from proxy.apiapp import router as proxy
 from control_plane_app.apiapp import router as router_control_plane
 from control_plane_app.problems import register_cp_exception_handlers
 from main_app.problems import register_ap_exception_handlers
 from main_app.route.auth.apiapp import router as router_auth
 from main_app.route.auth.dev_login import router as router_dev_login
+from main_app.route.dev.e2e_cleanup import router as router_dev_e2e_cleanup
 from main_app.route.public.apiapp import router as router_public
-from main_app.route.sample.apiapp import router as router_sample
 from main_app.route.v1.apiapp import router as router_app
 from modules.auth.csrf import install_csrf_openapi
 from modules.auth.environment import KeyCloakEnvironmentVariables
@@ -23,9 +22,6 @@ from modules.errors.handlers import register_exception_handlers
 from modules.errors.openapi import install_problem_openapi
 from modules.errors.request_id import RequestIdMiddleware
 from modules.tenancy.providers import dispose_providers
-
-# サブモジュール読み込み
-from rest_sample.apiapp import router as rest_sample_router
 from scheduler.runner import scheduler_lifespan
 
 
@@ -88,13 +84,14 @@ if cors_allow_origins:
 # リクエスト ID(X-Request-ID)の受け取り・生成。最後に追加したものが最も外側になる
 app.add_middleware(RequestIdMiddleware)
 # サブモジュール読み込み
+# 参考実装(rest_sample / main_app/route/sample / proxy)はアプリに登録しない
 # 参考: https://fastapi.tiangolo.com/tutorial/bigger-applications/#import-fastapi
-app.include_router(rest_sample_router)
 app.include_router(router_auth, prefix="/api/auth", tags=["auth"])
-# 開発用ログインバイパス。有効時のみ登録し、無効時はルート自体が存在しない(404)。
+# 開発用ログインバイパスと後片付け API。有効時のみ登録し、無効時はルート自体が存在しない(404)。
 if _auth_config.is_dev_login_enabled():
     app.include_router(router_dev_login, prefix="/api/auth", tags=["auth"])
-app.include_router(router_sample, tags=["sample"])
+    # 開発専用の後片付け API(Playwright のティアダウン用。CP の saas_admin + CSRF)。dev-login と同じ条件で登録する
+    app.include_router(router_dev_e2e_cleanup, prefix="/api/dev")
 # /api/v1 配下。cp / public は予約パスであり、AP のルーターより先に登録する(01 §10.1)
 app.include_router(router_control_plane, prefix="/api/v1/cp", tags=["cp"])
 app.include_router(router_public, prefix="/api/v1/public", tags=["public"])
@@ -104,15 +101,6 @@ app.include_router(router_app, prefix="/api/v1", tags=["app"])
 @app.get("/", include_in_schema=False)
 def read_root():
     return {"Path": "root"}
-
-# 暫定/api/demo/loginエンドポイント(Keycloak実装とは別の簡易デモ用。本番の認証には使用しない)
-@app.post("/api/demo/login", include_in_schema=False)
-def demo_login(request: dict):
-    print("Login request received: ", request)
-    print(request.get("password"))
-    if request.get("password") != "Pass":
-        raise HTTPException(status_code=404, detail="Unauthorized")
-    return {"message": "Login successful"}
 
 
 def main():

@@ -424,12 +424,13 @@ CP:
 
 | テーブル | 主な列 |
 | --- | --- |
-| ユーザー | id, tenant_id, idp_subject, email, display_name, is_active, last_login_at |
+| ユーザー | id, tenant_id, idp_subject, email, display_name, first_name, last_name, roles, is_active, last_login_at |
 | 組織 | id, tenant_id, name, deleted_at |
 | 組織メンバー | tenant_id, organization_id, user_id |
 | AP 監査ログ | id, tenant_id, actor_id, action, target_type, target_id, payload, request_id, created_at |
 
 - ユーザーは `(tenant_id, idp_subject)` と `(tenant_id, lower(email))` で一意
+- ユーザーの `first_name` / `last_name` / `roles` は **IdP（Keycloak）が正で、一覧表示用の写し**。ログイン時の同期と管理者による変更時に更新する（一覧でロールを出すために 1 件ずつ IdP へ問い合わせない）。`roles` は `tenant_admin` / `member` のみ
 
 ### 9.5 CP テーブル（概要）
 

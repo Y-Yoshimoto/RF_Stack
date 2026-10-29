@@ -3,7 +3,11 @@ import { describe, expect, it } from 'vitest';
 import { activityOf } from '@/main_app/testing/todo_test_data';
 import { activityLinesOf } from './activity_text';
 
-const LOOKUPS = { user: (id: string) => `user:${id}`, organization: (id: string) => `org:${id}` };
+const USERS = {
+    u1: { display_name: 'Taro Yamada', is_active: true },
+    u2: { display_name: 'Jiro Suzuki', is_active: false },
+};
+const LOOKUPS = { users: USERS, organization: (id: string) => `org:${id}` };
 
 describe('activityLinesOf', () => {
     it('項目の変更は「項目: 前 → 後」にし、説明は内容を出さずに変更とだけ示す', () => {
@@ -12,8 +16,13 @@ describe('activityLinesOf', () => {
     });
 
     it('担当者・公開先組織の追加と削除を、名前に引き直して示す', () => {
-        expect(activityLinesOf(activityOf({ action: 'assignees_changed', payload: { added: ['u1'], removed: ['u2'] } }), LOOKUPS)).toEqual(['担当者を追加: user:u1', '担当者を削除: user:u2']);
+        expect(activityLinesOf(activityOf({ action: 'assignees_changed', payload: { added: ['u1'], removed: ['u2'] } }), LOOKUPS)).toEqual(['担当者を追加: Taro Yamada', '担当者を削除: Jiro Suzuki (無効)']);
         expect(activityLinesOf(activityOf({ action: 'visibility_changed', payload: { organization_ids: { added: ['o1'], removed: ['o2'] } } }), LOOKUPS)).toEqual(['公開先の組織を追加: org:o1', '公開先の組織を削除: org:o2']);
+    });
+
+    it('名前を引けない担当者は「不明なユーザー」にする。作成時の担当者も名前で示す', () => {
+        expect(activityLinesOf(activityOf({ action: 'assignees_changed', payload: { added: ['u9'], removed: [] } }), LOOKUPS)).toEqual(['担当者を追加: 不明なユーザー']);
+        expect(activityLinesOf(activityOf({ action: 'created', payload: { values: { assignee_ids: ['u1', 'u2'] } } }), LOOKUPS)).toEqual(['ToDo を作成しました', '担当者: Taro Yamada、Jiro Suzuki (無効)']);
     });
 
     it('削除はタイトルを添える。payload が読み取れなければ種別の説明だけにする', () => {

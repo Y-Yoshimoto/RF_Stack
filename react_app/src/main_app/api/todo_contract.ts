@@ -205,7 +205,7 @@ export type TodoActivityRead = {
     id: string;
     todo_id: string;
     actor_id: string;
-    /** 操作者の表示名 (ユーザーを特定できなければ null)。 */
+    /** 操作者の表示名 (ユーザーを特定できなければ null)。無効かどうかはページの users[actor_id] で分かる。 */
     actor_display_name: string | null;
     action: TodoActivityAction;
     payload: Record<string, unknown>;
@@ -213,11 +213,27 @@ export type TodoActivityRead = {
     created_at: string;
 };
 
+/** アクティビティが参照するユーザーの表示用の情報 (OpenAPI: TodoActivityUser)。 */
+export type TodoActivityUser = {
+    display_name: string;
+    /** 無効化されたユーザーも含む (画面では「無効」と表示する)。 */
+    is_active: boolean;
+};
+
+/**
+ * アクティビティが参照するユーザー (キーはユーザー ID)。
+ * 対象は操作者 (actor_id) と payload のユーザー ID (created の values.assignee_ids、assignees_changed の added / removed)。
+ * 無効化されたユーザー・担当者から外れたユーザーも含む。キーが無い ID (テナント内に存在しない) は「不明なユーザー」と表示する。
+ */
+export type TodoActivityUsers = Record<string, TodoActivityUser>;
+
 /** `GET /api/v1/todos/{todo_id}/activities` のレスポンス (OpenAPI: TodoActivityPage。新しい順)。 */
 export type TodoActivityPage = {
     items: TodoActivityRead[];
     next_cursor: string | null;
     total?: number | null;
+    /** このページのアクティビティが参照するユーザー (常にある。参照が無ければ空のオブジェクト)。 */
+    users: TodoActivityUsers;
 };
 
 /** `GET /api/v1/todos/{todo_id}/activities` のクエリ。 */

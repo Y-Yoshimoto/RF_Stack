@@ -12,7 +12,7 @@
         "tenant_code": "<tenant_code>", # AP のみ
         "tokens": {...},                # modules.auth.token.build_token_record の戻り値
         "user": {
-            "sub", "preferred_username", "name", "email", "realm",
+            "sub", "preferred_username", "name", "given_name", "family_name", "email", "realm",
             "plane": "app" | "cp",
             "roles": [...],             # プレーンの許可リストにあるレルムロールのみ
             "tenant_id": "<UUID>",      # AP のみ (トークンの tenant_id クレーム)
@@ -119,6 +119,9 @@ def build_login_session(
         "preferred_username": id_claims.get("preferred_username"),
         # 表示名 (姓・名から作られる)。AP のログイン時のユーザー同期に使う (main_app.route.auth.login_sync)
         "name": id_claims.get("name"),
+        # 名・姓。AP のログイン時のユーザー同期で一覧表示用の写し (t_user.first_name / last_name) を更新する
+        "given_name": id_claims.get("given_name"),
+        "family_name": id_claims.get("family_name"),
         "email": id_claims.get("email"),
         "realm": realm,
         "plane": plane.value,

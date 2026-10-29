@@ -13,8 +13,9 @@ export const TENANT_CODE = 'alpha';
 export const APP_HOME_PATH = `/${TENANT_CODE}/`;
 
 /**
- * サンプル画面のパスを返す (`/{tenant_code}/sample/{name}`。AP の認証後画面)
- * @param name サンプル名 (例: button)
+ * サンプル画面のパスを返す (`/{tenant_code}/sample/{name}`)。
+ * @deprecated サンプル画面はルーティングから外れており、このパスを開くと NotFound になる。サンプルに依存する E2E (sample_*.test.ts) は
+ * playwright.config.ts の SAMPLE_TESTS で実行対象から外している。新しいテストでは使わない (サンプルを復活させる場合のために残している)。
  */
 export const samplePath = (name: string): string => `${APP_HOME_PATH}sample/${name}`;
 

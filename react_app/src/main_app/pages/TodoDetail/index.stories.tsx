@@ -4,8 +4,7 @@ import { Route } from 'react-router-dom';
 import { OTHER_USER_ID, SELF_USER_ID } from '@/main_app/testing/app_test_support';
 import { withAppAuth } from '@/main_app/testing/auth_decorators';
 import { AppStoryFrame, appApiBeforeEach, problemStoryReply, type AppApiStoryParameters } from '@/main_app/testing/story_api';
-import { pageOf } from '@/main_app/testing/story_data';
-import { ASSIGNEE_TODO_PERMISSIONS, TODO_ID, activityOf, todoDetailOf } from '@/main_app/testing/todo_test_data';
+import { ASSIGNEE_TODO_PERMISSIONS, TODO_ID, activityOf, activityPageOf, todoDetailOf } from '@/main_app/testing/todo_test_data';
 import { todoStoryApiOf } from '@/main_app/pages/TodoCommon/story_support';
 import type { TodoDetail } from '@/main_app/api/contract';
 import { withMemoryRouter } from '@/shared/testing/story_decorators';
@@ -29,11 +28,14 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-const ACTIVITIES = pageOf([
+const ACTIVITIES = activityPageOf([
     activityOf({ id: 'a3', action: 'status_changed', payload: { changes: { status: { before: 'open', after: 'in_progress' } } }, created_at: '2026-10-03T00:00:00Z' }),
     activityOf({ id: 'a2', action: 'assignees_changed', payload: { added: [OTHER_USER_ID], removed: [] }, actor_display_name: 'Hanako Admin', created_at: '2026-10-02T00:00:00Z' }),
     activityOf({ id: 'a1', action: 'created', payload: { values: {} }, actor_display_name: 'Hanako Admin', created_at: '2026-10-01T00:00:00Z' }),
-]);
+], {
+    [SELF_USER_ID]: { display_name: 'Hanako Admin', is_active: true },
+    [OTHER_USER_ID]: { display_name: 'Taro Yamada', is_active: false },
+});
 
 /**
  * ストーリーの parameters を作る関数

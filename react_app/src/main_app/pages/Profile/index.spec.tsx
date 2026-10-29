@@ -3,24 +3,22 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import '@testing-library/jest-dom';
 import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import type { MeOrganization } from '@/main_app/api/contract';
 import { Route } from 'react-router-dom';
-import { mockFetch, problemReply, type MockHandler } from '@/shared/testing/fetch_mock';
-import { ORGANIZATION_ID, SELF_USER_ID, organizationDetailOf } from '@/main_app/testing/app_test_support';
+import { calledKeys, mockFetch, problemReply, type MockHandler } from '@/shared/testing/fetch_mock';
+import { ORGANIZATION_ID, SELF_USER_ID } from '@/main_app/testing/app_test_support';
 import { renderAppScreen } from '@/main_app/testing/render_screen';
-import { SAMPLE_ORGANIZATIONS, SAMPLE_USER_DETAILS, SECOND_ORGANIZATION_ID, meBodyOf, pageOf } from '@/main_app/testing/story_data';
+import { SAMPLE_USER_DETAILS, SECOND_ORGANIZATION_ID, meBodyOf } from '@/main_app/testing/story_data';
 import { AppProfilePage } from '.';
 
 afterEach(() => {
     vi.restoreAllMocks();
 });
 
-const renderProfile = (replies: Record<string, MockHandler> = {}, roles: string[] = ['tenant_admin', 'member']) => {
+const renderProfile = (replies: Record<string, MockHandler> = {}, roles: string[] = ['tenant_admin', 'member'], organizations?: MeOrganization[]) => {
     const spy = mockFetch({
-        'GET /api/v1/me': { status: 200, body: meBodyOf(SELF_USER_ID, roles) },
+        'GET /api/v1/me': { status: 200, body: meBodyOf(SELF_USER_ID, roles, organizations) },
         [`GET /api/v1/users/${SELF_USER_ID}`]: { status: 200, body: SAMPLE_USER_DETAILS[SELF_USER_ID], headers: { ETag: '"7"' } },
-        'GET /api/v1/organizations': { status: 200, body: pageOf(SAMPLE_ORGANIZATIONS) },
-        [`GET /api/v1/organizations/${ORGANIZATION_ID}`]: { status: 200, body: organizationDetailOf({ member_ids: [SELF_USER_ID] }), headers: { ETag: '"3"' } },
-        [`GET /api/v1/organizations/${SECOND_ORGANIZATION_ID}`]: { status: 200, body: organizationDetailOf({ id: SECOND_ORGANIZATION_ID, name: '開発部', member_ids: [] }), headers: { ETag: '"1"' } },
         ...replies,
     });
     renderAppScreen(<Route path="/alpha/profile" element={<AppProfilePage />} />, { path: '/alpha/profile', roles });
@@ -29,9 +27,10 @@ const renderProfile = (replies: Record<string, MockHandler> = {}, roles: string[
 
 describe('プロフィール画面', () => {
     it('表示名・ユーザー名・メール・ロール・テナントと、自分が所属する組織だけを表示する', async () => {
-        renderProfile();
+        renderProfile({}, ['tenant_admin', 'member'], [{ id: ORGANIZATION_ID, name: '営業部' }]);
         expect(await screen.findByTestId('profile-organizations-list')).toBeInTheDocument();
-        expect(screen.getByTestId('profile-display-name')).toHaveTextContent('Hanako Admin');
+        // 所属組織は /api/v1/me の応答で先に表示され、表示名はユーザー詳細の取得後に表示される
+        await vi.waitFor(() => expect(screen.getByTestId('profile-display-name')).toHaveTextContent('Hanako Admin'));
         expect(screen.getByTestId('profile-username')).toHaveTextContent('alpha-admin');
         expect(screen.getByTestId('profile-email')).toHaveTextContent('alpha-admin@alpha.example');
         expect(screen.getByTestId('profile-roles')).toHaveTextContent('テナント管理者');
@@ -41,14 +40,22 @@ describe('プロフィール画面', () => {
         expect(screen.queryByTestId(`profile-organization-${SECOND_ORGANIZATION_ID}`)).toBeNull();
     });
 
+    it('所属組織は /api/v1/me の応答から表示し、組織の一覧・詳細は取得しない', async () => {
+        const spy = renderProfile({}, ['member'], [{ id: ORGANIZATION_ID, name: '営業部' }, { id: SECOND_ORGANIZATION_ID, name: '開発部' }]);
+        await screen.findByTestId('profile-organizations-list');
+        const names = screen.getByTestId('profile-organizations-list').querySelectorAll('li');
+        expect([...names].map((item) => item.textContent)).toEqual(['営業部', '開発部']);
+        expect(calledKeys(spy).filter((key) => key.includes('/api/v1/organizations'))).toEqual([]);
+    });
+
     it('member でも表示できる (変更の UI は無い)', async () => {
-        renderProfile({}, ['member']);
+        renderProfile({}, ['member'], [{ id: ORGANIZATION_ID, name: '営業部' }]);
         await screen.findByTestId('profile-organizations-list');
         expect(screen.getByTestId('profile-roles')).toHaveTextContent('メンバー');
     });
 
     it('どの組織にも所属していなければ、その旨を表示する', async () => {
-        renderProfile({ [`GET /api/v1/organizations/${ORGANIZATION_ID}`]: { status: 200, body: organizationDetailOf({ member_ids: [] }), headers: { ETag: '"3"' } } });
+        renderProfile({}, ['member'], []);
         expect(await screen.findByTestId('profile-organizations-empty')).toBeInTheDocument();
     });
 
@@ -70,9 +77,9 @@ describe('プロフィール画面', () => {
         expect(await screen.findByTestId('profile-info')).toBeInTheDocument();
     });
 
-    it('所属組織の取得に失敗しても、基本情報は表示する', async () => {
-        renderProfile({ 'GET /api/v1/organizations': problemReply(500, 'internal_error') });
-        expect(await screen.findByTestId('profile-organizations-error')).toHaveAttribute('role', 'alert');
-        expect(screen.getByTestId('profile-display-name')).toHaveTextContent('Hanako Admin');
+    it('ユーザー詳細の取得に失敗しても、所属組織は表示する', async () => {
+        renderProfile({ [`GET /api/v1/users/${SELF_USER_ID}`]: problemReply(500, 'internal_error') }, ['member'], [{ id: ORGANIZATION_ID, name: '営業部' }]);
+        expect(await screen.findByTestId('profile-user-error')).toHaveAttribute('role', 'alert');
+        expect(screen.getByTestId(`profile-organization-${ORGANIZATION_ID}`)).toHaveTextContent('営業部');
     });
 });

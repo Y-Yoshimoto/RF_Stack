@@ -10,6 +10,7 @@ from sqlalchemy.exc import OperationalError
 
 from app import app
 from control_plane_app.api_tenants import router as tenants_router
+from control_plane_app.models.sql_models import TENANT_CODE_PATTERN
 from modules.auth import session
 
 from .conftest import with_csrf
@@ -280,6 +281,34 @@ class TestOpenApiContract:
         operations = {(method, path) for path, item in spec["paths"].items() for method in item if path.startswith("/api/v1")}
         check.equal(self.EXPECTED - operations, set())
         check.equal(operations - self.EXPECTED, set(), "文書に無いエンドポイントが /api/v1 にある")
+
+    def test_sample_routes_are_not_registered(self, spec):
+        """参考用のサンプル(/RestSample・/sample・/api/demo)はアプリに登録されず、OpenAPI にも実ルートにも無い。"""
+        check.equal([path for path in spec["paths"] if not path.startswith(("/api/v1", "/api/auth"))], [])
+        registered = {route.path for route in app.routes}
+        check.equal({path for path in registered if path.startswith(("/RestSample", "/sample", "/api/demo"))}, set())
+
+    def test_tenant_code_schema_matches_implementation(self, spec):
+        """TenantCreate.tenant_code の OpenAPI は、実装(01 §5.1。3〜32 文字の英小文字・数字・ハイフン)と同じ制約を示す。検証(422)は変えない。"""
+        prop = spec["components"]["schemas"]["TenantCreate"]["properties"]["tenant_code"]
+        check.equal((prop["minLength"], prop["maxLength"]), (3, 32))
+        check.equal(prop["pattern"], TENANT_CODE_PATTERN)
+        pattern = re.compile(prop["pattern"])
+        check.is_true(all(pattern.fullmatch(code) for code in ("abc", "a-b", "a" * 32)))
+        check.is_true(not any(pattern.fullmatch(code) for code in ("ab", "a" * 33, "-ab", "ab-", "a--b", "Abc")))
+
+    def test_if_match_operations_document_400(self, spec):
+        """If-Match を受け取る全操作(CP・AP)は、形式不正の 400 を application/problem+json の ProblemDetails で載せる。"""
+        found = []
+        for path, item in spec["paths"].items():
+            for method, operation in item.items():
+                if any(p["in"] == "header" and p["name"] == "If-Match" for p in operation.get("parameters", [])):
+                    found.append((method, path))
+                    content = operation["responses"].get("400", {}).get("content", {})
+                    check.equal(set(content), {"application/problem+json"}, f"{method} {path}")
+                    check.is_in("ProblemDetails", str(content), f"{method} {path}")
+        check.equal(len(found), 11)
+        check.is_true(any(path.startswith("/api/v1/cp/") for _, path in found) and any(not path.startswith("/api/v1/cp/") for _, path in found))
 
     def test_error_responses_are_problem_json(self, spec):
         """/api/v1 のエラー応答(4xx / 5xx)は、application/problem+json だけで ProblemDetails を参照する(ready の 503 を除く)。"""

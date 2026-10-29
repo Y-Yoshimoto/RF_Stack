@@ -55,7 +55,6 @@ export const TodoDetailContent = ({ todo, target, needs_organization_reselect, o
     const { permissions } = todo;
     const pending = actions.pending !== null;
 
-    const userName = (id: string): string => assignee_choices.options.find((option) => option.user_id === id)?.display_name ?? '不明なユーザー';
     const organizationName = (id: string): string => organization_choices.options.find((option) => option.organization_id === id)?.name ?? '不明な組織';
 
     const saveChanges = async (changes: TodoChanges, message: string): Promise<boolean> => {
@@ -140,7 +139,7 @@ export const TodoDetailContent = ({ todo, target, needs_organization_reselect, o
             </TodoSection>
 
             <TodoSection title="アクティビティ" test_id="todo-activities-section">
-                <TodoActivityList activities={activities} userName={userName} organizationName={organizationName} />
+                <TodoActivityList activities={activities} organizationName={organizationName} />
             </TodoSection>
 
             <ConfirmDialog

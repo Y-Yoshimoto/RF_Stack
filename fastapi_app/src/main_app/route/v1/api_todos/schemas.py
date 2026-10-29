@@ -101,8 +101,23 @@ class TodoActivityRead(BaseModel):
     created_at: UtcDatetime = Field(description="記録日時(UTC)。1 回の操作で複数の行を記録したときは同じ値")
 
 
+class TodoActivityUser(BaseModel):
+    """アクティビティが参照するユーザーの表示用の情報。"""
+
+    display_name: str = Field(description="表示名")
+    is_active: bool = Field(description="有効か。無効化されたユーザーも含む(画面では「無効」と表示する)")
+
+
 class TodoActivityPage(CursorPage[TodoActivityRead]):
     """アクティビティ一覧(新しい順。カーソル方式)。"""
+
+    users: dict[uuid.UUID, TodoActivityUser] = Field(
+        description=(
+            "このページのアクティビティが参照するユーザーの表示名。キーはユーザー ID(UUID の文字列)。"
+            "対象は操作者(`actor_id`)と `payload` に含まれるユーザー ID(`created` の `values.assignee_ids`、`assignees_changed` の `added` / `removed`)。"
+            "無効化されたユーザー・担当者から外れたユーザーも含む。キーが無い ID(テナント内に存在しないユーザー)は「不明なユーザー」等と表示する"
+        )
+    )
 
 
 class TodoCreate(BaseModel):

@@ -5,7 +5,7 @@ import { ApiError, type ProblemDetails } from '@/utils/libs/FetchComponents/prob
 import { ifMatchOf } from './contract';
 import { AppGuardError, classifyAppError } from './errors';
 import { buildOrganizationListUrl, toOrganizationListQuery } from './organizations';
-import { buildUserListUrl, selfModificationOf, toUserListQuery, toUserUpdate } from './users';
+import { buildUserListUrl, chunkUserIds, partitionUserIds, rolesMatchRequest, selfModificationOf, toUserListQuery, toUserUpdate } from './users';
 
 const SELF = 'self-id';
 
@@ -24,6 +24,14 @@ describe('一覧の URL', () => {
         expect(buildUserListUrl({ ...toUserListQuery({ sort: '-created_at', is_active: false, limit: 20 }), cursor: 'c1' })).toBe('/api/v1/users?limit=20&cursor=c1&sort=-created_at&is_active=false');
     });
 
+    it('ユーザー: ids は重複を除いてカンマ区切りにする。空の配列は ids= (0 件) を送る', () => {
+        const a = '01900000-0000-7000-8000-00000000a001';
+        const b = '01900000-0000-7000-8000-00000000a002';
+        expect(toUserListQuery({ ids: [a, b, a] })).toEqual({ ids: `${a},${b}` });
+        expect(new URL(buildUserListUrl(toUserListQuery({ ids: [a, b], limit: 100 })), 'http://x').searchParams.get('ids')).toBe(`${a},${b}`);
+        expect(buildUserListUrl(toUserListQuery({ ids: [] }))).toBe('/api/v1/users?ids=');
+    });
+
     it('組織: sort・limit をクエリにする', () => {
         expect(buildOrganizationListUrl(toOrganizationListQuery({}))).toBe('/api/v1/organizations');
         expect(buildOrganizationListUrl(toOrganizationListQuery({ sort: 'name', limit: 5 }))).toBe('/api/v1/organizations?limit=5&sort=name');
@@ -35,6 +43,33 @@ describe('toUserUpdate', () => {
         expect(toUserUpdate({})).toEqual({});
         expect(toUserUpdate({ name: { first_name: '太郎', last_name: '山田' } })).toEqual({ first_name: '太郎', last_name: '山田' });
         expect(toUserUpdate({ roles: ['member', 'member', 'tenant_admin'], is_active: false })).toEqual({ roles: ['member', 'tenant_admin'], is_active: false });
+    });
+});
+
+describe('ID 指定の取得の補助', () => {
+    it('partitionUserIds: 重複・空文字を除き、UUID でない ID を分ける (最初に現れた順)', () => {
+        const a = '01900000-0000-7000-8000-00000000A001';
+        expect(partitionUserIds([a, ' ', 'x', a, 'x'])).toEqual({ ids: [a], invalid_ids: ['x'] });
+    });
+
+    it('chunkUserIds: 既定は 100 件ずつ', () => {
+        const ids = Array.from({ length: 201 }, (_, index) => String(index));
+        expect(chunkUserIds(ids).map((chunk) => chunk.length)).toEqual([100, 100, 1]);
+        expect(chunkUserIds([])).toEqual([]);
+        expect(chunkUserIds(['a', 'b', 'c'], 2)).toEqual([['a', 'b'], ['c']]);
+    });
+});
+
+describe('rolesMatchRequest (更新の応答のロールが送ったロールと一致するか)', () => {
+    it.each([
+        [['tenant_admin'], ['tenant_admin', 'member'], true],
+        [['tenant_admin', 'member'], ['tenant_admin', 'member'], true],
+        [['member'], ['member'], true],
+        // 写しが書き換わらなかった (IdP 上は変化なし) ため、送ったロールが応答に無い・外したロールが残っている
+        [['tenant_admin'], ['member'], false],
+        [['member'], ['tenant_admin', 'member'], false],
+    ] as const)('%j → %j は %s', (requested, actual, expected) => {
+        expect(rolesMatchRequest(requested, actual)).toBe(expected);
     });
 });
 

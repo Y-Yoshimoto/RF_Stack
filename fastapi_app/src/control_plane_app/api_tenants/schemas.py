@@ -12,7 +12,7 @@ from decimal import Decimal
 
 from pydantic import BaseModel, Field
 
-from control_plane_app.models.sql_models import ProvisioningType, RunStatus, TenantStatus
+from control_plane_app.models.sql_models import TENANT_CODE_PATTERN, ProvisioningType, RunStatus, TenantStatus
 from control_plane_app.services.tenant_provisioning import TENANT_NAME_MAX_LENGTH
 from modules.api_common.datetime_types import UtcDatetime
 from modules.api_common.pagination import CursorPage
@@ -83,7 +83,14 @@ class InitialAdminInput(BaseModel):
 class TenantCreate(BaseModel):
     """テナント作成（払い出し）のリクエスト。"""
 
-    tenant_code: str = Field(min_length=1, max_length=64, description="テナントコード（英小文字・数字・ハイフンの 3〜32 文字。予約語は不可）")
+    # 検証は min_length / max_length のまま(範囲外・形式不正の 422 invalid_tenant_code はサービス層で判定する)。
+    # OpenAPI の表現だけを 01 §5.1 の形式(3〜32 文字)に合わせる
+    tenant_code: str = Field(
+        min_length=1,
+        max_length=64,
+        description="テナントコード（英小文字・数字・ハイフンの 3〜32 文字。予約語は不可）",
+        json_schema_extra={"minLength": 3, "maxLength": 32, "pattern": TENANT_CODE_PATTERN},
+    )
     name: str = Field(min_length=1, max_length=TENANT_NAME_MAX_LENGTH, description="テナント名")
     initial_admin: InitialAdminInput = Field(description="初期管理者")
 

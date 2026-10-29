@@ -6,10 +6,10 @@ import userEvent from '@testing-library/user-event';
 import { Route } from 'react-router-dom';
 import type { TodoDetail } from '@/main_app/api/contract';
 import { calledKeys, calledRequests, mockFetch, problemReply, type MockHandler, type MockReply } from '@/shared/testing/fetch_mock';
-import { ORGANIZATION_ID, OTHER_USER_ID, organizationOf } from '@/main_app/testing/app_test_support';
+import { ORGANIZATION_ID, OTHER_USER_ID, SELF_USER_ID, organizationOf } from '@/main_app/testing/app_test_support';
 import { renderAppScreen } from '@/main_app/testing/render_screen';
-import { SAMPLE_USERS, pageOf } from '@/main_app/testing/story_data';
-import { ASSIGNEE_TODO_PERMISSIONS, TODO_ID, activityOf, todoDetailOf } from '@/main_app/testing/todo_test_data';
+import { SAMPLE_USERS, THIRD_USER_ID, pageOf } from '@/main_app/testing/story_data';
+import { ASSIGNEE_TODO_PERMISSIONS, TODO_ID, activityOf, activityPageOf, todoDetailOf } from '@/main_app/testing/todo_test_data';
 import { AppTodoDetailPage } from '.';
 
 const DETAIL_KEY = `GET /api/v1/todos/${TODO_ID}`;
@@ -272,7 +272,8 @@ describe('ToDo 詳細画面: アクティビティ', () => {
             activityOf({ id: 'a2', action: 'status_changed', payload: { changes: { status: { before: 'open', after: 'done' } } }, created_at: '2026-10-02T00:00:00Z' }),
             activityOf({ id: 'a1', action: 'created', payload: { values: {} }, created_at: '2026-10-01T00:00:00Z' }),
         ];
-        renderDetail({ replies: { [ACTIVITIES_KEY]: { status: 200, body: pageOf(items) } } });
+        const users = { [SELF_USER_ID]: { display_name: 'Hanako Suzuki', is_active: true }, [OTHER_USER_ID]: { display_name: 'Taro Yamada', is_active: true } };
+        renderDetail({ replies: { [ACTIVITIES_KEY]: { status: 200, body: activityPageOf(items, users) } } });
         const list = await screen.findByTestId('todo-activities-list');
         expect(within(list).getAllByRole('listitem')).toHaveLength(4);
         expect(screen.getByTestId('todo-activity-a4')).toHaveTextContent('閲覧範囲: 非公開 → 組織');
@@ -280,7 +281,30 @@ describe('ToDo 詳細画面: アクティビティ', () => {
         expect(screen.getByTestId('todo-activity-a3')).toHaveTextContent('担当者を追加: Taro Yamada');
         expect(screen.getByTestId('todo-activity-a2')).toHaveTextContent('ステータス: 未着手 → 完了');
         expect(screen.getByTestId('todo-activity-a1')).toHaveTextContent('ToDo を作成しました');
-        expect(screen.getByTestId('todo-activity-a1')).toHaveTextContent('Hanako Suzuki');
+        expect(screen.getByTestId('todo-activity-actor-a1')).toHaveTextContent('Hanako Suzuki');
+    });
+
+    it('担当者から外れたユーザー・無効なユーザーも名前で表示し、無効は「(無効)」と文字で示す。引けないユーザーは「不明なユーザー」', async () => {
+        const unknown_id = '01900000-0000-7000-8000-00000000a999';
+        const items = [
+            activityOf({ id: 'a2', action: 'assignees_changed', actor_id: THIRD_USER_ID, actor_display_name: 'Jiro Suzuki', payload: { added: [SELF_USER_ID], removed: [OTHER_USER_ID, unknown_id] }, created_at: '2026-10-02T00:00:00Z' }),
+            activityOf({ id: 'a1', action: 'created', actor_id: unknown_id, actor_display_name: null, payload: { values: { assignee_ids: [OTHER_USER_ID] } }, created_at: '2026-10-01T00:00:00Z' }),
+        ];
+        const users = {
+            [SELF_USER_ID]: { display_name: 'Hanako Suzuki', is_active: true },
+            [OTHER_USER_ID]: { display_name: 'Taro Yamada', is_active: false },
+            [THIRD_USER_ID]: { display_name: 'Jiro Suzuki', is_active: false },
+        };
+        const spy = renderDetail({ replies: { [ACTIVITIES_KEY]: { status: 200, body: activityPageOf(items, users) } } });
+        await screen.findByTestId('todo-activities-list');
+        const a2 = screen.getByTestId('todo-activity-a2');
+        expect(a2).toHaveTextContent('担当者を追加: Hanako Suzuki');
+        expect(a2).toHaveTextContent('担当者を削除: Taro Yamada (無効)、不明なユーザー');
+        expect(screen.getByTestId('todo-activity-actor-a2')).toHaveTextContent('Jiro Suzuki (無効)');
+        expect(screen.getByTestId('todo-activity-a1')).toHaveTextContent('担当者: Taro Yamada (無効)');
+        expect(screen.getByTestId('todo-activity-actor-a1')).toHaveTextContent('不明なユーザー');
+        // 名前の解決のために、ユーザーを ID 指定で取りに行かない
+        expect(calledRequests(spy).some((request) => new URL(request.url).searchParams.get('ids') !== null)).toBe(false);
     });
 
     it('アクティビティが無ければ、空の案内を表示する', async () => {

@@ -1,8 +1,8 @@
 /**
  * @description:
  * カーソル方式の一覧 (useUserList など) の全ページを、続けて取得するカスタムフック
- * 「ID 指定の絞り込み API が無い」ため、ID から名前を引く画面 (組織のメンバー・所属組織) は一覧の全件が必要になる。
- * 件数が少ない前提 (1 テナントのユーザー・組織は数十件程度) で、全ページを順に取得する。件数が増えたら API 側で ID 指定の取得を用意すること。
+ * 検索 API が無いため、選択肢 (候補) の一覧に使う (useTodoChoices)。件数が少ない前提 (1 テナントのユーザー・組織は数十件程度) で、全ページを順に取得する。
+ * ID から名前を引く用途には使わない: ユーザーは useUsersByIds (`GET /api/v1/users?ids=`)、自分の所属組織は useMe の organizations を使う。
  * 取得の失敗 (load_more_error) で止まる。再開は一覧の loadMore / reload で行う。
 */
 import { useEffect } from 'react';

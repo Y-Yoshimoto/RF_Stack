@@ -17,6 +17,7 @@ FastAPI に依存しない。AP のセッション（テナントコンテキス
 | --- | --- |
 | :meth:`OrganizationService.list_organizations` | ``OrganizationValidationError``（並び替えキー） |
 | :meth:`OrganizationService.get_organization` / :meth:`OrganizationService.list_member_ids` | ``OrganizationNotFoundError`` |
+| :meth:`OrganizationService.list_user_organizations` | （なし） |
 | :meth:`OrganizationService.create_organization` | ``OrganizationValidationError``, ``OrganizationNameConflictError`` |
 | :meth:`OrganizationService.update_organization` | ``OrganizationNotFoundError``, ``OrganizationVersionConflictError``, ``OrganizationValidationError``, ``OrganizationNameConflictError`` |
 | :meth:`OrganizationService.delete_organization` | ``OrganizationNotFoundError``, ``OrganizationVersionConflictError`` |
@@ -120,6 +121,21 @@ class OrganizationService:
         require_tenant_context()
         self._require_organization(organization_id)
         return org_repo.list_member_ids(self._session, organization_id)
+
+    def list_user_organizations(self, user_id: uuid.UUID) -> list[OrganizationView]:
+        """ユーザーが所属する有効な組織を返す（論理削除済みを除く。組織名順。``/api/v1/me`` のプロフィール表示用）。
+
+        1 回のクエリで取得する（組織ごとの詳細の取得は不要）。ページングはしない（所属数は少ない前提。
+        組織のメンバー数の上限 :data:`MAX_ORGANIZATION_MEMBERS` はあるが、ユーザーあたりの所属数の上限は無い）。
+
+        Args:
+            user_id: ユーザー ID（``t_user.id``。IdP の ``sub`` ではない）。
+
+        Returns:
+            list[OrganizationView]: 組織。所属が無い・存在しない・他テナントのユーザーは空（404 にしない）。
+        """
+        require_tenant_context()
+        return [OrganizationView.from_model(org) for org in org_repo.list_active_organizations_of_user(self._session, user_id)]
 
     # ------------------------------------------------------------------ 変更
     def create_organization(self, *, name: str) -> OrganizationView:

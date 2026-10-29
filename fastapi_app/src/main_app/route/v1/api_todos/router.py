@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, Query, Response
 from main_app.route.v1.api_todos.schemas import (
     TodoActivityPage,
     TodoActivityRead,
+    TodoActivityUser,
     TodoAssigneesReplace,
     TodoCreate,
     TodoDetail,
@@ -211,7 +212,12 @@ def list_todo_activities(todo_id: uuid.UUID, service: TodoServiceDep, limit: Lim
     """ToDo のアクティビティ(変更履歴)を新しい順に、カーソル方式で返す(ToDo を閲覧できる人。`tenant_admin` / `member`)。
 
     同じ操作で記録した行は記録順の逆。`payload` の形は `action` ごとに異なる(`TodoActivityRead.payload` を参照)。
+    `users` に、このページが参照するユーザー(操作者と `payload` のユーザー ID)の表示名と有効かを、ユーザー ID をキーにして返す(画面で名前を引くため)。
     閲覧できない ToDo・存在しない ToDo は同じ 404(`todo_not_found`)。
     """
     page = service.list_activities(todo_id, limit=limit, after=decode_after(cursor, _ACTIVITY_SORT))
-    return TodoActivityPage(items=[TodoActivityRead.model_validate(view, from_attributes=True) for view in page.items], next_cursor=encode_next_cursor(_ACTIVITY_SORT, page.next_after))
+    return TodoActivityPage(
+        items=[TodoActivityRead.model_validate(view, from_attributes=True) for view in page.items],
+        next_cursor=encode_next_cursor(_ACTIVITY_SORT, page.next_after),
+        users={user_id: TodoActivityUser(display_name=name.display_name, is_active=name.is_active) for user_id, name in page.users.items()},
+    )

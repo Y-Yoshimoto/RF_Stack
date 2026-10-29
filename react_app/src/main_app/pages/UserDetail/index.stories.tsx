@@ -54,6 +54,22 @@ export const Self: Story = {
 /** 無効なユーザー (再度有効にできる) */
 export const Inactive: Story = { parameters: parametersOf(THIRD_USER_ID) };
 
+/** 姓・名が未同期 (null) のユーザー。姓名の入力欄は空欄で始まり、入力したときだけ姓名を送る */
+export const NamesNotSynced: Story = {
+    parameters: {
+        ...parametersOf(OTHER_USER_ID),
+        app_api: {
+            ...parametersOf(OTHER_USER_ID).app_api,
+            [`GET /api/v1/users/${OTHER_USER_ID}`]: { status: 200, body: { ...SAMPLE_USER_DETAILS[OTHER_USER_ID], first_name: null, last_name: null }, headers: { ETag: '"3"' } },
+        },
+    },
+    play: async ({ canvasElement: canvas_element }) => {
+        const canvas = within(canvas_element);
+        await expect(await canvas.findByTestId('user-edit-first-name')).toHaveValue('');
+        await expect(canvas.getByTestId('user-edit-last-name')).toHaveValue('');
+    },
+};
+
 /** メンバー (閲覧のみ。編集・有効/無効の UI を出さない) */
 export const Member: Story = {
     parameters: { ...parametersOf(OTHER_USER_ID, ['member']), app_auth: { user_name: 'taro', roles: ['member'] } },

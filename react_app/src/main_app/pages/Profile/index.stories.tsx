@@ -1,10 +1,10 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, within } from 'storybook/test';
 import { Route } from 'react-router-dom';
-import { ORGANIZATION_ID, SELF_USER_ID, organizationDetailOf } from '@/main_app/testing/app_test_support';
+import { ORGANIZATION_ID, SELF_USER_ID } from '@/main_app/testing/app_test_support';
 import { withAppAuth } from '@/main_app/testing/auth_decorators';
 import { AppStoryFrame, appApiBeforeEach, problemStoryReply, type AppApiStoryParameters } from '@/main_app/testing/story_api';
-import { SAMPLE_ORGANIZATIONS, SAMPLE_USER_DETAILS, SECOND_ORGANIZATION_ID, meBodyOf, pageOf } from '@/main_app/testing/story_data';
+import { SAMPLE_ORGANIZATIONS, SAMPLE_USER_DETAILS, SECOND_ORGANIZATION_ID, meBodyOf } from '@/main_app/testing/story_data';
 import { withMemoryRouter } from '@/shared/testing/story_decorators';
 import { AppProfilePage } from '.';
 
@@ -31,11 +31,9 @@ type Story = StoryObj<typeof meta>;
  * @returns {AppApiStoryParameters} 応答
 */
 const apiOf = (roles: string[], member_of: string[]): AppApiStoryParameters => ({
-    'GET /api/v1/me': { status: 200, body: meBodyOf(SELF_USER_ID, roles) },
+    // 所属組織は /api/v1/me の応答に含まれる
+    'GET /api/v1/me': { status: 200, body: meBodyOf(SELF_USER_ID, roles, SAMPLE_ORGANIZATIONS.filter(({ id }) => member_of.includes(id)).map(({ id, name }) => ({ id, name }))) },
     [`GET /api/v1/users/${SELF_USER_ID}`]: { status: 200, body: SAMPLE_USER_DETAILS[SELF_USER_ID], headers: { ETag: '"7"' } },
-    'GET /api/v1/organizations': { status: 200, body: pageOf(SAMPLE_ORGANIZATIONS) },
-    [`GET /api/v1/organizations/${ORGANIZATION_ID}`]: { status: 200, body: organizationDetailOf({ member_ids: member_of.includes(ORGANIZATION_ID) ? [SELF_USER_ID] : [] }), headers: { ETag: '"3"' } },
-    [`GET /api/v1/organizations/${SECOND_ORGANIZATION_ID}`]: { status: 200, body: organizationDetailOf({ id: SECOND_ORGANIZATION_ID, name: '開発部', member_ids: member_of.includes(SECOND_ORGANIZATION_ID) ? [SELF_USER_ID] : [] }), headers: { ETag: '"1"' } },
 });
 
 /** テナント管理者 (所属組織あり) */

@@ -1,5 +1,5 @@
 // テスト用: ToDo のテストデータ (アプリのコードからは import しない)
-import type { TodoActivityRead, TodoAssigneeRead, TodoDetail, TodoPermissions, TodoRead } from '@/main_app/api/contract';
+import type { TodoActivityPage, TodoActivityRead, TodoActivityUsers, TodoAssigneeRead, TodoDetail, TodoPermissions, TodoRead } from '@/main_app/api/contract';
 import { ORGANIZATION_ID, OTHER_USER_ID, SELF_USER_ID } from './app_test_support';
 
 /** テストで使う ToDo ID */
@@ -70,3 +70,12 @@ export const activityOf = (overrides: Partial<TodoActivityRead> = {}): TodoActiv
     created_at: '2026-10-01T00:00:00Z',
     ...overrides,
 });
+
+/**
+ * アクティビティ一覧 API (`GET /api/v1/todos/{todo_id}/activities`) の応答の本文を作る関数
+ * @param {TodoActivityRead[]} items アクティビティ
+ * @param {TodoActivityUsers} users ページのアクティビティが参照するユーザー (ユーザー ID → 表示名・有効/無効)
+ * @param {string | null} next_cursor 次のページのカーソル
+ * @returns {TodoActivityPage} 本文
+*/
+export const activityPageOf = (items: TodoActivityRead[], users: TodoActivityUsers = {}, next_cursor: string | null = null): TodoActivityPage => ({ items, next_cursor, total: null, users });

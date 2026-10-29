@@ -186,6 +186,16 @@ class TestMembers:
         cleared = client.put(f"{ORGS}/{org['id']}/members", json={"user_ids": []}, headers=with_csrf(world.admin_a.headers, **etag(2)))
         check.equal((cleared.json()["member_ids"], cleared.json()["version"]), ([], 3))
 
+    def test_me_lists_own_active_organizations(self, client, world):
+        """/me の organizations は所属する有効な組織(組織名順)。論理削除した組織は含まない。"""
+        first, second = create_org(client, world.admin_a, "Bravo").json(), create_org(client, world.admin_a, "Alpha").json()
+        for org in (first, second):
+            client.put(f"{ORGS}/{org['id']}/members", json={"user_ids": [str(world.member_a.user_id)]}, headers=with_csrf(world.admin_a.headers, **etag(1)))
+        listed = client.get("/api/v1/me", headers=world.member_a.headers).json()["organizations"]
+        check.equal(listed, [{"id": second["id"], "name": "Alpha"}, {"id": first["id"], "name": "Bravo"}])
+        client.delete(f"{ORGS}/{second['id']}", headers=with_csrf(world.admin_a.headers, **etag(2)))
+        check.equal([o["name"] for o in client.get("/api/v1/me", headers=world.member_a.headers).json()["organizations"]], ["Bravo"])
+
     def test_requires_if_match(self, client, world):
         """If-Match が無ければ 428、版が違えば 412。"""
         org = create_org(client, world.admin_a).json()

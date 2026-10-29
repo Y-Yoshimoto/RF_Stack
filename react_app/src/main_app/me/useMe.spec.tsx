@@ -2,13 +2,19 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
 import { useAppAuth, useAppPermissions } from '@/main_app/auth/useAppAuth';
-import { APP_STATUS_KEY, AppTestProvider, appStatusReply, SELF_USER_ID } from '@/main_app/testing/app_test_support';
+import type { MeRead } from '@/main_app/api/contract';
+import { APP_STATUS_KEY, AppTestProvider, appStatusReply, ORGANIZATION_ID, SELF_USER_ID } from '@/main_app/testing/app_test_support';
 import { useUserList } from '@/main_app/users/useUserList';
 import { calledKeys, mockFetch, problemReply, type MockReply } from '@/shared/testing/fetch_mock';
-import { useMe } from './useMe';
+import { myOrganizationsOf, useMe } from './useMe';
 
 const ME_KEY = 'GET /api/v1/me';
-const ME = { tenant: { id: '01900000-0000-7000-8000-0000000000t1', tenant_code: 'alpha' }, user: { id: SELF_USER_ID, username: 'alpha-admin', email: null, roles: ['tenant_admin', 'member'] } };
+const SECOND_ORGANIZATION_ID = '01900000-0000-7000-8000-00000000b002';
+const ME: MeRead = {
+    tenant: { id: '01900000-0000-7000-8000-0000000000t1', tenant_code: 'alpha' },
+    user: { id: SELF_USER_ID, username: 'alpha-admin', email: null, roles: ['tenant_admin', 'member'] },
+    organizations: [{ id: SECOND_ORGANIZATION_ID, name: '開発部' }, { id: ORGANIZATION_ID, name: '営業部' }],
+};
 
 afterEach(() => {
     vi.restoreAllMocks();
@@ -34,6 +40,29 @@ describe('useMe', () => {
         await waitFor(() => expect(result.current.status).toBe('success'));
         expect(result.current.me).toEqual(ME);
         expect(result.current.self_user_id).toBe(SELF_USER_ID);
+    });
+
+    it('所属組織 (organizations) を応答の順 (組織名順) のまま返し、組織の API は呼ばない', async () => {
+        const spy = mockFetch({ [APP_STATUS_KEY]: appStatusReply(['member']), [ME_KEY]: { status: 200, body: ME } });
+        const { result } = renderHook(() => useMe(), { wrapper: AppTestProvider });
+        expect(result.current.organizations).toEqual([]);
+        await waitFor(() => expect(result.current.status).toBe('success'));
+        expect(result.current.organizations).toEqual([{ id: SECOND_ORGANIZATION_ID, name: '開発部' }, { id: ORGANIZATION_ID, name: '営業部' }]);
+        expect(myOrganizationsOf(result.current)).toMatchObject({ status: 'success', organizations: ME.organizations, error: null });
+        expect(calledKeys(spy).filter((key) => key.includes('/organizations'))).toEqual([]);
+    });
+
+    it('所属が無ければ空の配列。取得の失敗は myOrganizationsOf でも error', async () => {
+        mockFetch({ [APP_STATUS_KEY]: appStatusReply(), [ME_KEY]: { status: 200, body: { ...ME, organizations: [] } } });
+        const { result } = renderHook(() => useMe(), { wrapper: AppTestProvider });
+        await waitFor(() => expect(result.current.status).toBe('success'));
+        expect(myOrganizationsOf(result.current).organizations).toEqual([]);
+
+        vi.restoreAllMocks();
+        mockFetch({ [APP_STATUS_KEY]: appStatusReply(), [ME_KEY]: problemReply(502, 'identity_provider_operation_failed') });
+        const { result: failed } = renderHook(() => useMe(), { wrapper: AppTestProvider });
+        await waitFor(() => expect(failed.current.status).toBe('error'));
+        expect(myOrganizationsOf(failed.current)).toMatchObject({ status: 'error', organizations: [], error: { kind: 'external_failure' } });
     });
 
     it('403 tenant_inactive はテナントの利用不可として認証状態に反映する', async () => {

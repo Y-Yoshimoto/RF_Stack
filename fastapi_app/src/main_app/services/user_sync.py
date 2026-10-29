@@ -20,7 +20,8 @@ FastAPI に依存しない。いずれも **テナントコンテキスト下の
         with open_app_session() as session:
             try:
                 result = sync_user_on_login(session, tenant_id=tid, idp_subject=claims["sub"], email=claims.get("email"),
-                                            display_name=claims.get("name") or claims.get("preferred_username"))
+                                            display_name=claims.get("name") or claims.get("preferred_username"),
+                                            first_name=claims.get("given_name"), last_name=claims.get("family_name"), roles=claims.get("roles"))
             except UserDeactivatedError:
                 ...  # ログインを拒否する（セッションを作らない。コールバックは login_rejected）
 
@@ -30,6 +31,7 @@ FastAPI に依存しない。いずれも **テナントコンテキスト下の
 """
 import logging
 import uuid
+from collections.abc import Collection
 from dataclasses import dataclass
 
 from sqlalchemy.exc import IntegrityError
@@ -38,7 +40,7 @@ from sqlmodel import Session
 from main_app.models import TOrganization, TUser
 from main_app.repositories import organizations as org_repo
 from main_app.repositories import users as user_repo
-from main_app.services.common import change, record_audit, utc_now
+from main_app.services.common import UNSET, Maybe, change, normalize_tenant_roles, record_audit, utc_now
 from main_app.services.errors import UserDeactivatedError, UserNotSyncedError
 from modules.tenancy.context import TenantContext, require_tenant_context
 
@@ -64,7 +66,7 @@ class UserSyncResult:
     Attributes:
         user_id: AP のユーザー ID（``t_user.id``）。
         created: 今回ユーザー行を作成したか（IdP の管理画面で直接作られたユーザー、初期管理者の初回ログイン）。
-        profile_updated: 表示名・メールアドレスを更新したか。
+        profile_updated: 表示名・メールアドレス・姓・名・ロールを更新したか（``version`` を上げたか。写しの初回の埋め込みだけなら ``False``）。
         email_conflict: メールアドレスがテナント内の別のユーザー行で使われていたため、同期しなかったか。
         default_organization_id: 今回デフォルト組織を作成した場合はその ID。
     """
@@ -76,11 +78,22 @@ class UserSyncResult:
     default_organization_id: uuid.UUID | None
 
 
-def sync_user_on_login(session: Session, *, tenant_id: uuid.UUID, idp_subject: str, email: str | None, display_name: str | None) -> UserSyncResult:
+def sync_user_on_login(
+    session: Session,
+    *,
+    tenant_id: uuid.UUID,
+    idp_subject: str,
+    email: str | None,
+    display_name: str | None,
+    first_name: str | None = None,
+    last_name: str | None = None,
+    roles: Collection[str] | None = None,
+) -> UserSyncResult:
     """ログイン完了時に、AP のユーザー行を IdP の利用者 ID で照合して同期し、コミットする（PF-USR-04 / 05）。
 
     - 行が無ければ作成する（``created_by`` は NULL。監査ログ ``user.create``、``source=login``）
-    - 行があれば表示名・メールアドレスを同期する（変わった場合だけ ``version`` を +1、監査ログ ``user.sync``）
+    - 行があれば表示名・メールアドレスと、一覧表示用の写し（姓・名・ロール）を同期する（:func:`apply_idp_profile`。
+      値が変わった場合だけ ``version`` を +1、監査ログ ``user.sync``）
     - ``last_login_at`` を更新する（``version`` は変えない。トークン更新では呼ばないこと）
     - 無効化されたユーザー（``is_active = false``）なら何も変更せずに :class:`UserDeactivatedError`
     - テナントに組織の行が 1 件も無ければ（論理削除済みを含む）デフォルト組織を作る（PF-ORG-04。監査ログ ``organization.create``）
@@ -95,6 +108,10 @@ def sync_user_on_login(session: Session, *, tenant_id: uuid.UUID, idp_subject: s
         idp_subject: IdP の利用者 ID（トークンの ``sub``）。
         email: メールアドレス（トークンの ``email``。無ければ ``None``）。
         display_name: 表示名（トークンの ``name``、無ければ ``preferred_username`` を推奨）。空なら メール → ``sub`` の順で代用する。
+        first_name: 名（トークンの ``given_name``）。``None`` なら写しを更新しない。空文字は「IdP で未設定」として写しを NULL にする。
+        last_name: 姓（トークンの ``family_name``）。扱いは ``first_name`` と同じ。
+        roles: レルムロール（トークンの ``realm_access.roles``）。``tenant_admin`` / ``member`` 以外は無視する。
+            ``None`` なら写しを更新しない（空のコレクションは「テナントのロールなし」として写しを空にする）。
 
     Returns:
         UserSyncResult: 結果。
@@ -103,27 +120,37 @@ def sync_user_on_login(session: Session, *, tenant_id: uuid.UUID, idp_subject: s
         UserDeactivatedError: ユーザーが無効化されている。
         TenantContextMismatchError: ``tenant_id`` がコンテキストと一致しない。
         modules.tenancy.context.TenantContextMissingError: コンテキストが無い。
-        ValueError: ``idp_subject`` が空。
+        ValueError: ``idp_subject`` が空、``roles`` が文字列。
         sqlalchemy.exc.SQLAlchemyError: DB の操作に失敗した。
     """
     ctx = _require_context(tenant_id)
     if not idp_subject:
         raise ValueError("idp_subject must not be empty")
+    if isinstance(roles, str):
+        raise ValueError("roles must be a collection of role names")
     normalized_email = _normalize_email(email)
     name = (display_name or "").strip() or normalized_email or idp_subject
+    copies = _ProfileCopies(
+        first_name=UNSET if first_name is None else _normalize_name(first_name),
+        last_name=UNSET if last_name is None else _normalize_name(last_name),
+        roles=UNSET if roles is None else normalize_tenant_roles(roles),
+    )
     now = utc_now()
 
     try:
         user = user_repo.get_user_by_subject(session, idp_subject, for_update=True)
         created = False
         if user is None:
-            user, created = _create_user_from_login(session, ctx, idp_subject=idp_subject, email=normalized_email, display_name=name)
+            user, created = _create_user_from_login(session, ctx, idp_subject=idp_subject, email=normalized_email, display_name=name, copies=copies)
         if not user.is_active:
             raise UserDeactivatedError(user.id)
 
-        profile_updated, email_conflict = (False, False) if created else _sync_profile(session, ctx, user, email=normalized_email, display_name=name)
-        if created and normalized_email and user.email is None:
-            email_conflict = True
+        if created:
+            profile_updated, email_conflict = False, bool(normalized_email and user.email is None)
+        else:
+            profile_updated, email_conflict = apply_idp_profile(
+                session, ctx, user, source="login", email=normalized_email, display_name=name, first_name=copies.first_name, last_name=copies.last_name, roles=copies.roles
+            )
         user.last_login_at = now
         default_organization_id = ensure_default_organization(session, ctx)
         session.flush()
@@ -136,6 +163,80 @@ def sync_user_on_login(session: Session, *, tenant_id: uuid.UUID, idp_subject: s
     if created:
         logger.info("ログイン時にユーザー行を作成しました: tenant_id=%s user_id=%s", ctx.tenant_id, result.user_id)
     return result
+
+
+def apply_idp_profile(
+    session: Session,
+    ctx: TenantContext,
+    user: TUser,
+    *,
+    source: str,
+    email: str | None,
+    display_name: Maybe[str] = UNSET,
+    first_name: Maybe[str | None] = UNSET,
+    last_name: Maybe[str | None] = UNSET,
+    roles: Maybe[list[str]] = UNSET,
+) -> tuple[bool, bool]:
+    """既存のユーザー行の表示名・メールアドレスと、写し（姓・名・ロール）を IdP の値に揃える（コミットしない）。
+
+    ログイン時の同期（``source="login"``）と、詳細の取得時の再同期（``source="idp"``。
+    :meth:`main_app.services.user_service.UserService.get_user`）が使う。呼び出し側は行をロックしておくこと。
+
+    - ``UNSET`` の項目は更新しない。``email`` が ``None`` の場合も保存済みの値を残す
+      （消すと同じアドレスを別のユーザーが取れてしまい、元のユーザーの次回ログインが ``email_conflict`` になるため）
+    - 表示名・メール・姓・名・ロールのいずれかが**変わった**ら ``version`` を +1 し、``updated_by`` を NULL（システム処理）にして
+      監査ログ ``user.sync`` を残す
+    - **写しの初回の埋め込み**（姓・名が NULL → 値、ロールが空 → 値）だけなら、値は書くが ``version`` は上げず監査ログも残さない
+      （列の追加前からある行・管理画面以外で作られた行の写しを埋めるだけで、利用者から見た変更ではないため。
+      姓・名が実際に変わる場合は表示名も変わるので ``version`` は上がる）
+
+    Args:
+        session: AP のセッション（テナントコンテキスト下）。
+        ctx: テナントコンテキスト。
+        user: ユーザー行（ロック済み）。
+        source: 監査ログの ``source``（``login`` / ``idp``）。
+        email: メールアドレス（正規化済み。``None`` は更新しない）。
+        display_name: 表示名（空でないこと）。
+        first_name: 名（正規化済み。``None`` は IdP で未設定）。
+        last_name: 姓（正規化済み。``None`` は IdP で未設定）。
+        roles: テナントのロール（:func:`~main_app.services.common.normalize_tenant_roles` 済み）。
+
+    Returns:
+        tuple[bool, bool]: ``version`` を上げる更新をしたか、メールアドレスの重複で同期しなかったか。
+    """
+    changes: dict[str, dict] = {}
+    email_conflict = False
+    if display_name is not UNSET and user.display_name != display_name:
+        changes["display_name"] = change(user.display_name, display_name)
+        user.display_name = display_name
+    if email is not None and user.email != email:
+        if _email_available(session, email, user.id):
+            changes["email"] = change(user.email, email)
+            user.email = email
+        else:
+            email_conflict = True
+            logger.warning("メールアドレスが別のユーザー行で使われているため同期しません: tenant_id=%s user_id=%s", ctx.tenant_id, user.id)
+    if first_name is not UNSET and user.first_name != first_name:
+        if user.first_name is not None:
+            changes["first_name"] = change(user.first_name, first_name)
+        user.first_name = first_name
+    if last_name is not UNSET and user.last_name != last_name:
+        if user.last_name is not None:
+            changes["last_name"] = change(user.last_name, last_name)
+        user.last_name = last_name
+    current_roles = normalize_tenant_roles(user.roles or ())
+    if roles is not UNSET and current_roles != roles:
+        if current_roles:
+            changes["roles"] = change(current_roles, list(roles))
+        user.roles = list(roles)
+    if not changes:
+        return False, email_conflict
+    before_version = user.version
+    user.version = before_version + 1
+    user.updated_by = None
+    record_audit(session, ctx, actor_id=None, action=ACTION_USER_SYNC, target_type="user", target_id=user.id,
+                 payload={"source": source, "changes": changes, "version": change(before_version, user.version)})
+    return True, email_conflict
 
 
 def ensure_default_organization(session: Session, ctx: TenantContext) -> uuid.UUID | None:
@@ -219,7 +320,7 @@ def _email_available(session: Session, email: str | None, user_id: uuid.UUID | N
     return owner is None or owner == user_id
 
 
-def _create_user_from_login(session: Session, ctx: TenantContext, *, idp_subject: str, email: str | None, display_name: str) -> tuple[TUser, bool]:
+def _create_user_from_login(session: Session, ctx: TenantContext, *, idp_subject: str, email: str | None, display_name: str, copies: _ProfileCopies) -> tuple[TUser, bool]:
     """ログイン時にユーザー行を作る。同時ログインで先に作られていた場合は、その行を返す。
 
     Returns:
@@ -229,11 +330,18 @@ def _create_user_from_login(session: Session, ctx: TenantContext, *, idp_subject
     if email and stored_email is None:
         logger.warning("メールアドレスが別のユーザー行で使われているため、メールアドレスなしで作成します: tenant_id=%s", ctx.tenant_id)
     user = TUser(tenant_id=ctx.tenant_id, idp_subject=idp_subject, email=stored_email, display_name=display_name)
+    payload: dict[str, object] = {"source": "login", "email": stored_email, "display_name": display_name}
+    if copies.first_name is not UNSET:
+        user.first_name = payload["first_name"] = copies.first_name
+    if copies.last_name is not UNSET:
+        user.last_name = payload["last_name"] = copies.last_name
+    if copies.roles is not UNSET:
+        user.roles = list(copies.roles)
+        payload["roles"] = list(copies.roles)
     try:
         with session.begin_nested():
             session.add(user)
-            record_audit(session, ctx, actor_id=None, action=ACTION_USER_CREATE, target_type="user", target_id=user.id,
-                         payload={"source": "login", "email": stored_email, "display_name": display_name})
+            record_audit(session, ctx, actor_id=None, action=ACTION_USER_CREATE, target_type="user", target_id=user.id, payload=payload)
             session.flush()
     except IntegrityError:
         existing = user_repo.get_user_by_subject(session, idp_subject, for_update=True)
@@ -243,32 +351,16 @@ def _create_user_from_login(session: Session, ctx: TenantContext, *, idp_subject
     return user, True
 
 
-def _sync_profile(session: Session, ctx: TenantContext, user: TUser, *, email: str | None, display_name: str) -> tuple[bool, bool]:
-    """既存のユーザー行の表示名・メールアドレスを IdP の値に揃える。
+@dataclass(frozen=True, slots=True, kw_only=True)
+class _ProfileCopies:
+    """ログイン時に渡された写しの値（``UNSET`` は更新しない）。"""
 
-    トークンにメールアドレスが無い（``email`` が None）場合は、保存済みの値を消さずに残す。
-    消すと同じアドレスを別のユーザーが取れてしまい、元のユーザーの次回ログインが ``email_conflict`` になるため。
+    first_name: Maybe[str | None]
+    last_name: Maybe[str | None]
+    roles: Maybe[list[str]]
 
-    Returns:
-        tuple[bool, bool]: 更新したか、メールアドレスの重複で同期しなかったか。
-    """
-    changes: dict[str, dict] = {}
-    email_conflict = False
-    if user.display_name != display_name:
-        changes["display_name"] = change(user.display_name, display_name)
-        user.display_name = display_name
-    if email is not None and user.email != email:
-        if _email_available(session, email, user.id):
-            changes["email"] = change(user.email, email)
-            user.email = email
-        else:
-            email_conflict = True
-            logger.warning("メールアドレスが別のユーザー行で使われているため同期しません: tenant_id=%s user_id=%s", ctx.tenant_id, user.id)
-    if not changes:
-        return False, email_conflict
-    before_version = user.version
-    user.version = before_version + 1
-    user.updated_by = None
-    record_audit(session, ctx, actor_id=None, action=ACTION_USER_SYNC, target_type="user", target_id=user.id,
-                 payload={"source": "login", "changes": changes, "version": change(before_version, user.version)})
-    return True, email_conflict
+
+def _normalize_name(value: str) -> str | None:
+    """姓・名の前後の空白を除く（空なら ``None`` = IdP で未設定）。"""
+    stripped = value.strip()
+    return stripped or None

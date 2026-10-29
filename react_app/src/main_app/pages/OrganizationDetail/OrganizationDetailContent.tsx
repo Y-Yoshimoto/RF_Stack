@@ -1,18 +1,20 @@
 /**
- * @desc 組織詳細の本体 (詳細とユーザー一覧の取得後に表示する。組織名・メンバー・削除)
+ * @desc 組織詳細の本体 (詳細の取得後に表示する。組織名・メンバー・削除)
+ * メンバーの名前は useUsersByIds (メンバーの ID だけを指定して取得) で解決する。
  * 変更の操作 (useOrganizationActions) と結果の通知はここで持つ。tenant_admin には変更を出し、member は閲覧のみ。
  */
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Alert, Button, Paper, Typography } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
-import type { OrganizationDetail, UserRead } from '@/main_app/api/contract';
+import type { OrganizationDetail } from '@/main_app/api/contract';
 import { useAppPermissions, useAppSession } from '@/main_app/auth/useAppAuth';
 import { AppErrorAlert } from '@/main_app/components/AppErrorAlert';
 import { ConfirmDialog } from '@/main_app/components/ConfirmDialog';
 import { useOrganizationActions } from '@/main_app/organizations/useOrganizationActions';
 import type { OrganizationActionUpdate } from '@/main_app/organizations/useOrganization';
 import { appOrganizationsPath } from '@/main_app/paths';
+import { useUsersByIds } from '@/main_app/users/useUsersByIds';
 import { MemberSection } from './MemberSection';
 import { OrganizationRenameForm } from './OrganizationRenameForm';
 
@@ -20,19 +22,18 @@ export type OrganizationDetailContentProps = {
     organization: OrganizationDetail;
     /** 保持している ETag (If-Match に使う)。 */
     etag: string | null;
-    /** テナントの全ユーザー (メンバーの名前・選択肢)。 */
-    users: readonly UserRead[];
     /** 更新の結果を詳細に反映する (useOrganization の applyUpdate)。 */
     onUpdated: (update: OrganizationActionUpdate) => void;
     /** 詳細を取り直す。 */
     onReload: () => void;
 };
 
-export const OrganizationDetailContent = ({ organization, etag, users, onUpdated, onReload }: OrganizationDetailContentProps) => {
+export const OrganizationDetailContent = ({ organization, etag, onUpdated, onReload }: OrganizationDetailContentProps) => {
     const navigate = useNavigate();
     const { tenant_code } = useAppSession();
     const { can_write } = useAppPermissions();
     const actions = useOrganizationActions({ onUpdated });
+    const members = useUsersByIds(organization.member_ids);
     const [notice, setNotice] = useState<string | null>(null);
     const [is_deleting, setIsDeleting] = useState(false);
     const target = { organization_id: organization.id, etag };
@@ -73,7 +74,7 @@ export const OrganizationDetailContent = ({ organization, etag, users, onUpdated
             <MemberSection
                 key={`members-${organization.version}`}
                 member_ids={organization.member_ids}
-                users={users}
+                members={members}
                 can_write={can_write}
                 pending={actions.pending === 'set_members'}
                 onSave={saveMembers}

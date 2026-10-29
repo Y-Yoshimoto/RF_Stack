@@ -113,6 +113,16 @@ export type MeUser = {
 };
 
 /**
+ * ログイン中のユーザーが所属する組織 (OpenAPI: MeOrganization)。
+ */
+export type MeOrganization = {
+    /** 組織 ID (UUIDv7。`GET /api/v1/organizations` の id と同じ値)。 */
+    id: string;
+    /** 組織名。 */
+    name: string;
+};
+
+/**
  * `GET /api/v1/me` のレスポンス (OpenAPI: MeRead)。
  */
 export type MeRead = {
@@ -120,6 +130,8 @@ export type MeRead = {
     tenant: MeTenant;
     /** ユーザー。 */
     user: MeUser;
+    /** 所属する有効な組織 (組織名順。論理削除済みを除く。所属が無ければ空配列。常にある)。 */
+    organizations: MeOrganization[];
 };
 
 // ロール ///////////////////////////////////////////////////////////////////////
@@ -133,6 +145,12 @@ export const APP_ROLE = {
     MEMBER: 'member',
 } as const satisfies Record<string, AppRole>;
 
+/**
+ * テナントの既定ロール (レルムの既定ロール。ユーザーには常に付く)。
+ * ロールの写し (UserRead.roles) は「直接付与したロール + 既定ロール」になる (POST の roles の省略時も member)。
+ */
+export const APP_DEFAULT_ROLES: readonly AppRole[] = [APP_ROLE.MEMBER];
+
 /** 自分自身に対して拒否される操作 (409 user_self_modification_forbidden の拡張メンバー operation)。 */
 export type SelfModificationOperation = 'deactivate' | 'remove_tenant_admin';
 
@@ -142,7 +160,9 @@ export type SelfModificationOperation = 'deactivate' | 'remove_tenant_admin';
 export type UserSortKey = 'display_name' | '-display_name' | 'created_at' | '-created_at';
 
 /**
- * テナント内のユーザー (OpenAPI: UserRead)。一覧の要素・`PATCH` のレスポンス (ロールを含まない)。
+ * テナント内のユーザー (OpenAPI: UserRead)。一覧の要素。
+ * 姓・名・ロールは AP の DB の写し (最後に同期した時点の値。ログイン時・作成・更新・詳細の取得で更新される)。
+ * 最新の値は詳細 (`GET /api/v1/users/{user_id}`。IdP から取り直す) で取得する。
  */
 export type UserRead = {
     /** ユーザー ID (UUIDv7)。`/api/v1/me` の user.id、組織のメンバー ID と同じ値。 */
@@ -151,6 +171,12 @@ export type UserRead = {
     email: string | null;
     /** 表示名 (`"{名} {姓}"`)。 */
     display_name: string;
+    /** 名 (写し。未同期・未設定なら null)。 */
+    first_name: string | null;
+    /** 姓 (写し。未同期・未設定なら null)。 */
+    last_name: string | null;
+    /** テナントのロール (写し。`tenant_admin` / `member` の順。未同期なら空配列)。 */
+    roles: AppRole[];
     /** 有効か。無効化されたユーザーはログインできない。 */
     is_active: boolean;
     /** 最終ログイン日時。一度もログインしていなければ null。 */
@@ -162,14 +188,15 @@ export type UserRead = {
 };
 
 /**
- * `GET /api/v1/users/{user_id}` のレスポンス (OpenAPI: UserDetail)。ロールは認証基盤から取得する (失敗は 502)。ETag ヘッダー付き。
+ * ユーザーの詳細 (OpenAPI: UserDetail)。`UserRead` と同じ項目。ETag ヘッダー付き。
+ * - `GET /api/v1/users/{user_id}`: 姓・名・ロールを IdP から取り直した値 (失敗は 502)。写しと違えば写しを更新するため、
+ *   一覧の version より新しい version (と ETag) が返ることがある。If-Match には常にこの応答の ETag を使う。
+ * - `PATCH` の応答・`POST` の user: 変更した項目は IdP に設定した値、変更しない項目は写しの値。
  */
-export type UserDetail = UserRead & {
-    roles: AppRole[];
-};
+export type UserDetail = UserRead;
 
 /**
- * `GET /api/v1/users` のレスポンス (OpenAPI: UserPage)。ロールは含まない。
+ * `GET /api/v1/users` のレスポンス (OpenAPI: UserPage)。姓・名・ロールは写しの値。
  */
 export type UserPage = {
     items: UserRead[];
@@ -180,17 +207,34 @@ export type UserPage = {
 };
 
 /**
- * `GET /api/v1/users` のクエリ。
+ * `GET /api/v1/users` のクエリ (API に送る形)。
  */
 export type UserListQuery = {
-    /** 1 ページの件数 (既定 50、1〜200)。 */
+    /** 1 ページの件数 (既定 50、1〜200)。ids の件数が limit を超える場合は next_cursor で続きを取得する。 */
     limit?: number;
     /** 前回のレスポンスの next_cursor (中身は解釈しない)。並び順を変えると 422。 */
     cursor?: string;
     sort?: UserSortKey;
     /** true で有効なユーザーのみ、false で無効化されたユーザーのみ。省略時は両方。 */
     is_active?: boolean;
+    /**
+     * ユーザー ID で絞り込む (カンマ区切りの UUID。重複を除いて最大 USER_IDS_QUERY_MAX 件)。
+     * 存在しない ID・他テナントの ID は結果に含まれないだけ。空文字は 0 件 (items: [])。
+     * UUID でない値・上限超は 422 invalid_user_input (errors[0].field は `ids`、code は USER_IDS_ERROR_CODE)。
+     */
+    ids?: string;
 };
+
+/** `GET /api/v1/users` の ids で一度に指定できる件数 (重複を除いた数)。 */
+export const USER_IDS_QUERY_MAX = 100;
+
+/** 422 invalid_user_input (errors[0].field: `ids`) の errors[].code。 */
+export const USER_IDS_ERROR_CODE = {
+    /** UUID でない値を含む。 */
+    FORMAT: 'format',
+    /** 重複を除いて USER_IDS_QUERY_MAX 件を超える。 */
+    TOO_MANY: 'too_many',
+} as const;
 
 /**
  * `POST /api/v1/users` のリクエスト (OpenAPI: UserCreate)。
@@ -212,6 +256,7 @@ export type UserCreate = {
  * `PATCH /api/v1/users/{user_id}` のリクエスト (OpenAPI: UserUpdate)。送った項目だけを更新する。
  * null は指定できない (422)。first_name と last_name は両方を指定する。
  * 自分自身の無効化・自分の tenant_admin の解除は 409 (user_self_modification_forbidden)。
+ * 応答は UserDetail (ETag 付き)。変更しない項目の姓・名・ロールは写しの値。
  */
 export type UserUpdate = {
     first_name?: string;
@@ -231,7 +276,7 @@ export type UserCredentials = {
 };
 
 /**
- * `POST /api/v1/users` のレスポンス (OpenAPI: UserCreated)。201、Location / ETag 付き。
+ * `POST /api/v1/users` のレスポンス (OpenAPI: UserCreated)。201、Location / ETag 付き。user の姓・名・ロールは作成時に設定した値。
  */
 export type UserCreated = {
     user: UserDetail;

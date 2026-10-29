@@ -1,7 +1,8 @@
 /**
  * @desc ユーザーの編集フォーム (姓名・ロール。tenant_admin のみ)
  * 変更した項目だけを送る。自分自身の tenant_admin の解除は、API を呼ぶ前に selfModificationOf で判定し、無効化して理由を表示する。
- * 姓名の初期値は表示名 (`"{名} {姓}"`) から推定するため、姓名の入力欄を変更したときだけ姓名を送る。
+ * 姓名の初期値は詳細の first_name / last_name。null (未同期・未設定) なら空欄で始め、入力欄を変更したときだけ姓名を送る
+ * (変更しない保存で、空の姓名を送って上書きしない)。
  */
 import { useRef, useState, type FormEvent } from 'react';
 import { Box, Button, Checkbox, CircularProgress, FormControl, FormControlLabel, FormGroup, FormHelperText, FormLabel, Paper, Stack, TextField, Typography } from '@mui/material';
@@ -9,7 +10,6 @@ import { APP_ROLE, type AppRole, type UserDetail } from '@/main_app/api/contract
 import { selfModificationOf, type UserChanges } from '@/main_app/api/users';
 import { APP_ROLE_LABELS } from '@/main_app/layouts/AppLayout/labels';
 import { nameErrorOf } from '@/main_app/pages/UserCreate/validation';
-import { namePartsOf } from './name_parts';
 
 const ROLE_OPTIONS: readonly AppRole[] = [APP_ROLE.MEMBER, APP_ROLE.TENANT_ADMIN];
 const ROLE_LOCK_ID = 'user-edit-role-lock';
@@ -35,7 +35,7 @@ type FieldErrors = { last_name?: string; first_name?: string; roles?: string };
 const sameRoles = (a: readonly AppRole[], b: readonly AppRole[]): boolean => a.length === b.length && a.every((role) => b.includes(role));
 
 export const UserEditForm = ({ user, self_user_id, onSave, pending }: UserEditFormProps) => {
-    const initial = namePartsOf(user.display_name);
+    const initial = { last_name: user.last_name ?? '', first_name: user.first_name ?? '' };
     const [last_name, setLastName] = useState(initial.last_name);
     const [first_name, setFirstName] = useState(initial.first_name);
     const [roles, setRoles] = useState<readonly AppRole[]>(user.roles);

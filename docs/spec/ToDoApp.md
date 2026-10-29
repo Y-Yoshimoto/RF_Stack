@@ -227,9 +227,9 @@ FastAPI 非依存。テナントコンテキスト下の AP セッション（`A
 
 | モジュール | 内容 |
 | --- | --- |
-| `main_app/services/todo_service.py` | `TodoService(session, *, actor_user_id, actor_roles)`。`actor_user_id` は `t_user.id`（IdP の `sub` ではない）、`actor_roles` はセッションのロール。`list_todos` / `get_todo` / `create_todo` / `update_todo`（PATCH。`UNSET` で未指定。閲覧範囲・公開先組織の変更を含む）/ `delete_todo`（論理削除）/ `set_assignees`（全置換）/ `list_activities` |
+| `main_app/services/todo_service.py` | `TodoService(session, *, actor_user_id, actor_roles)`。`actor_user_id` は `t_user.id`（IdP の `sub` ではない）、`actor_roles` はセッションのロール。`list_todos` / `get_todo` / `create_todo` / `update_todo`（PATCH。`UNSET` で未指定。閲覧範囲・公開先組織の変更を含む）/ `delete_todo`（論理削除）/ `set_assignees`（全置換）/ `list_activities`（戻り値は `TodoActivityPage`。下記「アクティビティと監査ログ」） |
 | `main_app/services/todo_policy.py` | 閲覧範囲（AP-VIS）の SQL 条件 `visible_condition`、表示範囲 `scope_condition`、操作の権限 `todo_permissions`（3 章）。**判定はここだけ**で、一覧のクエリと単体の取得（詳細・更新・削除・担当者の変更・アクティビティ）が同じ条件を `WHERE` に付ける（AP-VIS-09） |
-| `main_app/services/todo_views.py` | `TodoView`（一覧。説明を除く）/ `TodoDetailView`（詳細。説明と操作者の権限 `permissions`）/ `TodoActivityView` |
+| `main_app/services/todo_views.py` | `TodoView`（一覧。説明を除く）/ `TodoDetailView`（詳細。説明と操作者の権限 `permissions`）/ `TodoActivityView` / `TodoActivityPage`（`Page[TodoActivityView]` + `users`） |
 | `main_app/services/errors.py` | 例外と `code`・HTTP の対応（下表） |
 | `main_app/repositories/todos/todos.py` / `activities.py` | DB アクセス。一覧の担当者・公開先組織は ToDo の ID でまとめて取得する（1 ページあたり 3 クエリ。N+1 にしない） |
 
@@ -257,6 +257,8 @@ FastAPI 非依存。テナントコンテキスト下の AP セッション（`A
 
 **アクティビティと監査ログ**（AP-ACT）: 変更と同じトランザクションで、アクティビティは種別ごとに 1 行（例: 1 回の PATCH で項目・ステータス・閲覧範囲を変えると `updated` / `status_changed` / `visibility_changed` の 3 行）。値が変わらない更新は何も記録せず `version` も変えない。監査ログの `action` は `todo.create` / `todo.update`（項目・ステータス）/ `todo.change_visibility` / `todo.set_assignees` / `todo.delete`（`target_type = 'todo'`。説明の本文は残さず変更の有無だけ）。`payload` の形は `TodoActivityView` の docstring。
 
+**アクティビティの参照先ユーザー**（AP-ACT-02）: `list_activities` は `Page` の `items` / `next_after` に加えて `users: Mapping[UUID, UserNameView]`（`id` / `display_name` / `is_active`）を返す。対象はページ内の操作者（`actor_id`）と `payload` が参照するユーザー（`created` の `values.assignee_ids`、`assignees_changed` の `added` / `removed`）で、1 回のクエリで取得する。担当者から外れたユーザー・無効化されたユーザーも含み、テナント内に存在しない ID（他テナントの ID を含む）は含めない（RLS に加えて `tenant_id` を明示）。`TodoActivityView.actor_display_name` も同じ対応から埋める。
+
 ### 9.4 開発用データ
 
 - シードテナント `alpha` / `beta` に、閲覧範囲・担当者の組み合わせを網羅した ToDo を投入する
@@ -274,7 +276,7 @@ FastAPI 非依存。テナントコンテキスト下の AP セッション（`A
 | PATCH | `/api/v1/todos/{id}` | 200 `TodoDetail`、新しい `ETag` | `update_todo` | 403 / 404 / 412 / 422 / 428 |
 | DELETE | `/api/v1/todos/{id}` | 204（論理削除。本文なし） | `delete_todo` | 403 / 404 / 412 / 428 |
 | PUT | `/api/v1/todos/{id}/assignees` | 200 `TodoDetail`、新しい `ETag` | `set_assignees` | 403 / 404 / 412 / 422 / 428 |
-| GET | `/api/v1/todos/{id}/activities` | 200 `TodoActivityPage`（新しい順） | `list_activities` | 404 / 422 |
+| GET | `/api/v1/todos/{id}/activities` | 200 `TodoActivityPage`（新しい順）。`{items, next_cursor, users}`。`users` は `{<user_id>: {display_name, is_active}}`（ユーザー ID をキーにしたオブジェクト。操作者と `payload` が参照するユーザー。キーが無い ID は「不明なユーザー」と表示する） | `list_activities` | 404 / 422 |
 
 - **クエリ**: 6 章のとおり。絞り込みの名前はサービスの引数に合わせ `assignee_id` / `organization_id`。`status` / `priority` の複数値は 03 §3 のカンマ区切り（`status=open,in_progress`）。`sort` は**キー 1 つ**（`due_date` / `priority` / `created_at` / `updated_at`、先頭 `-` で降順。既定 `-created_at`）で、複数キー（`due_date,-priority`）は未対応（#11）のため 422。OpenAPI の `sort` の説明にも書く
 - **カーソル**: `route/v1/paging.py`（`(キー, id)` を base64url の JSON にする。`due_date` は `YYYY-MM-DD` または `null`、`priority` は文字列、`created_at` / `updated_at` は ISO 8601）。`sort` の違うカーソルや壊れたカーソルは 422（`validation_error` の `errors[].code = invalid_cursor`）。アクティビティは `-created_at` 固定

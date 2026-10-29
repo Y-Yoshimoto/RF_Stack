@@ -26,6 +26,7 @@ class TestMe:
         check.equal(response.json(), {
             "tenant": {"id": str(record.tenant_id), "tenant_code": code},
             "user": {"id": str(ap_user_id(f"{code}-sub-1")), "username": f"{code}-member", "email": f"{code}-member@example.com", "roles": ["member"]},
+            "organizations": [],
         })
         check.is_in("application/json", response.headers["content-type"])
 

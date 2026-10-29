@@ -22,7 +22,7 @@ FastAPI に依存しない。AP のセッション（テナントコンテキス
 | :meth:`TodoService.update_todo` | ``TodoValidationError``, ``TodoNotFoundError``, ``TodoVersionConflictError``, ``TodoPermissionDeniedError``, ``InvalidTodoOrganizationsError`` |
 | :meth:`TodoService.delete_todo` | ``TodoNotFoundError``, ``TodoVersionConflictError``, ``TodoPermissionDeniedError`` |
 | :meth:`TodoService.set_assignees` | ``TodoValidationError``, ``TodoNotFoundError``, ``TodoVersionConflictError``, ``TodoPermissionDeniedError``, ``InvalidTodoAssigneesError`` |
-| :meth:`TodoService.list_activities` | ``TodoNotFoundError``, ``TodoValidationError``（``cursor``） |
+| :meth:`TodoService.list_activities` | ``TodoNotFoundError``, ``TodoValidationError``（``cursor``）。戻り値は ``Page`` に参照先ユーザーの表示名 ``users`` を加えた :class:`TodoActivityPage` |
 
 判定の順序（変更系）: 入力の形式（422）→ 閲覧範囲（404。他テナント・存在しない・論理削除済みと同じ）→ 版（412）→
 操作の権限（403）→ 現在の状態に依存する検証（422。組織・担当者の存在や有効性）。権限は**実際に値が変わる項目**で判定する
@@ -46,11 +46,12 @@ from sqlmodel import Session
 
 from main_app.models import TodoActivityAction, TodoPriority, TodoStatus, TodoVisibility, TTodo
 from main_app.models.todo import TODO_ASSIGNEES_MAX, TODO_DESCRIPTION_MAX_LENGTH, TODO_TITLE_MAX_LENGTH
+from main_app.repositories import users as user_repo
 from main_app.repositories.keyset import ListSort, Page, normalize_limit
 from main_app.repositories.todos import activities as activity_repo
 from main_app.repositories.todos import todos as todo_repo
 from main_app.repositories.todos.todos import DEFAULT_TODO_SORT, PRIORITY_RANK, TODO_SORT_KEYS, AssigneeRow, OrganizationRow, TodoListFilter
-from main_app.services.common import UNSET, Maybe, change, record_audit, utc_now
+from main_app.services.common import UNSET, Maybe, UserNameView, change, record_audit, utc_now
 from main_app.services.errors import (
     InvalidTodoAssigneesError,
     InvalidTodoOrganizationsError,
@@ -60,12 +61,13 @@ from main_app.services.errors import (
     TodoVersionConflictError,
 )
 from main_app.services.todo_policy import TodoActor, TodoOperation, TodoPermissions, TodoScope, effective_visibility, scope_condition, todo_permissions, visible_condition
-from main_app.services.todo_views import TodoActivityView, TodoAssigneeView, TodoDetailView, TodoOrganizationView, TodoView
+from main_app.services.todo_views import TodoActivityPage, TodoActivityView, TodoAssigneeView, TodoDetailView, TodoOrganizationView, TodoView
 from modules.tenancy.context import require_tenant_context
 
 __all__ = [
     "DEFAULT_TODO_SORT",
     "TODO_SORT_KEYS",
+    "TodoActivityPage",
     "TodoActivityView",
     "TodoAssigneeView",
     "TodoDetailView",
@@ -186,8 +188,11 @@ class TodoService:
         todo = self._require_visible(actor, todo_id)
         return self._detail_view(actor, todo)
 
-    def list_activities(self, todo_id: uuid.UUID, *, limit: int = 50, after: tuple[Any, uuid.UUID] | None = None) -> Page[TodoActivityView]:
+    def list_activities(self, todo_id: uuid.UUID, *, limit: int = 50, after: tuple[Any, uuid.UUID] | None = None) -> TodoActivityPage:
         """ToDo のアクティビティ（新しい順。AP-ACT-02: ToDo を閲覧できる人だけが参照できる）。
+
+        ページ内の操作者と ``payload`` が参照するユーザー（担当者の追加・削除、作成時の担当者）の表示名を ``users`` に付ける
+        （外れた担当者・無効化されたユーザーも解決できる。ユーザーの取得は 1 回のクエリ）。
 
         Args:
             todo_id: ToDo ID。
@@ -195,7 +200,7 @@ class TodoService:
             after: 起点（前のページの ``next_after``。``(created_at, id)``。日時はタイムゾーン付きの ISO 8601 の文字列も可）。
 
         Returns:
-            Page[TodoActivityView]: ページ。
+            TodoActivityPage: ページ（``Page[TodoActivityView]`` + ``users``）。
 
         Raises:
             TodoNotFoundError: 存在しない（他テナント・論理削除済み・閲覧範囲外を含む）。
@@ -205,20 +210,27 @@ class TodoService:
         normalized_after = _normalize_datetime_after(after)
         todo = self._require_visible(actor, todo_id)
         page = activity_repo.list_activities(self._session, actor.tenant_id, todo.id, after=normalized_after, limit=normalize_limit(limit))
-        names = todo_repo.load_display_names(self._session, {row.actor_id for row in page.items})
+        rows = [(row, TodoActivityAction(row.action), dict(row.payload or {})) for row in page.items]
+        referenced: set[uuid.UUID] = set()
+        for row, action, payload in rows:
+            referenced.add(row.actor_id)
+            referenced.update(_activity_user_ids(action, payload))
+        users = {
+            user_id: UserNameView(id=user_id, display_name=name, is_active=active) for user_id, name, active in user_repo.list_user_names(self._session, actor.tenant_id, referenced)
+        }
         items = [
             TodoActivityView(
                 id=row.id,
                 todo_id=row.todo_id,
                 actor_id=row.actor_id,
-                actor_display_name=names.get(row.actor_id),
-                action=TodoActivityAction(row.action),
-                payload=dict(row.payload or {}),
+                actor_display_name=users[row.actor_id].display_name if row.actor_id in users else None,
+                action=action,
+                payload=payload,
                 created_at=row.created_at,
             )
-            for row in page.items
+            for row, action, payload in rows
         ]
-        return Page(items=items, next_after=page.next_after)
+        return TodoActivityPage(items=items, next_after=page.next_after, users=users)
 
     # ------------------------------------------------------------------ 変更
     def create_todo(
@@ -578,6 +590,29 @@ def _view_fields(todo: TTodo, assignees: Sequence[AssigneeRow], organizations: S
         "created_at": todo.created_at,
         "updated_at": todo.updated_at,
     }
+
+
+def _activity_user_ids(action: TodoActivityAction, payload: dict[str, Any]) -> set[uuid.UUID]:
+    """アクティビティの ``payload`` が参照するユーザー ID を取り出す（形は :class:`TodoActivityView` の docstring）。
+
+    ``created`` の ``values.assignee_ids``、``assignees_changed`` の ``added`` / ``removed``。UUID として読めない値は無視する
+    （``payload`` は記録時の JSON のため、壊れていても一覧の取得は止めない）。
+    """
+    if action == TodoActivityAction.CREATED:
+        values = payload.get("values")
+        candidates = values.get("assignee_ids") if isinstance(values, dict) else None
+        raw = list(candidates) if isinstance(candidates, list) else []
+    elif action == TodoActivityAction.ASSIGNEES_CHANGED:
+        raw = [value for key in ("added", "removed") if isinstance(payload.get(key), list) for value in payload[key]]
+    else:
+        return set()
+    result: set[uuid.UUID] = set()
+    for value in raw:
+        try:
+            result.add(uuid.UUID(str(value)))
+        except ValueError:
+            continue
+    return result
 
 
 def _json(value: Any) -> Any:

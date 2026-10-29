@@ -6,7 +6,10 @@
  * - 自分自身の無効化・自分の tenant_admin の解除は API を呼ばずに失敗 (kind: conflict、code: user_self_modification_forbidden) にする。
  *   自分の ID は options.self_user_id (useMe の self_user_id) で受け取る。未取得 (null) の間は判定せず API に任せる (API も 409 で拒否する)
  * - 更新は保持している ETag を If-Match に付ける。412 / 428 は requires_reload のエラーになる (useUser の reload で取り直してやり直す)
- * - 更新の応答にロールは無いため、ロールを変えた更新は roles_stale: true で通知する (useUser の applyUpdate が取り直す)
+ * - 更新の応答は UserDetail (姓・名・ロールを含む) のため、通常は onUpdated の user をそのまま反映すればよい (roles_stale: false)。
+ *   ロールを送った更新で、応答のロールが送ったロール (+ 既定ロール) と食い違う場合だけ roles_stale: true で通知する
+ *   (IdP 上で変化が無かったため写しが書き換わらず、写しが IdP と食い違っていた。useUser の applyUpdate が取り直す)。
+ *   ロールを送らない更新の応答のロールは写しの値 (詳細の GET で IdP と揃えた時点の値)。GET の後に IdP 側で直接変更された場合は古い
  * - 一時パスワードは issued_credentials にだけ保持し、dismissCredentials・次の操作の開始・一定時間の経過・アンマウントで消す。
  *   操作の戻り値・onUpdated・エラーには含めない。ログにも出さない
  * - 操作は reject しない。結果 (ok / failure) を返し、最後の失敗を failure に保持する
@@ -15,7 +18,7 @@ import { useCallback } from 'react';
 import { useAppApiClient } from '@/main_app/api/client';
 import type { UserCreate, UserCredentials } from '@/main_app/api/contract';
 import { AppGuardError, classifyAppError, type AppErrorInfo } from '@/main_app/api/errors';
-import { createUser, selfModificationOf, toUserUpdate, updateUser, type UserChanges, type UserTarget } from '@/main_app/api/users';
+import { createUser, rolesMatchRequest, selfModificationOf, toUserUpdate, updateUser, type UserChanges, type UserTarget } from '@/main_app/api/users';
 import { useAppPermissions } from '@/main_app/auth/useAppAuth';
 import type { UserVersioned } from '@/main_app/users/useUser';
 import { useActionRunner, type ActionOutcome } from '@/shared/hooks/useActionRunner';
@@ -144,8 +147,9 @@ export const useUserActions = ({ self_user_id, onUpdated, credentials_ttl_ms = D
         target_id: target.user_id,
         precheck: () => (can_write ? updateGuardOf(target, changes, self_user_id) : new AppGuardError('write_not_allowed')),
         run: async () => {
-            const { body, etag } = await updateUser(client, target.user_id, toUserUpdate(changes), target.etag ?? '');
-            return { action: 'update', user: body, etag, roles_stale: changes.roles !== undefined };
+            const update_body = toUserUpdate(changes);
+            const { body, etag } = await updateUser(client, target.user_id, update_body, target.etag ?? '');
+            return { action: 'update', user: body, etag, roles_stale: update_body.roles !== undefined && !rolesMatchRequest(update_body.roles, body.roles) };
         },
     })), [execute, finish, client, can_write, self_user_id]);
 

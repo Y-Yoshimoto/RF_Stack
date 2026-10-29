@@ -9,7 +9,7 @@ import uuid
 from collections.abc import Collection
 from typing import Any
 
-from sqlalchemy import delete, func
+from sqlalchemy import and_, delete, func
 from sqlmodel import Session, col, select
 
 from main_app.models import TOrganization, TOrganizationMember
@@ -97,6 +97,27 @@ def list_member_ids(session: Session, organization_id: uuid.UUID) -> list[uuid.U
         list[uuid.UUID]: ユーザー ID。
     """
     statement = select(TOrganizationMember.user_id).where(TOrganizationMember.organization_id == organization_id).order_by(col(TOrganizationMember.user_id))
+    return list(session.exec(statement).all())
+
+
+def list_active_organizations_of_user(session: Session, user_id: uuid.UUID) -> list[TOrganization]:
+    """ユーザーが所属する有効な（論理削除されていない）組織を返す（組織名順、同名は ID 順）。
+
+    逆引きは ``t_organization_member`` の ``(tenant_id, user_id)`` のインデックスを使う。
+
+    Args:
+        session: AP のセッション。
+        user_id: ユーザー ID。
+
+    Returns:
+        list[TOrganization]: 組織。所属が無い・存在しないユーザーは空。
+    """
+    statement = (
+        select(TOrganization)
+        .join(TOrganizationMember, and_(col(TOrganizationMember.tenant_id) == col(TOrganization.tenant_id), col(TOrganizationMember.organization_id) == col(TOrganization.id)))
+        .where(col(TOrganizationMember.user_id) == user_id, col(TOrganization.deleted_at).is_(None))
+        .order_by(col(TOrganization.name), col(TOrganization.id))
+    )
     return list(session.exec(statement).all())
 
 

@@ -1,5 +1,9 @@
 #!/usr/bin/env python
 # coding:utf-8
+"""外部 API へのリバースプロキシのサンプル実装。
+
+アプリに登録していない参考用のコード。`app.py` から `include_router` していないため、このルートは公開されない(import もされない)。
+"""
 import os
 
 import httpx

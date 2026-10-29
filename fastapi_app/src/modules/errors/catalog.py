@@ -53,6 +53,7 @@ PROBLEM_TEXTS: dict[str, ProblemText] = {
     "token_exchange_failed": ProblemText("ログインに失敗しました", "認証情報の交換に失敗しました。もう一度お試しください"),
     "invalid_token": ProblemText("ログインに失敗しました", "認証情報を検証できませんでした。もう一度お試しください"),
     "dev_login_failed": ProblemText("開発用ログインに失敗しました", "開発用ログインの認証情報を確認してください"),
+    "e2e_cleanup_in_progress": ProblemText("後片付けが実行中です", "別の E2E データの後片付けが実行中です。完了してからやり直してください"),
 }
 
 # HTTP ステータス → 既定のエラーコード。
