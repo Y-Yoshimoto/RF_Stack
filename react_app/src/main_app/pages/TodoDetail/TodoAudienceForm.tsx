@@ -12,6 +12,11 @@ import type { AppErrorInfo } from '@/main_app/api/errors';
 
 export type TodoAudienceFormProps = {
     todo: TodoDetail;
+    /** 入力値 (下書き。親が持つ)。 */
+    value: AudienceValue;
+    onChange: (value: AudienceValue) => void;
+    /** 他の人の変更と重なった項目がある (入力は残している)。 */
+    has_conflict?: boolean;
     needs_reselect: boolean;
     organizations: readonly TodoOrganizationOption[];
     organizations_status: 'loading' | 'success' | 'error';
@@ -23,15 +28,14 @@ export type TodoAudienceFormProps = {
 
 const ORGANIZATIONS_REQUIRED = '公開先の組織を 1 つ以上選んでください。';
 
-export const TodoAudienceForm = ({ todo, needs_reselect, organizations, organizations_status, organizations_error, onReloadOrganizations, pending, onSave }: TodoAudienceFormProps) => {
-    const [value, setValue] = useState<AudienceValue>({ visibility: todo.visibility, organization_ids: todo.organizations.map((organization) => organization.id) });
+export const TodoAudienceForm = ({ todo, value, onChange, has_conflict = false, needs_reselect, organizations, organizations_status, organizations_error, onReloadOrganizations, pending, onSave }: TodoAudienceFormProps) => {
     const [error_text, setErrorText] = useState<string | undefined>(undefined);
     const editable = todo.permissions.can_change_visibility;
     const changes: TodoChanges = { audience: value };
     const is_changed = Object.keys(diffTodoChanges(todo, changes)).length > 0;
 
     const change = (next: AudienceValue) => {
-        setValue(next);
+        onChange(next);
         setErrorText(undefined);
     };
 
@@ -44,7 +48,7 @@ export const TodoAudienceForm = ({ todo, needs_reselect, organizations, organiza
     };
 
     return (
-        <Box data-testid="todo-audience-form" data-editable={editable}>
+        <Box data-testid="todo-audience-form" data-editable={editable} data-conflict={has_conflict}>
             {needs_reselect && (
                 <Alert severity="warning" sx={{ mb: 2 }} data-testid="todo-reselect-notice">
                     {editable

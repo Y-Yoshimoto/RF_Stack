@@ -13,7 +13,7 @@ import { SCREEN_BASEURL } from '../constants';
  * X-Requested-With は src/constants.ts の CSRF_HEADER。Origin はブラウザが自動で付けるが、API 呼び出し (APIRequestContext) は付けないため、
  * FastAPI が許可するオリジン (FRONTEND_URL。これが画面のテストを dev サーバーで動かす理由) を明示する。
  */
-const CSRF_HEADERS = { 'X-Requested-With': 'rf-stack', Origin: new URL(SCREEN_BASEURL).origin };
+export const CSRF_HEADERS = { 'X-Requested-With': 'rf-stack', Origin: new URL(SCREEN_BASEURL).origin };
 
 type PageOf<T> = { items: T[]; next_cursor: string | null };
 
@@ -70,4 +70,54 @@ export async function createOrganization(request: APIRequestContext, name: strin
         organization = (await replaced.json()) as OrganizationSummary;
     }
     return organization;
+}
+
+
+//// AP: ToDo ////////////////////////////////////////////////////////////////////
+
+export type TodoSummary = { id: string; title: string; status: string; version: number };
+
+export type TodoSeed = {
+    /** タイトル。後片付けの対象にするため `E2E ToDo <8 文字>` の形にする (cleanup.teardown.ts) */
+    title: string;
+    description?: string;
+    status?: 'open' | 'in_progress' | 'done';
+    priority?: 'low' | 'medium' | 'high';
+    /** 期限 (`YYYY-MM-DD`) */
+    due_date?: string;
+    visibility?: 'private' | 'tenant' | 'organization';
+    organization_ids?: string[];
+    assignee_ids?: string[];
+};
+
+/** ToDo を作成する (前提データ)。呼び出し元のセッションのユーザーが作成者になる。後片付けは cleanup.teardown.ts が行う */
+export async function createTodo(request: APIRequestContext, seed: TodoSeed): Promise<TodoSummary> {
+    const created = await request.post('/api/v1/todos', { data: seed, headers: CSRF_HEADERS });
+    expect(created.status(), `ToDo「${seed.title}」を作成できませんでした`).toBe(201);
+    return (await created.json()) as TodoSummary;
+}
+
+/** ToDo の詳細を取得する */
+export async function fetchTodo(request: APIRequestContext, todo_id: string): Promise<TodoSummary> {
+    const response = await request.get(`/api/v1/todos/${todo_id}`);
+    expect(response.ok(), `ToDo ${todo_id} を取得できませんでした (HTTP ${response.status()})`).toBeTruthy();
+    return (await response.json()) as TodoSummary;
+}
+
+/** ToDo にコメントを投稿する (前提データ) */
+export async function createComment(request: APIRequestContext, todo_id: string, body: string): Promise<{ id: string }> {
+    const created = await request.post(`/api/v1/todos/${todo_id}/comments`, { data: { body }, headers: CSRF_HEADERS });
+    expect(created.status(), 'コメントを投稿できませんでした').toBe(201);
+    return (await created.json()) as { id: string };
+}
+
+/** ToDo のチェックリストに項目を追加する (前提データ) */
+export async function createChecklistItem(request: APIRequestContext, todo_id: string, title: string): Promise<{ id: string }> {
+    const created = await request.post(`/api/v1/todos/${todo_id}/checklist/items`, { data: { title }, headers: CSRF_HEADERS });
+    expect(created.status(), `チェックリスト項目「${title}」を追加できませんでした`).toBe(201);
+    // 応答は項目ではなくチェックリスト全体
+    const checklist = (await created.json()) as { items: { id: string; title: string }[] };
+    const item = checklist.items.find((entry) => entry.title === title);
+    expect(item, `追加した項目「${title}」が応答にありません`).toBeDefined();
+    return { id: item!.id };
 }

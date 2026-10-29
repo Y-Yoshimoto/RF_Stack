@@ -31,6 +31,9 @@ test.describe('AP: 組織 (alpha-admin)', () => {
         await expect(page.getByTestId('organization-members-save')).toBeDisabled();
         await page.getByTestId('organization-members-input').fill(MEMBER_EMAIL);
         await page.getByRole('option', { name: new RegExp(MEMBER_EMAIL.replace('.', '\\.')) }).click();
+        // 選択後も候補の一覧が開いたままで、候補が増える (alpha-member2 など) と保存ボタンを覆うため、閉じてから押す
+        await page.keyboard.press('Escape');
+        await expect(page.getByRole('option')).toHaveCount(0);
         await page.getByTestId('organization-members-save').click();
         await expect(page.getByTestId('organization-detail-notice')).toHaveText('メンバーを保存しました。');
 

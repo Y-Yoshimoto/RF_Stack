@@ -19,6 +19,8 @@ import {
     type TodoScope,
     type TodoSortKey,
     type TodoStatus,
+    type TodoSummary,
+    type TodoSummaryQuery,
     type TodoUpdate,
 } from './contract';
 
@@ -110,7 +112,7 @@ export const toTodoListQuery = (filter: TodoListFilter): TodoListQuery => {
 };
 
 /** URL に載せるクエリの順序 (同じ指定が同じ URL・キーになるよう固定する) */
-const TODO_LIST_QUERY_ORDER: readonly (keyof TodoListQuery)[] = ['limit', 'cursor', 'scope', 'status', 'priority', 'q', 'organization_id', 'assignee_id', 'due_before', 'due_after', 'sort'];
+const TODO_LIST_QUERY_ORDER: readonly (keyof TodoListQuery)[] = ['limit', 'cursor', 'scope', 'status', 'priority', 'q', 'organization_id', 'assignee_id', 'due_before', 'due_after', 'sort', 'include_total'];
 
 /**
  * 一覧 API の URL を作る関数
@@ -121,7 +123,8 @@ export const buildTodoListUrl = (query: TodoListQuery): string => {
     const params = new URLSearchParams();
     for (const key of TODO_LIST_QUERY_ORDER) {
         const value = query[key];
-        if (value !== undefined) params.set(key, String(value));
+        // include_total は true のときだけ送る (false はサーバーの既定と同じ)
+        if (value !== undefined && value !== false) params.set(key, String(value));
     }
     const search = params.toString();
     return search === '' ? APP_API_PATHS.TODOS : `${APP_API_PATHS.TODOS}?${search}`;
@@ -192,7 +195,7 @@ export const replaceTodoAssignees = (client: ApiClient, todo_id: string, user_id
  * 204 の応答を読む関数 (本文は無い。requestFetch の既定の takeData は JSON を読むため差し替える)
  * @returns {Promise<true>} 常に true
 */
-const takeNoContent = async (): Promise<true> => true;
+export const takeNoContent = async (): Promise<true> => true;
 
 /**
  * ToDo を削除する関数 (論理削除。204)。If-Match は必須
@@ -229,4 +232,28 @@ export const buildTodoActivitiesUrl = (todo_id: string, query: TodoActivityListQ
 export const fetchTodoActivityPage = async (client: ApiClient, todo_id: string, query: TodoActivityListQuery): Promise<TodoActivityPage> => {
     const url = buildTodoActivitiesUrl(todo_id, query);
     return requireBody(await client.request<TodoActivityPage>({ url, method: 'GET' }), url);
+};
+
+/**
+ * ホームの要約 API の URL を作る関数
+ * @param {TodoSummaryQuery} query クエリ (today は `YYYY-MM-DD`)
+ * @returns {string} URL
+*/
+export const buildTodoSummaryUrl = (query: TodoSummaryQuery): string => {
+    const params = new URLSearchParams();
+    if (query.today !== undefined) params.set('today', query.today);
+    if (query.due_soon_days !== undefined) params.set('due_soon_days', String(query.due_soon_days));
+    const search = params.toString();
+    return search === '' ? APP_API_PATHS.TODO_SUMMARY : `${APP_API_PATHS.TODO_SUMMARY}?${search}`;
+};
+
+/**
+ * ホームの要約 (自分が担当・作成した未完了の件数) を取得する関数 (AP-UX-01)
+ * @param {ApiClient} client API クライアント
+ * @param {TodoSummaryQuery} query クエリ (today はクライアントのローカル日付を渡す。§10 #21)
+ * @returns {Promise<TodoSummary>} 要約
+*/
+export const fetchTodoSummary = async (client: ApiClient, query: TodoSummaryQuery): Promise<TodoSummary> => {
+    const url = buildTodoSummaryUrl(query);
+    return requireBody(await client.request<TodoSummary>({ url, method: 'GET' }), url);
 };

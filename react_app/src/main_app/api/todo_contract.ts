@@ -20,10 +20,24 @@ export type TodoScope = 'mine' | 'assigned' | 'shared' | 'all';
 export type TodoSortField = 'due_date' | 'priority' | 'created_at' | 'updated_at';
 /** 一覧の並び順 (キーは 1 つだけ。先頭に `-` で降順。既定 `-created_at`。期限なしは昇順で末尾・降順で先頭)。 */
 export type TodoSortKey = TodoSortField | `-${TodoSortField}`;
-/** 権限の判定対象の操作 (403 todo_operation_forbidden の拡張メンバー operation)。 */
-export type TodoOperation = 'edit_fields' | 'change_status' | 'change_visibility' | 'change_assignees' | 'delete';
-/** アクティビティの種別 (AP-ACT-01)。 */
-export type TodoActivityAction = 'created' | 'updated' | 'status_changed' | 'assignees_changed' | 'visibility_changed' | 'deleted';
+/**
+ * 権限の判定対象の操作 (403 todo_operation_forbidden の拡張メンバー operation)。
+ * edit_comment / delete_comment はコメントごとの permissions、edit_checklist / check_checklist_item は ToDo の permissions で事前に分かる。
+ */
+export type TodoOperation =
+    | 'edit_fields'
+    | 'change_status'
+    | 'change_visibility'
+    | 'change_assignees'
+    | 'delete'
+    | 'edit_comment'
+    | 'delete_comment'
+    | 'edit_checklist'
+    | 'check_checklist_item';
+/** アクティビティの種別 (AP-ACT-01・AP-ACT-05)。 */
+export type TodoActivityAction = 'created' | 'updated' | 'status_changed' | 'assignees_changed' | 'visibility_changed' | 'deleted' | 'checklist_changed';
+/** checklist_changed の payload.op (§10 #20。並べ替えは記録しない)。 */
+export type TodoChecklistActivityOp = 'added' | 'renamed' | 'removed' | 'checked' | 'unchecked';
 
 /** ステータスの値 (表示順)。 */
 export const TODO_STATUSES: readonly TodoStatus[] = ['open', 'in_progress', 'done'];
@@ -53,7 +67,16 @@ export const TODO_LIMITS = {
     QUERY_MAX: 200,
     ASSIGNEES_MAX: 20,
     ORGANIZATIONS_MAX: 100,
+    /** コメントの本文の最大長 (AP-CMT-01。1 文字以上)。 */
+    COMMENT_BODY_MAX: 4000,
+    /** チェックリスト項目名の最大長 (AP-CHK-02。1 文字以上)。 */
+    CHECKLIST_ITEM_TITLE_MAX: 200,
+    /** 1 件の ToDo のチェックリスト項目の最大数 (AP-CHK-01)。 */
+    CHECKLIST_ITEMS_MAX: 100,
 } as const;
+
+/** ホームの要約の「期限間近」の既定の日数 (§10 #21。1〜30)。 */
+export const TODO_SUMMARY_DUE_SOON_DAYS = 7;
 
 /** 422 invalid_todo_assignees の errors[].code。 */
 export const TODO_ASSIGNEE_ERROR_CODE = {
@@ -93,6 +116,25 @@ export type TodoPermissions = {
     can_change_assignees: boolean;
     /** 削除 (作成者・tenant_admin)。 */
     can_delete: boolean;
+    /** コメントの投稿 (閲覧できる人は誰でも。AP-CMT-01)。 */
+    can_comment: boolean;
+    /** チェックリスト項目の追加・名前変更・削除・並べ替え (作成者・tenant_admin。AP-CHK-03)。 */
+    can_edit_checklist: boolean;
+    /** チェックリスト項目の完了・未完了の切り替え (作成者・担当者・tenant_admin。AP-CHK-04)。 */
+    can_check_checklist: boolean;
+};
+
+/** ToDo・コメント・チェックリストが参照するユーザー (OpenAPI: UserNameRead)。無効化されたユーザーも含む (画面では「無効」と表示する)。 */
+export type TodoUserRef = {
+    id: string;
+    display_name: string;
+    is_active: boolean;
+};
+
+/** チェックリストの進捗 (OpenAPI: TodoChecklistSummary。AP-CHK-06)。項目が無ければ 0 / 0。 */
+export type TodoChecklistProgress = {
+    done_count: number;
+    total_count: number;
 };
 
 /** ToDo (OpenAPI: TodoRead)。一覧の要素 (説明・権限を含まない)。version は ETag と同じ値。 */
@@ -116,8 +158,18 @@ export type TodoRead = {
     created_by: string;
     /** 最終更新者のユーザー ID。 */
     updated_by: string;
+    /** 作成者 (表示名・有効/無効。AP-UX-03・AP-UX-09)。 */
+    creator: TodoUserRef;
+    /** 最終更新者 (表示名・有効/無効)。 */
+    updater: TodoUserRef;
+    /** チェックリストの進捗。 */
+    checklist: TodoChecklistProgress;
+    /** コメント数 (削除済みを除く)。 */
+    comment_count: number;
+    /** ToDo 本体の版 (ETag と同じ値)。コメント・チェックリストの変更では変わらない (§10 #16)。 */
     version: number;
     created_at: string;
+    /** ToDo 本体の更新日時。コメント・チェックリストの変更では変わらない (§10 #16)。 */
     updated_at: string;
 };
 
@@ -132,7 +184,7 @@ export type TodoDetail = TodoRead & {
 export type TodoPage = {
     items: TodoRead[];
     next_cursor: string | null;
-    /** 総件数 (include_total を受け付けないため常に null)。 */
+    /** 総件数 (include_total=true のときだけ数値。それ以外は null)。 */
     total?: number | null;
 };
 
@@ -157,6 +209,8 @@ export type TodoListQuery = {
     /** 期限がこの日以降 (この日を含む。期限なしは除く)。 */
     due_after?: string;
     sort?: TodoSortKey;
+    /** true のとき TodoPage.total に絞り込み後の総件数を入れる (先頭ページだけで指定する。AP-UX-02)。 */
+    include_total?: boolean;
 };
 
 /** `POST /api/v1/todos` のリクエスト (OpenAPI: TodoCreate)。201、Location / ETag 付きで TodoDetail を返す。 */
@@ -199,7 +253,8 @@ export type TodoAssigneesReplace = {
  * アクティビティ (OpenAPI: TodoActivityRead)。payload の形は action ごとに異なる (activity_payload.ts で読む):
  * created `{values: {...}}` / updated・status_changed `{changes: {<項目>: {before, after}}}` /
  * visibility_changed `{changes?: {visibility: {before, after}}, organization_ids?: {added, removed}}` /
- * assignees_changed `{added, removed}` / deleted `{title}`。
+ * assignees_changed `{added, removed}` / deleted `{title}` /
+ * checklist_changed `{op, item_id, title, before?, after?}` (op は TodoChecklistActivityOp。renamed は before / after に名前)。
  */
 export type TodoActivityRead = {
     id: string;
@@ -241,3 +296,154 @@ export type TodoActivityListQuery = {
     limit?: number;
     cursor?: string;
 };
+
+// ホームの要約 (AP-UX-01) ////////////////////////////////////////////////////
+
+/** `GET /api/v1/todos/summary` のクエリ。 */
+export type TodoSummaryQuery = {
+    /** クライアントのローカル日付 (`YYYY-MM-DD`)。省略時はサーバーの UTC の日付 (§10 #21)。 */
+    today?: string;
+    /** 期限間近の日数 (既定 7、1〜30)。 */
+    due_soon_days?: number;
+};
+
+/** 自分が担当の ToDo の件数 (完了を除く。閲覧できるものだけを数える)。 */
+export type TodoSummaryAssignedCounts = {
+    open: number;
+    in_progress: number;
+    /** 期限切れ (`due_date < today`)。 */
+    overdue: number;
+    /** 期限間近 (`today <= due_date <= due_soon_until`)。 */
+    due_soon: number;
+};
+
+/** 自分が作成した ToDo の件数 (完了を除く)。 */
+export type TodoSummaryCreatedCounts = {
+    open: number;
+    in_progress: number;
+    overdue: number;
+};
+
+/** `GET /api/v1/todos/summary` のレスポンス (OpenAPI: TodoSummaryRead)。 */
+export type TodoSummary = {
+    /** 判定に使った今日 (`YYYY-MM-DD`)。 */
+    today: string;
+    /** 期限間近の終端 (`today + due_soon_days`。この日を含む)。 */
+    due_soon_until: string;
+    assigned: TodoSummaryAssignedCounts;
+    created: TodoSummaryCreatedCounts;
+};
+
+// コメント (AP-CMT。ToDo 本体の版を変えない) ////////////////////////////////////
+
+/** コメントに対する操作者の権限 (OpenAPI: TodoCommentPermissionsRead)。 */
+export type TodoCommentPermissions = {
+    /** 編集 (投稿者のみ。tenant_admin も他人のコメントは編集できない。AP-CMT-03・04)。 */
+    can_edit: boolean;
+    /** 削除 (投稿者・tenant_admin)。 */
+    can_delete: boolean;
+};
+
+/** コメント (OpenAPI: TodoCommentRead)。version はコメントの版 (ETag と同じ値。If-Match に使う)。 */
+export type TodoCommentRead = {
+    id: string;
+    todo_id: string;
+    /** 投稿者 (無効化されたユーザーも残る。AP-CMT-07)。 */
+    author: TodoUserRef;
+    /** 本文 (プレーンテキスト。1〜4,000 文字)。 */
+    body: string;
+    version: number;
+    created_at: string;
+    updated_at: string;
+    /** 本文を編集した日時 (編集していなければ null。null でなければ「編集済み」と表示する)。 */
+    edited_at: string | null;
+    permissions: TodoCommentPermissions;
+};
+
+/** `GET /api/v1/todos/{todo_id}/comments` のレスポンス (OpenAPI: TodoCommentPage。古い順。§10 #19)。 */
+export type TodoCommentPage = {
+    items: TodoCommentRead[];
+    next_cursor: string | null;
+    total?: number | null;
+};
+
+/** `GET /api/v1/todos/{todo_id}/comments` のクエリ。 */
+export type TodoCommentListQuery = {
+    limit?: number;
+    cursor?: string;
+};
+
+/** `POST /api/v1/todos/{todo_id}/comments` (201、ETag) と `PATCH .../comments/{comment_id}` (200、ETag) のリクエスト。 */
+export type TodoCommentWrite = {
+    body: string;
+};
+
+// チェックリスト (AP-CHK。ToDo 本体の版を変えない) //////////////////////////////
+
+/** チェックリストに対する操作者の権限 (OpenAPI: TodoChecklistPermissionsRead。TodoPermissions の can_edit_checklist / can_check_checklist と同じ値)。 */
+export type TodoChecklistPermissions = {
+    /** 項目の追加・名前変更・削除・並べ替え (作成者・tenant_admin)。 */
+    can_edit: boolean;
+    /** 完了・未完了の切り替え (作成者・担当者・tenant_admin)。 */
+    can_check: boolean;
+};
+
+/** チェックリスト項目 (OpenAPI: TodoChecklistItemRead)。version は項目の版 (名前変更・切り替え・削除の If-Match に使う)。 */
+export type TodoChecklistItemRead = {
+    id: string;
+    /** 項目名 (1〜200 文字)。 */
+    title: string;
+    /** 並び (0 から連番)。 */
+    position: number;
+    is_done: boolean;
+    /** 完了した日時 (未完了なら null)。 */
+    done_at: string | null;
+    /** 完了した人 (未完了なら null)。 */
+    done_by: TodoUserRef | null;
+    version: number;
+    created_at: string;
+    updated_at: string;
+};
+
+/**
+ * チェックリスト全体 (OpenAPI: TodoChecklistRead)。GET と変更系すべての応答。ETag はチェックリストの版 (version)。
+ * version は項目の追加・削除・並べ替えで上がり、並べ替え (`PUT .../checklist/order`) の If-Match に使う (§10 #17)。
+ */
+export type TodoChecklistRead = {
+    todo_id: string;
+    version: number;
+    /** 項目 (position の順)。 */
+    items: TodoChecklistItemRead[];
+    done_count: number;
+    total_count: number;
+    permissions: TodoChecklistPermissions;
+};
+
+/** `POST /api/v1/todos/{todo_id}/checklist/items` のリクエスト (201。If-Match 不要)。 */
+export type TodoChecklistItemCreate = {
+    title: string;
+    /** 挿入する位置 (省略時は末尾)。 */
+    position?: number;
+};
+
+/** `PATCH /api/v1/todos/{todo_id}/checklist/items/{item_id}` のリクエスト (If-Match: 項目の版)。権限は実際に変わる項目で判定する (§10 #18)。 */
+export type TodoChecklistItemUpdate = {
+    title?: string;
+    is_done?: boolean;
+};
+
+/** `PUT /api/v1/todos/{todo_id}/checklist/order` のリクエスト (If-Match: チェックリストの版)。現在の項目 ID の集合と一致しなければ 422 (field=item_ids reason=mismatch)。 */
+export type TodoChecklistOrder = {
+    item_ids: string[];
+};
+
+/** 412 todo_checklist_version_conflict の拡張メンバー target (どちらの版が食い違ったか)。 */
+export type TodoChecklistConflictTarget = 'item' | 'checklist';
+
+/** 422 invalid_todo_input の errors[] のうち、チェックリストで分岐に使うもの (field と code の組)。 */
+export const TODO_CHECKLIST_INPUT_ERROR = {
+    /** 項目数が上限 (100) を超える (field: items)。 */
+    TOO_MANY_ITEMS: { field: 'items', code: 'too_many' },
+    /** 並べ替えの項目 ID の集合が現在の項目と一致しない (field: item_ids)。最新を取り直してやり直す。 */
+    ORDER_MISMATCH: { field: 'item_ids', code: 'mismatch' },
+} as const;

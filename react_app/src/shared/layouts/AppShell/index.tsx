@@ -8,6 +8,7 @@ import { Link as RouterLink, NavLink } from 'react-router-dom';
 import { AppBar, Box, Button, Chip, Container, GlobalStyles, Stack, Toolbar, Typography } from '@mui/material';
 import PersonIcon from '@mui/icons-material/Person';
 import { LogoutButton } from '@/shared/components/LogoutButton';
+import { VISUALLY_HIDDEN } from '@/shared/components/visually_hidden';
 import type { NavItem } from './nav_item';
 
 export type AppShellProps = {
@@ -33,9 +34,6 @@ export type AppShellProps = {
     onLogout: () => Promise<void>;
     children: ReactNode;
 };
-
-/** 視覚的には隠し、スクリーンリーダーには読み上げさせる */
-const VISUALLY_HIDDEN = { position: 'absolute', width: 1, height: 1, p: 0, m: -0.125, overflow: 'hidden', clip: 'rect(0 0 0 0)', whiteSpace: 'nowrap', border: 0 } as const;
 
 const MAIN_ID = 'main-content';
 
@@ -77,7 +75,7 @@ export const AppShell = ({ title, caption, title_to, badge_label, icon, user_nam
                 <Box
                     component="a"
                     href={`#${MAIN_ID}`}
-                    sx={{ ...VISUALLY_HIDDEN, '&:focus': { position: 'fixed', top: 8, left: 8, width: 'auto', height: 'auto', m: 0, p: 1.5, clip: 'auto', zIndex: 'tooltip', bgcolor: 'background.paper', color: 'text.primary', borderRadius: 1, boxShadow: 4 } }}
+                    sx={{ ...VISUALLY_HIDDEN, '&:focus': { position: 'fixed', top: 8, left: 8, width: 'auto', height: 'auto', m: 0, p: 1.5, clip: 'auto', clipPath: 'none', zIndex: 'tooltip', bgcolor: 'background.paper', color: 'text.primary', borderRadius: 1, boxShadow: 4 } }}
                 >
                     本文へ移動
                 </Box>

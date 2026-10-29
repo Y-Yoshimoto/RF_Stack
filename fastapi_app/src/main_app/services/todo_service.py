@@ -16,7 +16,8 @@ FastAPI に依存しない。AP のセッション（テナントコンテキス
 
 | メソッド | 例外 |
 | --- | --- |
-| :meth:`TodoService.list_todos` | ``TodoValidationError``（``scope`` / ``status`` / ``priority`` / ``q`` / ``sort`` / ``cursor`` 等） |
+| :meth:`TodoService.list_todos` | ``TodoValidationError``（``scope`` / ``status`` / ``priority`` / ``q`` / ``sort`` / ``cursor`` 等）。戻り値は ``Page`` に総件数 ``total`` を加えた :class:`TodoListPage` |
+| :meth:`TodoService.summarize` | ``TodoValidationError``（``today`` / ``due_soon_days``）。ホームの要約 :class:`TodoSummaryView`（AP-UX-01） |
 | :meth:`TodoService.get_todo` | ``TodoNotFoundError`` |
 | :meth:`TodoService.create_todo` | ``TodoValidationError``, ``InvalidTodoOrganizationsError``, ``InvalidTodoAssigneesError`` |
 | :meth:`TodoService.update_todo` | ``TodoValidationError``, ``TodoNotFoundError``, ``TodoVersionConflictError``, ``TodoPermissionDeniedError``, ``InvalidTodoOrganizationsError`` |
@@ -34,34 +35,63 @@ FastAPI に依存しない。AP のセッション（テナントコンテキス
 - アクティビティ（AP-ACT-01..03）は種別ごとに 1 行（1 回の更新で項目とステータスを変えれば ``updated`` と ``status_changed`` の 2 行）。
   AP 監査ログ（AP-ACT-04）は ``todo.create`` / ``todo.update``（項目・ステータス）/ ``todo.change_visibility`` / ``todo.set_assignees`` / ``todo.delete``。
   監査ログには説明の本文を残さない（変更の有無だけ）
+- 一覧・詳細のビューには作成者・最終更新者（``UserNameView``）、チェックリストの進捗、コメント数を付ける。一覧では 1 ページの ToDo の ID で
+  まとめて取得する（ToDo 本体・担当者・公開先組織・件数・ユーザー名の 5 クエリ。``include_total`` で総件数の 1 クエリが加わる）
+- 操作者の作成と閲覧できる ToDo の取得は :mod:`main_app.services.todo_access`（コメント・チェックリストのサービスと共有）。
+  コメントは :mod:`~main_app.services.todo_comment_service`、チェックリストは :mod:`~main_app.services.todo_checklist_service`
 """
 import datetime as dt
 import enum
 import logging
 import uuid
 from collections.abc import Collection, Iterable, Sequence
+from dataclasses import dataclass
 from typing import Any
 
 from sqlmodel import Session
 
 from main_app.models import TodoActivityAction, TodoPriority, TodoStatus, TodoVisibility, TTodo
 from main_app.models.todo import TODO_ASSIGNEES_MAX, TODO_DESCRIPTION_MAX_LENGTH, TODO_TITLE_MAX_LENGTH
-from main_app.repositories import users as user_repo
-from main_app.repositories.keyset import ListSort, Page, normalize_limit
+from main_app.repositories.keyset import ListSort, normalize_limit
 from main_app.repositories.todos import activities as activity_repo
 from main_app.repositories.todos import todos as todo_repo
-from main_app.repositories.todos.todos import DEFAULT_TODO_SORT, PRIORITY_RANK, TODO_SORT_KEYS, AssigneeRow, OrganizationRow, TodoListFilter
+from main_app.repositories.todos.todos import DEFAULT_TODO_SORT, PRIORITY_RANK, TODO_SORT_KEYS, AssigneeRow, OrganizationRow, TodoCounters, TodoListFilter
 from main_app.services.common import UNSET, Maybe, UserNameView, change, record_audit, utc_now
 from main_app.services.errors import (
     InvalidTodoAssigneesError,
     InvalidTodoOrganizationsError,
-    TodoNotFoundError,
     TodoPermissionDeniedError,
     TodoValidationError,
     TodoVersionConflictError,
 )
+from main_app.services.todo_access import (
+    AUDIT_TARGET_TYPE,
+    actor_of,
+    has_control_chars,
+    load_user_names,
+    normalize_datetime_after,
+    parse_aware_datetime,
+    record_activity,
+    require_visible_todo,
+    split_after,
+    to_json,
+    user_name_or_unknown,
+    validate_actor_args,
+)
 from main_app.services.todo_policy import TodoActor, TodoOperation, TodoPermissions, TodoScope, effective_visibility, scope_condition, todo_permissions, visible_condition
-from main_app.services.todo_views import TodoActivityPage, TodoActivityView, TodoAssigneeView, TodoDetailView, TodoOrganizationView, TodoView
+from main_app.services.todo_views import (
+    TodoActivityPage,
+    TodoActivityView,
+    TodoAssigneeView,
+    TodoChecklistProgressView,
+    TodoDetailView,
+    TodoListPage,
+    TodoOrganizationView,
+    TodoSummaryAssignedView,
+    TodoSummaryCreatedView,
+    TodoSummaryView,
+    TodoView,
+)
 from modules.tenancy.context import require_tenant_context
 
 __all__ = [
@@ -71,10 +101,12 @@ __all__ = [
     "TodoActivityView",
     "TodoAssigneeView",
     "TodoDetailView",
+    "TodoListPage",
     "TodoOrganizationView",
     "TodoPermissions",
     "TodoScope",
     "TodoService",
+    "TodoSummaryView",
     "TodoView",
 ]
 
@@ -89,7 +121,11 @@ ACTION_TODO_UPDATE = "todo.update"
 ACTION_TODO_CHANGE_VISIBILITY = "todo.change_visibility"
 ACTION_TODO_SET_ASSIGNEES = "todo.set_assignees"
 ACTION_TODO_DELETE = "todo.delete"
-AUDIT_TARGET_TYPE = "todo"
+
+# ホームの要約の期限間近の日数（既定と範囲。ToDoApp.md §10 #21）
+DEFAULT_DUE_SOON_DAYS = 7
+DUE_SOON_DAYS_MIN = 1
+DUE_SOON_DAYS_MAX = 30
 
 # 項目（AP-ACT の ``updated``。権限は ``edit_fields``）
 _FIELD_NAMES: tuple[str, ...] = ("title", "description", "due_date", "priority")
@@ -106,13 +142,8 @@ class TodoService:
 
     def __init__(self, session: Session, *, actor_user_id: uuid.UUID, actor_roles: Collection[str]) -> None:
         """依存を保持する。"""
-        if not isinstance(actor_user_id, uuid.UUID):
-            raise TypeError("actor_user_id must be uuid.UUID")
-        if isinstance(actor_roles, str):
-            raise TypeError("actor_roles must be a collection of role names")
         self._session = session
-        self._actor_user_id = actor_user_id
-        self._actor_roles = frozenset(actor_roles)
+        self._actor_user_id, self._actor_roles = validate_actor_args(actor_user_id, actor_roles)
 
     # ------------------------------------------------------------------ 参照
     def list_todos(
@@ -129,7 +160,8 @@ class TodoService:
         sort: str = DEFAULT_TODO_SORT,
         limit: int = 50,
         after: tuple[Any, uuid.UUID] | None = None,
-    ) -> Page[TodoView]:
+        include_total: bool = False,
+    ) -> TodoListPage:
         """閲覧できる ToDo の一覧（AP-TODO-06, 07。論理削除済みを除く）。
 
         Args:
@@ -146,14 +178,16 @@ class TodoService:
             limit: 件数（1〜200 に補正）。
             after: 起点（前のページの ``next_after``）。値の型は ``due_date`` が ``date | None``（ISO 8601 の文字列も可）、
                 ``priority`` が値の文字列、``created_at`` / ``updated_at`` が ``datetime``（タイムゾーン付きの ISO 8601 の文字列も可）。
+            include_total: 総件数を数えるか（表示範囲・絞り込みを適用し、カーソルには依存しない。SQL 1 本。AP-UX-02）。
 
         Returns:
-            Page[TodoView]: ページ（担当者・公開先組織は 1 回ずつのクエリでまとめて取得する）。
+            TodoListPage: ページ（担当者・公開先組織・件数・作成者と更新者の表示名は 1 回ずつのクエリでまとめて取得する）と総件数
+            （``include_total`` でなければ ``None``）。
 
         Raises:
             TodoValidationError: 引数が不正。
         """
-        actor = self._actor()
+        actor = actor_of(self._actor_user_id, self._actor_roles)
         todo_scope = _parse_scope(scope)
         try:
             list_sort = ListSort.parse(sort, TODO_SORT_KEYS)
@@ -168,15 +202,63 @@ class TodoService:
             due_after=_optional_date("due_after", due_after),
             title_query=_normalize_query(q),
         )
+        if not isinstance(include_total, bool):
+            raise TodoValidationError("include_total", "type")
         conditions = [visible_condition(actor), scope_condition(actor, todo_scope)]
         page = todo_repo.list_todos(
             self._session, actor.tenant_id, conditions=conditions, filters=filters, sort=list_sort, after=_normalize_todo_after(list_sort, after), limit=normalize_limit(limit)
         )
-        todo_ids = [todo.id for todo in page.items]
-        assignees = todo_repo.load_assignees(self._session, actor.tenant_id, todo_ids)
-        organizations = todo_repo.load_active_organizations(self._session, actor.tenant_id, todo_ids)
-        items = [TodoView(**_view_fields(todo, assignees.get(todo.id, []), organizations.get(todo.id, []))) for todo in page.items]
-        return Page(items=items, next_after=page.next_after)
+        decorations = self._decorations(actor, page.items)
+        items = [TodoView(**decorations.view_fields(todo)) for todo in page.items]
+        total = todo_repo.count_todos(self._session, actor.tenant_id, conditions=conditions, filters=filters) if include_total else None
+        return TodoListPage(items=items, next_after=page.next_after, total=total)
+
+    def summarize(self, *, today: dt.date | None = None, due_soon_days: int = DEFAULT_DUE_SOON_DAYS) -> TodoSummaryView:
+        """ホームの要約（AP-UX-01。ToDoApp.md §10 #21）。閲覧できる ToDo だけを数え、論理削除済み・完了を除く（SQL 1 本）。
+
+        - 担当: 自分が担当の ``open`` / ``in_progress`` の件数、期限切れ（``due_date < today``）、期限間近（``today <= due_date <= today + due_soon_days``）
+        - 作成: 自分が作成した ``open`` / ``in_progress`` の件数、期限切れ
+
+        Args:
+            today: 今日（クライアントのローカル日付）。``None`` なら UTC の日付。
+            due_soon_days: 期限間近の日数（1〜30）。
+
+        Returns:
+            TodoSummaryView: 要約。
+
+        Raises:
+            TodoValidationError: ``today`` が日付でない（``datetime`` を含む）・``today + due_soon_days`` が日付の上限を超える（``out_of_range``）、
+                ``due_soon_days`` が範囲外（``out_of_range``）・整数でない。
+        """
+        actor = actor_of(self._actor_user_id, self._actor_roles)
+        if today is None:
+            today = utc_now().date()
+        elif isinstance(today, dt.datetime) or not isinstance(today, dt.date):
+            raise TodoValidationError("today", "type")
+        if isinstance(due_soon_days, bool) or not isinstance(due_soon_days, int):
+            raise TodoValidationError("due_soon_days", "type")
+        if not DUE_SOON_DAYS_MIN <= due_soon_days <= DUE_SOON_DAYS_MAX:
+            raise TodoValidationError("due_soon_days", "out_of_range")
+        try:
+            due_soon_until = today + dt.timedelta(days=due_soon_days)
+        except OverflowError:
+            raise TodoValidationError("today", "out_of_range") from None
+        counts = todo_repo.summary_counts(
+            self._session,
+            actor.tenant_id,
+            visible=visible_condition(actor),
+            assigned=scope_condition(actor, TodoScope.ASSIGNED),
+            created=scope_condition(actor, TodoScope.MINE),
+            today=today,
+            due_soon_until=due_soon_until,
+        )
+        return TodoSummaryView(
+            today=today,
+            due_soon_days=due_soon_days,
+            due_soon_until=due_soon_until,
+            assigned=TodoSummaryAssignedView(open=counts.assigned_open, in_progress=counts.assigned_in_progress, overdue=counts.assigned_overdue, due_soon=counts.assigned_due_soon),
+            created=TodoSummaryCreatedView(open=counts.created_open, in_progress=counts.created_in_progress, overdue=counts.created_overdue),
+        )
 
     def get_todo(self, todo_id: uuid.UUID) -> TodoDetailView:
         """ToDo の詳細（担当者・公開先組織・閲覧範囲・``version``・操作者の権限）。
@@ -184,8 +266,8 @@ class TodoService:
         Raises:
             TodoNotFoundError: 存在しない（他テナント・論理削除済み・閲覧範囲外を含む）。
         """
-        actor = self._actor()
-        todo = self._require_visible(actor, todo_id)
+        actor = actor_of(self._actor_user_id, self._actor_roles)
+        todo = require_visible_todo(self._session, actor, todo_id)
         return self._detail_view(actor, todo)
 
     def list_activities(self, todo_id: uuid.UUID, *, limit: int = 50, after: tuple[Any, uuid.UUID] | None = None) -> TodoActivityPage:
@@ -206,18 +288,16 @@ class TodoService:
             TodoNotFoundError: 存在しない（他テナント・論理削除済み・閲覧範囲外を含む）。
             TodoValidationError: ``after`` が不正（``field="cursor"``）。
         """
-        actor = self._actor()
-        normalized_after = _normalize_datetime_after(after)
-        todo = self._require_visible(actor, todo_id)
+        actor = actor_of(self._actor_user_id, self._actor_roles)
+        normalized_after = normalize_datetime_after(after)
+        todo = require_visible_todo(self._session, actor, todo_id)
         page = activity_repo.list_activities(self._session, actor.tenant_id, todo.id, after=normalized_after, limit=normalize_limit(limit))
         rows = [(row, TodoActivityAction(row.action), dict(row.payload or {})) for row in page.items]
         referenced: set[uuid.UUID] = set()
         for row, action, payload in rows:
             referenced.add(row.actor_id)
             referenced.update(_activity_user_ids(action, payload))
-        users = {
-            user_id: UserNameView(id=user_id, display_name=name, is_active=active) for user_id, name, active in user_repo.list_user_names(self._session, actor.tenant_id, referenced)
-        }
+        users: dict[uuid.UUID, UserNameView] = load_user_names(self._session, actor.tenant_id, referenced)
         items = [
             TodoActivityView(
                 id=row.id,
@@ -265,7 +345,7 @@ class TodoService:
             InvalidTodoOrganizationsError: テナント内に存在しない・論理削除済みの組織。
             InvalidTodoAssigneesError: テナント内に存在しない（``not_found``）・無効化された（``inactive``）ユーザー。
         """
-        actor = self._actor()
+        actor = actor_of(self._actor_user_id, self._actor_roles)
         values: dict[str, Any] = {
             "title": _validate_title(title),
             "description": _validate_description(description),
@@ -289,7 +369,7 @@ class TodoService:
             self._session.flush()
             todo_repo.add_organizations(self._session, actor.tenant_id, todo.id, orgs)
             todo_repo.add_assignees(self._session, actor.tenant_id, todo.id, assignees, assigned_by=actor.user_id)
-            snapshot = {**{key: _json(value) for key, value in values.items()}, "organization_ids": _json(orgs), "assignee_ids": _json(assignees)}
+            snapshot = {**{key: to_json(value) for key, value in values.items()}, "organization_ids": to_json(orgs), "assignee_ids": to_json(assignees)}
             self._record_activity(actor, todo.id, TodoActivityAction.CREATED, {"values": snapshot})
             audit_snapshot = {key: value for key, value in snapshot.items() if key != "description"}
             self._record_audit(actor, ACTION_TODO_CREATE, todo.id, audit_snapshot)
@@ -332,7 +412,7 @@ class TodoService:
             TodoPermissionDeniedError: 変わる項目に対する権限が無い（``operation``: ``edit_fields`` / ``change_status`` / ``change_visibility``）。
             InvalidTodoOrganizationsError: テナント内に存在しない・論理削除済みの組織を新たに指定した。
         """
-        actor = self._actor()
+        actor = actor_of(self._actor_user_id, self._actor_roles)
         patch: dict[str, Any] = {}
         if title is not UNSET:
             patch["title"] = _validate_title(title)
@@ -401,18 +481,18 @@ class TodoService:
             version = change(before_version, todo.version)
 
             if field_changes:
-                self._record_activity(actor, todo.id, TodoActivityAction.UPDATED, {"changes": _json(field_changes)})
+                self._record_activity(actor, todo.id, TodoActivityAction.UPDATED, {"changes": to_json(field_changes)})
             if status_change:
                 self._record_activity(actor, todo.id, TodoActivityAction.STATUS_CHANGED, {"changes": {"status": status_change}})
             visibility_payload: dict[str, Any] = {}
             if visibility_change:
                 visibility_payload["changes"] = {"visibility": visibility_change}
             if added_orgs or removed_orgs:
-                visibility_payload["organization_ids"] = {"added": _json(added_orgs), "removed": _json(removed_orgs)}
+                visibility_payload["organization_ids"] = {"added": to_json(added_orgs), "removed": to_json(removed_orgs)}
             if visibility_payload:
                 self._record_activity(actor, todo.id, TodoActivityAction.VISIBILITY_CHANGED, visibility_payload)
 
-            audit_changes = {name: ({"changed": True} if name == "description" else _json(value)) for name, value in field_changes.items()}
+            audit_changes = {name: ({"changed": True} if name == "description" else to_json(value)) for name, value in field_changes.items()}
             if status_change:
                 audit_changes["status"] = status_change
             if audit_changes:
@@ -437,7 +517,7 @@ class TodoService:
             TodoVersionConflictError: バージョンが一致しない。
             TodoPermissionDeniedError: 削除の権限が無い（``operation="delete"``）。
         """
-        actor = self._actor()
+        actor = actor_of(self._actor_user_id, self._actor_roles)
         try:
             todo = self._lock_visible(actor, todo_id, expected_version)
             assignee_ids = todo_repo.list_assignee_ids(self._session, actor.tenant_id, todo.id)
@@ -476,7 +556,7 @@ class TodoService:
             TodoPermissionDeniedError: 担当者の変更の権限が無い（``operation="change_assignees"``）。
             InvalidTodoAssigneesError: テナント内に存在しない（``not_found``）・無効化された（``inactive``）ユーザーを新たに指定した。
         """
-        actor = self._actor()
+        actor = actor_of(self._actor_user_id, self._actor_roles)
         desired = _validate_ids("user_ids", user_ids, TODO_ASSIGNEES_MAX)
         try:
             todo = self._lock_visible(actor, todo_id, expected_version)
@@ -496,7 +576,7 @@ class TodoService:
             before_version = todo.version
             todo.version = before_version + 1
             todo.updated_by = actor.user_id
-            payload = {"added": _json(added), "removed": _json(removed)}
+            payload = {"added": to_json(added), "removed": to_json(removed)}
             self._record_activity(actor, todo.id, TodoActivityAction.ASSIGNEES_CHANGED, payload)
             self._record_audit(actor, ACTION_TODO_SET_ASSIGNEES, todo.id, {**payload, "version": change(before_version, todo.version)})
             self._session.flush()
@@ -509,33 +589,29 @@ class TodoService:
         return view
 
     # ------------------------------------------------------------------ 補助
-    def _actor(self) -> TodoActor:
-        """テナントコンテキストから操作者を作る（コンテキストが無ければ ``TenantContextMissingError``）。"""
-        ctx = require_tenant_context()
-        return TodoActor(tenant_id=ctx.tenant_id, user_id=self._actor_user_id, roles=self._actor_roles)
-
-    def _require_visible(self, actor: TodoActor, todo_id: uuid.UUID, *, for_update: bool = False) -> TTodo:
-        """閲覧できる ToDo を取得する。無ければ :class:`TodoNotFoundError`（閲覧範囲外も同じ）。"""
-        if not isinstance(todo_id, uuid.UUID):
-            raise TodoNotFoundError(todo_id)
-        todo = todo_repo.get_todo(self._session, actor.tenant_id, todo_id, condition=visible_condition(actor), for_update=for_update)
-        if todo is None:
-            raise TodoNotFoundError(todo_id)
-        return todo
-
     def _lock_visible(self, actor: TodoActor, todo_id: uuid.UUID, expected_version: int) -> TTodo:
         """閲覧できる ToDo を行ロックして取得し、バージョンを確認する。"""
-        todo = self._require_visible(actor, todo_id, for_update=True)
+        todo = require_visible_todo(self._session, actor, todo_id, for_update=True)
         if todo.version != expected_version:
             raise TodoVersionConflictError(todo.id, expected_version, todo.version)
         return todo
 
+    def _decorations(self, actor: TodoActor, todos: Sequence[TTodo]) -> "_ViewDecorations":
+        """ビューに付ける担当者・公開先組織・件数・作成者と更新者の表示名を、ToDo の ID でまとめて取得する（4 クエリ。N+1 にしない）。"""
+        todo_ids = [todo.id for todo in todos]
+        user_ids = {todo.created_by for todo in todos} | {todo.updated_by for todo in todos}
+        return _ViewDecorations(
+            assignees=todo_repo.load_assignees(self._session, actor.tenant_id, todo_ids),
+            organizations=todo_repo.load_active_organizations(self._session, actor.tenant_id, todo_ids),
+            counters=todo_repo.load_todo_counters(self._session, actor.tenant_id, todo_ids),
+            users=load_user_names(self._session, actor.tenant_id, user_ids),
+        )
+
     def _detail_view(self, actor: TodoActor, todo: TTodo) -> TodoDetailView:
-        """詳細のビューを作る（担当者・公開先組織を読み込む）。"""
-        assignees = todo_repo.load_assignees(self._session, actor.tenant_id, [todo.id]).get(todo.id, [])
-        organizations = todo_repo.load_active_organizations(self._session, actor.tenant_id, [todo.id]).get(todo.id, [])
-        permissions = todo_permissions(actor, created_by=todo.created_by, assignee_ids={row.user_id for row in assignees})
-        return TodoDetailView(**_view_fields(todo, assignees, organizations), description=todo.description, permissions=permissions)
+        """詳細のビューを作る（担当者・公開先組織・件数・ユーザー名を読み込む）。"""
+        decorations = self._decorations(actor, [todo])
+        permissions = todo_permissions(actor, created_by=todo.created_by, assignee_ids={row.user_id for row in decorations.assignees.get(todo.id, [])})
+        return TodoDetailView(**decorations.view_fields(todo), description=todo.description, permissions=permissions)
 
     def _ensure_organizations_assignable(self, organization_ids: Collection[uuid.UUID]) -> None:
         """公開先に新たに指定する組織が、テナント内に存在し論理削除されていないことを確認する。"""
@@ -560,7 +636,7 @@ class TodoService:
 
     def _record_activity(self, actor: TodoActor, todo_id: uuid.UUID, action: TodoActivityAction, payload: dict[str, Any]) -> None:
         """アクティビティを追記する（同じトランザクション。AP-ACT-03）。"""
-        activity_repo.add_activity(self._session, tenant_id=actor.tenant_id, todo_id=todo_id, actor_id=actor.user_id, action=action, payload=payload)
+        record_activity(self._session, actor, todo_id, action, payload)
 
     def _record_audit(self, actor: TodoActor, action: str, todo_id: uuid.UUID, payload: dict[str, Any]) -> None:
         """AP 監査ログを追記する（同じトランザクション。AP-ACT-04）。"""
@@ -570,8 +646,29 @@ class TodoService:
 # --------------------------------------------------------------------------- ビューの組み立て
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class _ViewDecorations:
+    """ビューに付ける値（ToDo の ID でまとめて取得したもの）。"""
+
+    assignees: dict[uuid.UUID, list[AssigneeRow]]
+    organizations: dict[uuid.UUID, list[OrganizationRow]]
+    counters: dict[uuid.UUID, TodoCounters]
+    users: dict[uuid.UUID, UserNameView]
+
+    def view_fields(self, todo: TTodo) -> dict[str, Any]:
+        """:class:`TodoView` の項目（説明を除く）。"""
+        counters = self.counters.get(todo.id) or TodoCounters()
+        return {
+            **_view_fields(todo, self.assignees.get(todo.id, []), self.organizations.get(todo.id, [])),
+            "creator": user_name_or_unknown(self.users, todo.created_by),
+            "updater": user_name_or_unknown(self.users, todo.updated_by),
+            "checklist": TodoChecklistProgressView(done_count=counters.done_count, total_count=counters.total_count),
+            "comment_count": counters.comment_count,
+        }
+
+
 def _view_fields(todo: TTodo, assignees: Sequence[AssigneeRow], organizations: Sequence[OrganizationRow]) -> dict[str, Any]:
-    """:class:`TodoView` の項目（説明を除く）。"""
+    """:class:`TodoView` の ToDo 本体・担当者・公開先組織の項目（説明・件数・ユーザー名を除く）。"""
     return {
         "id": todo.id,
         "title": todo.title,
@@ -615,28 +712,7 @@ def _activity_user_ids(action: TodoActivityAction, payload: dict[str, Any]) -> s
     return result
 
 
-def _json(value: Any) -> Any:
-    """アクティビティ・監査ログの ``payload`` 用に JSON に変換できる値にする。"""
-    if isinstance(value, enum.Enum):
-        return value.value
-    if isinstance(value, uuid.UUID):
-        return str(value)
-    if isinstance(value, dt.date | dt.datetime):
-        return value.isoformat()
-    if isinstance(value, dict):
-        return {key: _json(item) for key, item in value.items()}
-    if isinstance(value, list | tuple | set | frozenset):
-        return [_json(item) for item in value]
-    return value
-
-
 # --------------------------------------------------------------------------- 入力検証
-
-
-def _has_control_chars(value: str, *, allow_whitespace: bool) -> bool:
-    """制御文字を含むか（``allow_whitespace`` なら改行・タブは許可する）。"""
-    allowed = {"\n", "\r", "\t"} if allow_whitespace else set()
-    return any((ord(ch) < 0x20 and ch not in allowed) or ord(ch) == 0x7F for ch in value)
 
 
 def _validate_title(title: Any) -> str:
@@ -646,7 +722,7 @@ def _validate_title(title: Any) -> str:
     value = title.strip()
     if len(value) > TODO_TITLE_MAX_LENGTH:
         raise TodoValidationError("title", "too_long")
-    if _has_control_chars(value, allow_whitespace=False):
+    if has_control_chars(value, allow_whitespace=False):
         raise TodoValidationError("title", "format")
     return value
 
@@ -661,7 +737,7 @@ def _validate_description(description: Any) -> str | None:
         return None
     if len(description) > TODO_DESCRIPTION_MAX_LENGTH:
         raise TodoValidationError("description", "too_long")
-    if _has_control_chars(description, allow_whitespace=True):
+    if has_control_chars(description, allow_whitespace=True):
         raise TodoValidationError("description", "format")
     return description
 
@@ -750,32 +826,8 @@ def _normalize_query(q: Any) -> str | None:
         return None
     if len(value) > TODO_TITLE_MAX_LENGTH:
         raise TodoValidationError("q", "too_long")
-    if _has_control_chars(value, allow_whitespace=False):
+    if has_control_chars(value, allow_whitespace=False):
         raise TodoValidationError("q", "format")
-    return value
-
-
-def _split_after(after: Any) -> tuple[Any, uuid.UUID]:
-    """起点を ``(値, id)`` に分ける。"""
-    if not isinstance(after, tuple | list) or len(after) != 2:
-        raise TodoValidationError("cursor", "format")
-    value, raw_id = after
-    try:
-        last_id = raw_id if isinstance(raw_id, uuid.UUID) else uuid.UUID(str(raw_id))
-    except ValueError:
-        raise TodoValidationError("cursor", "format") from None
-    return value, last_id
-
-
-def _parse_aware_datetime(value: Any) -> dt.datetime:
-    """タイムゾーン付きの日時（``datetime`` または ISO 8601 の文字列）。"""
-    if isinstance(value, str):
-        try:
-            value = dt.datetime.fromisoformat(value)
-        except ValueError:
-            raise TodoValidationError("cursor", "format") from None
-    if not isinstance(value, dt.datetime) or value.tzinfo is None:
-        raise TodoValidationError("cursor", "format")
     return value
 
 
@@ -783,7 +835,7 @@ def _normalize_todo_after(sort: ListSort, after: Any) -> tuple[Any, uuid.UUID] |
     """一覧の起点を並び替えキーに合う型にする。"""
     if after is None:
         return None
-    value, last_id = _split_after(after)
+    value, last_id = split_after(after)
     match sort.key:
         case "due_date":
             if value is None:
@@ -801,12 +853,4 @@ def _normalize_todo_after(sort: ListSort, after: Any) -> tuple[Any, uuid.UUID] |
                 raise TodoValidationError("cursor", "format")
             return str(value), last_id
         case _:
-            return _parse_aware_datetime(value), last_id
-
-
-def _normalize_datetime_after(after: Any) -> tuple[dt.datetime, uuid.UUID] | None:
-    """アクティビティの起点（``(created_at, id)``）。"""
-    if after is None:
-        return None
-    value, last_id = _split_after(after)
-    return _parse_aware_datetime(value), last_id
+            return parse_aware_datetime(value), last_id

@@ -54,8 +54,10 @@ describe('useTodoList', () => {
         expect(result.current.items.map((item) => item.id)).toEqual(['a', 'b', 'c']);
 
         const [first, second] = paramsOf(spy, '/api/v1/todos');
-        expect(first.toString()).toBe(`limit=2&scope=assigned&status=open%2Cin_progress&assignee_id=${OTHER_USER_ID}&sort=due_date`);
+        // include_total は先頭ページだけに付ける (AP-UX-02)
+        expect(first.toString()).toBe(`limit=2&scope=assigned&status=open%2Cin_progress&assignee_id=${OTHER_USER_ID}&sort=due_date&include_total=true`);
         expect(second.get('cursor')).toBe('c1');
+        expect(second.has('include_total')).toBe(false);
         expect([second.get('scope'), second.get('status'), second.get('assignee_id'), second.get('sort')]).toEqual(['assigned', 'open,in_progress', OTHER_USER_ID, 'due_date']);
     });
 

@@ -6,7 +6,8 @@
   ``main_app/route/v1/apiapp.py`` のルーター全体に適用する。無効化されたユーザー・同期前のユーザーは、
   Redis のセッションを破棄して 401 にする。``t_user.is_active`` を正とし、キャッシュしない。
 - :data:`TenantAdminDep` — 変更系のエンドポイントに ``tenant_admin`` を要求する(01 §7.5)。
-- :func:`get_user_service` / :func:`get_organization_service` / :func:`get_todo_service` — サービスを 1 リクエスト分だけ作る。
+- :func:`get_user_service` / :func:`get_organization_service` / :func:`get_todo_service` / :func:`get_todo_comment_service` /
+  :func:`get_todo_checklist_service` — サービスを 1 リクエスト分だけ作る。
   テストでは ``app.dependency_overrides`` で差し替える(Keycloak の管理クライアントのフェイクなど)。
 """
 import logging
@@ -18,6 +19,8 @@ from fastapi import Depends
 
 from main_app.services.errors import UserDeactivatedError, UserNotSyncedError
 from main_app.services.organization_service import OrganizationService
+from main_app.services.todo_checklist_service import TodoChecklistService
+from main_app.services.todo_comment_service import TodoCommentService
 from main_app.services.todo_service import TodoService
 from main_app.services.user_service import UserService
 from main_app.services.user_sync import require_active_session_user
@@ -106,6 +109,18 @@ def get_todo_service(session: AppSessionDep, actor: ActiveAppUserDep) -> TodoSer
     return TodoService(session, actor_user_id=actor.id, actor_roles=actor.claims.get("roles") or [])
 
 
+def get_todo_comment_service(session: AppSessionDep, actor: ActiveAppUserDep) -> TodoCommentService:
+    """ToDo のコメントのサービスを作る FastAPI 依存関数(操作者の指定は :func:`get_todo_service` と同じ)。"""
+    return TodoCommentService(session, actor_user_id=actor.id, actor_roles=actor.claims.get("roles") or [])
+
+
+def get_todo_checklist_service(session: AppSessionDep, actor: ActiveAppUserDep) -> TodoChecklistService:
+    """ToDo のチェックリストのサービスを作る FastAPI 依存関数(操作者の指定は :func:`get_todo_service` と同じ)。"""
+    return TodoChecklistService(session, actor_user_id=actor.id, actor_roles=actor.claims.get("roles") or [])
+
+
 UserServiceDep = Annotated[UserService, Depends(get_user_service)]
 OrganizationServiceDep = Annotated[OrganizationService, Depends(get_organization_service)]
 TodoServiceDep = Annotated[TodoService, Depends(get_todo_service)]
+TodoCommentServiceDep = Annotated[TodoCommentService, Depends(get_todo_comment_service)]
+TodoChecklistServiceDep = Annotated[TodoChecklistService, Depends(get_todo_checklist_service)]

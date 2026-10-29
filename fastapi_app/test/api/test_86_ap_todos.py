@@ -137,7 +137,10 @@ class TestCreate:
         check.equal((body["created_by"], body["updated_by"]), (str(world.creator.user_id), str(world.creator.user_id)))
         check.equal([o["name"] for o in body["organizations"]], ["Org One"])
         check.equal([(a["user_id"], a["is_active"]) for a in body["assignees"]], [(str(world.assignee.user_id), True)])
-        check.equal(body["permissions"], {"can_edit_fields": True, "can_change_status": True, "can_change_visibility": True, "can_change_assignees": True, "can_delete": True})
+        check.equal(
+            body["permissions"],
+            {"can_edit_fields": True, "can_change_status": True, "can_change_visibility": True, "can_change_assignees": True, "can_delete": True, "can_comment": True, "can_edit_checklist": True, "can_check_checklist": True},
+        )
         check.is_true(body["created_at"].endswith("Z"))
 
     def test_defaults(self, api, world):
@@ -221,10 +224,10 @@ class TestGet:
         """詳細は ETag(version)・説明・操作者の権限を返す。権限は作成者 / 担当者 / 閲覧のみで異なる。"""
         todo_id = world.factory.add(world.a.ctx, world.creator.user_id, description="desc", visibility="tenant", assignees=[world.assignee.user_id])
         expected = [
-            (world.admin, (True, True, True, True, True)),
-            (world.creator, (True, True, True, True, True)),
-            (world.assignee, (False, True, False, True, False)),
-            (world.m1, (False, False, False, False, False)),
+            (world.admin, (True, True, True, True, True, True, True, True)),
+            (world.creator, (True, True, True, True, True, True, True, True)),
+            (world.assignee, (False, True, False, True, False, True, False, True)),
+            (world.m1, (False, False, False, False, False, True, False, False)),
         ]
         for actor, flags in expected:
             response = api.get(actor, f"/{todo_id}")
@@ -608,12 +611,19 @@ class TestList:
         check.equal(ids, expected_order(listing, key, descending))
 
     def test_default_sort_and_response_shape(self, api, world, listing):
-        """既定は -created_at。要素は説明を含まず、version・担当者・公開先・effective_visibility を含む。total は常に null。include_total は無視される。"""
+        """既定は -created_at。要素は説明を含まず、version・担当者・公開先・effective_visibility を含む。total は既定で null(include_total=true で総件数)。"""
         body = api.get(world.admin, limit=50, include_total="true").json()
         check.equal([i["id"] for i in body["items"]], expected_order(listing, "created_at", True))
-        check.is_none(body["total"])
+        check.equal(body["total"], len(listing))
+        check.is_none(api.get(world.admin, limit=50).json()["total"])
         item = body["items"][0]
-        check.equal(set(item), {"id", "title", "status", "priority", "due_date", "visibility", "effective_visibility", "organizations", "assignees", "created_by", "updated_by", "version", "created_at", "updated_at"})
+        check.equal(
+            set(item),
+            {
+                "id", "title", "status", "priority", "due_date", "visibility", "effective_visibility", "organizations", "assignees",
+                "created_by", "updated_by", "creator", "updater", "checklist", "comment_count", "version", "created_at", "updated_at",
+            },
+        )
         check.is_not_in("description", item)
 
     def test_nulls_in_due_date_cursor_round_trip(self, api, world, listing):

@@ -13,7 +13,7 @@ from typing import Any
 from main_app.models import TodoActivityAction, TodoPriority, TodoStatus, TodoVisibility
 from main_app.repositories.keyset import Page
 from main_app.services.common import UserNameView
-from main_app.services.todo_policy import TodoPermissions
+from main_app.services.todo_policy import TodoChecklistPermissions, TodoCommentPermissions, TodoPermissions
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -49,6 +49,19 @@ class TodoOrganizationView:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class TodoChecklistProgressView:
+    """チェックリストの進捗（AP-CHK-06。項目が無ければ 0 / 0）。
+
+    Attributes:
+        done_count: 完了した項目の数。
+        total_count: 項目の数。
+    """
+
+    done_count: int
+    total_count: int
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class TodoView:
     """一覧の要素（説明 ``description`` は含めない。詳細は :class:`TodoDetailView`）。
 
@@ -65,9 +78,15 @@ class TodoView:
         assignees: 担当者（割り当て日時順。無効化されたユーザーを含む）。
         created_by: 作成者のユーザー ID。
         updated_by: 最終更新者のユーザー ID。
-        version: 楽観ロックのバージョン（``ETag``。一覧からも更新できるよう含める。03 §5.2）。
+        creator: 作成者の表示名・有効か（AP-UX-03, 09）。
+        updater: 最終更新者の表示名・有効か。
+        checklist: チェックリストの進捗（AP-CHK-06）。
+        comment_count: コメント数（論理削除済みを除く）。
+        version: 楽観ロックのバージョン（``ETag``。一覧からも更新できるよう含める。03 §5.2）。コメント・チェックリストの変更では変わらない（§10 #16）。
         created_at: 作成日時。
-        updated_at: 更新日時。
+        updated_at: 更新日時（ToDo 本体の更新日時。コメント・チェックリストの変更では変わらない）。
+
+    ``creator`` / ``updater`` / ``checklist`` / ``comment_count`` は、一覧の 1 ページの ToDo の ID でまとめて取得する（N+1 にしない）。
     """
 
     id: uuid.UUID
@@ -81,9 +100,24 @@ class TodoView:
     assignees: tuple[TodoAssigneeView, ...]
     created_by: uuid.UUID
     updated_by: uuid.UUID
+    creator: UserNameView
+    updater: UserNameView
+    checklist: TodoChecklistProgressView
+    comment_count: int
     version: int
     created_at: dt.datetime
     updated_at: dt.datetime
+
+
+@dataclass(frozen=True, slots=True)
+class TodoListPage(Page[TodoView]):
+    """ToDo の一覧の 1 ページと総件数（:meth:`main_app.services.todo_service.TodoService.list_todos`）。
+
+    Attributes:
+        total: 総件数（``include_total=True`` のときだけ数える。表示範囲・絞り込みを適用し、カーソルには依存しない。それ以外は ``None``）。
+    """
+
+    total: int | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -113,6 +147,7 @@ class TodoActivityView:
     | ``visibility_changed`` | ``{"changes": {"visibility": {"before", "after"}}, "organization_ids": {"added": [...], "removed": [...]}}``（変わった方だけ） |
     | ``assignees_changed`` | ``{"added": [...], "removed": [...]}`` |
     | ``deleted`` | ``{"title": ...}`` |
+    | ``checklist_changed`` | ``{"op", "item_id", "title"}``。``op`` は ``added`` / ``renamed`` / ``removed`` / ``checked`` / ``unchecked``。``renamed`` は ``before`` / ``after`` に名前。並べ替えは記録しない |
 
     Attributes:
         id: アクティビティ ID。
@@ -147,3 +182,138 @@ class TodoActivityPage(Page[TodoActivityView]):
     """
 
     users: Mapping[uuid.UUID, UserNameView] = field(default_factory=dict)
+
+
+# --------------------------------------------------------------------------- コメント（AP-CMT）
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class TodoCommentView:
+    """コメント（:class:`main_app.services.todo_comment_service.TodoCommentService`）。
+
+    Attributes:
+        id: コメント ID。
+        todo_id: ToDo ID。
+        author: 投稿者（無効化されたユーザーも残る。AP-CMT-07）。
+        body: 本文（プレーンテキスト）。
+        version: コメントの版（``ETag`` / ``If-Match``。ToDo 本体の版とは別）。
+        created_at: 投稿日時。
+        updated_at: 更新日時。
+        edited_at: 本文を編集した日時（``None`` = 編集されていない。「編集済み」の表示用。AP-CMT-03）。
+        permissions: 操作者がこのコメントに対して行える操作。
+    """
+
+    id: uuid.UUID
+    todo_id: uuid.UUID
+    author: UserNameView
+    body: str
+    version: int
+    created_at: dt.datetime
+    updated_at: dt.datetime
+    edited_at: dt.datetime | None
+    permissions: TodoCommentPermissions
+
+
+# --------------------------------------------------------------------------- チェックリスト（AP-CHK）
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class TodoChecklistItemView:
+    """チェックリスト項目。
+
+    Attributes:
+        id: 項目 ID。
+        title: 項目名。
+        position: 並び（0 からの連番）。
+        is_done: 完了しているか。
+        done_at: 完了した日時（未完了は ``None``）。
+        done_by: 完了した人（未完了は ``None``。AP-CHK-04）。
+        version: 項目の版（名前変更・完了の切り替え・削除の ``If-Match``）。
+        created_at: 作成日時。
+        updated_at: 更新日時。
+    """
+
+    id: uuid.UUID
+    title: str
+    position: int
+    is_done: bool
+    done_at: dt.datetime | None
+    done_by: UserNameView | None
+    version: int
+    created_at: dt.datetime
+    updated_at: dt.datetime
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class TodoChecklistView:
+    """チェックリスト全体（:class:`main_app.services.todo_checklist_service.TodoChecklistService` のすべてのメソッドの戻り値）。
+
+    Attributes:
+        todo_id: ToDo ID。
+        version: チェックリスト全体の版（``t_todo.checklist_version``。項目の追加・削除・並べ替えで上がる。並べ替えの ``If-Match``。§10 #17）。
+        items: 項目（``position`` の順）。
+        done_count: 完了した項目の数。
+        total_count: 項目の数。
+        permissions: 操作者の権限（``can_edit`` = 追加・名前変更・削除・並べ替え、``can_check`` = 完了の切り替え）。
+    """
+
+    todo_id: uuid.UUID
+    version: int
+    items: tuple[TodoChecklistItemView, ...]
+    done_count: int
+    total_count: int
+    permissions: TodoChecklistPermissions
+
+
+# --------------------------------------------------------------------------- ホームの要約（AP-UX-01）
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class TodoSummaryAssignedView:
+    """自分が担当の ToDo の件数（完了を除く。閲覧できるものだけ）。
+
+    Attributes:
+        open: ステータスが ``open``。
+        in_progress: ステータスが ``in_progress``。
+        overdue: 期限切れ（``due_date < today``）。
+        due_soon: 期限間近（``today <= due_date <= due_soon_until``）。
+    """
+
+    open: int
+    in_progress: int
+    overdue: int
+    due_soon: int
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class TodoSummaryCreatedView:
+    """自分が作成した ToDo の件数（完了を除く）。
+
+    Attributes:
+        open: ステータスが ``open``。
+        in_progress: ステータスが ``in_progress``。
+        overdue: 期限切れ（``due_date < today``）。
+    """
+
+    open: int
+    in_progress: int
+    overdue: int
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class TodoSummaryView:
+    """ホームの要約（:meth:`main_app.services.todo_service.TodoService.summarize`。ToDoApp.md §10 #21）。
+
+    Attributes:
+        today: 判定に使った今日（クライアントのローカル日付。省略時は UTC の日付）。
+        due_soon_days: 期限間近の日数（1〜30）。
+        due_soon_until: 期限間近の終端（``today + due_soon_days``。この日を含む）。
+        assigned: 自分が担当の ToDo の件数。
+        created: 自分が作成した ToDo の件数。
+    """
+
+    today: dt.date
+    due_soon_days: int
+    due_soon_until: dt.date
+    assigned: TodoSummaryAssignedView
+    created: TodoSummaryCreatedView

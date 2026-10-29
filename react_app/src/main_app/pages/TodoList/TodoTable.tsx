@@ -1,12 +1,16 @@
 /**
- * @desc ToDo 一覧の表 (タイトル・ステータス・優先度・期限・担当者・公開範囲)
+ * @desc ToDo 一覧の表 (タイトル・ステータス・優先度・期限・担当者・公開範囲・作成者・更新日時)
+ * タイトルの下に、チェックリストの進捗とコメント数を出す (AP-UX-03)。
  * ステータスは、変更できる行 (can_change_status が true の行) ではセレクト、それ以外はアイコン付きのチップで表示する。
  */
 import { Link as RouterLink } from 'react-router-dom';
 import { Chip, Link, Paper, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Typography } from '@mui/material';
 import type { TodoRead, TodoStatus } from '@/main_app/api/contract';
+import { formatDateTime } from '@/main_app/components/format';
 import { TodoDueText, TodoPriorityChip, TodoStatusChip } from '@/main_app/pages/TodoCommon/TodoBadges';
+import { TodoItemMeta } from '@/main_app/pages/TodoCommon/TodoProgress';
 import { TODO_VISIBILITY_LABELS } from '@/main_app/pages/TodoCommon/todo_labels';
+import { assigneeTextOf, userRefTextOf } from '@/main_app/pages/TodoCommon/todo_people';
 import { appTodoPath } from '@/main_app/paths';
 import { needsOrganizationReselect } from '@/main_app/todos/todo_changes';
 import { TodoStatusSelect } from './TodoStatusSelect';
@@ -20,15 +24,6 @@ export type TodoTableProps = {
     /** 操作中 (セレクトを無効にする)。 */
     pending: boolean;
 };
-
-/**
- * 担当者の表示にする関数 (無効なユーザーは「無効」を付ける)
- * @param {TodoRead} todo ToDo
- * @returns {string} 表示
-*/
-export const assigneeTextOf = (todo: TodoRead): string => (
-    todo.assignees.length === 0 ? '未割り当て' : todo.assignees.map((assignee) => (assignee.is_active ? assignee.display_name : `${assignee.display_name} (無効)`)).join('、')
-);
 
 const AudienceCell = ({ todo }: { todo: TodoRead }) => {
     if (needsOrganizationReselect(todo)) {
@@ -54,6 +49,8 @@ export const TodoTable = ({ tenant_code, todos, canChangeStatus, onChangeStatus,
                     <TableCell>期限</TableCell>
                     <TableCell>担当者</TableCell>
                     <TableCell>公開範囲</TableCell>
+                    <TableCell>作成者</TableCell>
+                    <TableCell>更新日時</TableCell>
                 </TableRow>
             </TableHead>
             <TableBody>
@@ -61,6 +58,7 @@ export const TodoTable = ({ tenant_code, todos, canChangeStatus, onChangeStatus,
                     <TableRow key={todo.id} hover data-testid={`todo-row-${todo.id}`} data-status={todo.status}>
                         <TableCell component="th" scope="row" sx={{ overflowWrap: 'anywhere', minWidth: 200 }}>
                             <Link component={RouterLink} to={appTodoPath(tenant_code, todo.id)} underline="hover" data-testid={`todo-link-${todo.id}`}>{todo.title}</Link>
+                            <TodoItemMeta checklist={todo.checklist} comment_count={todo.comment_count} todo_id={todo.id} />
                         </TableCell>
                         <TableCell data-testid={`todo-status-${todo.id}`}>
                             {canChangeStatus(todo)
@@ -71,6 +69,8 @@ export const TodoTable = ({ tenant_code, todos, canChangeStatus, onChangeStatus,
                         <TableCell><TodoDueText due_date={todo.due_date} status={todo.status} test_id={`todo-due-${todo.id}`} /></TableCell>
                         <TableCell sx={{ overflowWrap: 'anywhere' }} data-testid={`todo-assignees-${todo.id}`}>{assigneeTextOf(todo)}</TableCell>
                         <TableCell data-testid={`todo-audience-${todo.id}`}><AudienceCell todo={todo} /></TableCell>
+                        <TableCell sx={{ overflowWrap: 'anywhere' }} data-testid={`todo-creator-${todo.id}`}>{userRefTextOf(todo.creator)}</TableCell>
+                        <TableCell sx={{ whiteSpace: 'nowrap' }} data-testid={`todo-updated-${todo.id}`}>{formatDateTime(todo.updated_at)}</TableCell>
                     </TableRow>
                 ))}
             </TableBody>

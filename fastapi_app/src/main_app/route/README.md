@@ -31,7 +31,7 @@ route/
 │   ├── api_me/             # GET /api/v1/me
 │   ├── api_users/          # /api/v1/users
 │   ├── api_organizations/  # /api/v1/organizations (members 含む)
-│   └── api_todos/          # /api/v1/todos (ToDo アプリ。assignees・activities 含む。docs/spec/ToDoApp.md §9.5)
+│   └── api_todos/          # /api/v1/todos (ToDo アプリ。assignees・activities・summary・comments・checklist 含む。docs/spec/ToDoApp.md §9.5)
 └── sample/                 # 参考用のコード (app.py に登録していない。下記)
 ```
 
@@ -158,12 +158,22 @@ def create_tenant(user: dict = Depends(require_cp_roles("saas_admin"))):
 
 | メソッド | パス | 概要 |
 |---|---|---|
-| `GET` | `/api/v1/todos` | 一覧。`scope` / `status` / `priority` (カンマ区切り) / `q` / `organization_id` / `assignee_id` / `due_before` / `due_after` / `sort` (キー 1 つ。複数キーは未対応) / `limit` / `cursor` |
+| `GET` | `/api/v1/todos` | 一覧。`scope` / `status` / `priority` (カンマ区切り) / `q` / `organization_id` / `assignee_id` / `due_before` / `due_after` / `sort` (キー 1 つ。複数キーは未対応) / `limit` / `cursor` / `include_total` (`true` で `total`)。要素に `creator` / `updater` / `checklist` / `comment_count` |
+| `GET` | `/api/v1/todos/summary` | ホームの要約 (`today`、`due_soon_days` 1〜30)。`/{id}` より前に宣言 |
 | `POST` | `/api/v1/todos` | 作成。201、`Location`、`ETag` |
 | `GET` | `/api/v1/todos/{id}` | 詳細 (説明・`permissions`)。`ETag` |
 | `PATCH` | `/api/v1/todos/{id}` | 部分更新 (閲覧範囲・公開先組織を含む)。`If-Match` 必須 (428 / 412)。新しい `ETag` |
 | `DELETE` | `/api/v1/todos/{id}` | 論理削除。`If-Match` 必須。204 |
 | `PUT` | `/api/v1/todos/{id}/assignees` | 担当者の全置換。`If-Match` 必須。新しい `ETag` |
 | `GET` | `/api/v1/todos/{id}/activities` | アクティビティ (新しい順、カーソル方式) |
+| `GET` | `/api/v1/todos/{id}/comments` | コメント一覧 (古い順、カーソル方式)。`comments.py` |
+| `POST` | `/api/v1/todos/{id}/comments` | コメント投稿。201、`Location`、`ETag` (コメントの版) |
+| `PATCH` | `/api/v1/todos/{id}/comments/{cid}` | コメント編集 (投稿者のみ)。`If-Match` はコメントの版。新しい `ETag` |
+| `DELETE` | `/api/v1/todos/{id}/comments/{cid}` | コメント削除 (投稿者・`tenant_admin`)。`If-Match` はコメントの版。204 |
+| `GET` | `/api/v1/todos/{id}/checklist` | チェックリスト全体。`ETag` はチェックリストの版。`checklist.py` |
+| `POST` | `/api/v1/todos/{id}/checklist/items` | 項目の追加。201、`If-Match` 不要。応答はチェックリスト全体 |
+| `PATCH` | `/api/v1/todos/{id}/checklist/items/{iid}` | 名前変更・完了の切り替え。`If-Match` は項目の版。応答は全体 |
+| `DELETE` | `/api/v1/todos/{id}/checklist/items/{iid}` | 項目の削除。`If-Match` は項目の版。**200** で全体 |
+| `PUT` | `/api/v1/todos/{id}/checklist/order` | 並べ替え (`{item_ids}`)。`If-Match` はチェックリストの版。集合が違えば 422 |
 
-例外の変換は `main_app/problems.py` (`invalid_todo_input` / `invalid_todo_assignees` / `invalid_todo_organizations` 422、`todo_not_found` 404、`todo_operation_forbidden` 403、`todo_version_conflict` 412)。
+例外の変換は `main_app/problems.py` (`invalid_todo_input` / `invalid_todo_assignees` / `invalid_todo_organizations` 422、`todo_not_found` / `todo_comment_not_found` / `todo_checklist_item_not_found` 404、`todo_operation_forbidden` 403 (`operation`)、`todo_version_conflict` / `todo_comment_version_conflict` / `todo_checklist_version_conflict` 412 (最後は拡張メンバー `target` = `item` | `checklist`))。コメント・チェックリストの変更は ToDo 本体の `ETag` を変えない。

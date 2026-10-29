@@ -4,6 +4,7 @@
  * - permissions は画面のボタンの出し分けに使う (サーバーも更新時に判定する)。target を useTodoActions に渡すと、不可の操作は API を呼ばずに弾く
  * - 変更操作の応答は常に詳細 (TodoDetail) のため、applyUpdate で取り直さずに表示・ETag・permissions を新しくする
  * - 閲覧できない・削除済み・他テナントの ToDo は 404 todo_not_found (区別しない)
+ * - 412 のときは refresh で表示を保ったまま最新を取り直す (AP-UX-07)。未保存の入力は useRebasedDraft で残す
 */
 import { useMemo } from 'react';
 import { useAppApiClient } from '@/main_app/api/client';
@@ -40,8 +41,17 @@ export type TodoDetailState = {
     needs_organization_reselect: boolean;
     /** 取得の失敗 (status === 'error' のとき。404 todo_not_found)。 */
     error: AppErrorInfo | null;
-    /** 取り直す (取得中は status が loading になる)。412・403 todo_operation_forbidden など requires_reload のときに使う。 */
+    /** 取り直す (取得中は status が loading になる)。 */
     reload: () => void;
+    /**
+     * 表示を保ったまま取り直す (status は success のまま)。412・403 todo_operation_forbidden など requires_reload のときに使う。
+     * 成功すれば true。失敗すれば false で、表示は前のまま (refresh_error。404 なら削除された・閲覧できなくなった)。
+     */
+    refresh: () => Promise<boolean>;
+    /** refresh の取得中。 */
+    is_refreshing: boolean;
+    /** 最後の refresh の失敗。 */
+    refresh_error: AppErrorInfo | null;
     /** 変更操作の結果を反映する (useTodoActions の onUpdated につなぐ)。別の ToDo への更新・削除は無視する (削除後は画面を離れること)。 */
     applyUpdate: (update: TodoActionUpdate) => void;
 };
@@ -65,7 +75,7 @@ export const mergeTodoUpdate = (current: WithEtag<TodoDetail>, update: TodoActio
 */
 export const useTodo = (todo_id: string): TodoDetailState => {
     const client = useAppApiClient();
-    const { status, value, etag, error, reload, applyUpdate } = useVersionedResource<TodoDetail, TodoActionUpdate>({
+    const { status, value, etag, error, reload, applyUpdate, refresh, is_refreshing, refresh_error } = useVersionedResource<TodoDetail, TodoActionUpdate>({
         key: `app-todo:${todo_id}`,
         load: () => fetchTodo(client, todo_id),
         merge: mergeTodoUpdate,
@@ -82,6 +92,9 @@ export const useTodo = (todo_id: string): TodoDetailState => {
         error,
         reload,
         applyUpdate,
+        refresh,
+        is_refreshing,
+        refresh_error,
     };
 };
 

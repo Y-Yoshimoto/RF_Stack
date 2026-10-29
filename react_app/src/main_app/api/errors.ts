@@ -52,6 +52,10 @@ export type AppErrorInfo = ApiErrorInfo;
  * - todo_operation_not_permitted: ToDo の permissions で不可の操作 (forbidden、code: todo_operation_forbidden。操作は TodoGuardError.operation)
  * - todo_organizations_required: 閲覧範囲 organization で公開先組織が無い (invalid_input、code: invalid_todo_input。AP-VIS-07)
  * - todo_too_many_assignees: 担当者が上限 (20 人) を超える (invalid_input。AP-ASN-01)
+ * - todo_comment_body_invalid: コメントの本文が空・上限 (4,000 文字) 超え (invalid_input、code: invalid_todo_input。AP-CMT-01)
+ * - todo_checklist_title_invalid: チェックリスト項目名が空・上限 (200 文字) 超え (invalid_input、code: invalid_todo_input。AP-CHK-02)
+ * - todo_checklist_too_many_items: チェックリスト項目が上限 (100) に達している (invalid_input、code: invalid_todo_input。AP-CHK-01)
+ * - todo_checklist_order_mismatch: 並べ替えの項目 ID が保持している項目と一致しない (invalid_input、code: invalid_todo_input。取り直してやり直す)
  */
 export type AppGuardReason =
     | 'write_not_allowed'
@@ -62,7 +66,11 @@ export type AppGuardReason =
     | 'empty_changes'
     | 'todo_operation_not_permitted'
     | 'todo_organizations_required'
-    | 'todo_too_many_assignees';
+    | 'todo_too_many_assignees'
+    | 'todo_comment_body_invalid'
+    | 'todo_checklist_title_invalid'
+    | 'todo_checklist_too_many_items'
+    | 'todo_checklist_order_mismatch';
 
 const GUARD_INFO: Record<AppGuardReason, { kind: ApiErrorKind; code?: string; requires_reload?: boolean }> = {
     write_not_allowed: { kind: 'forbidden' },
@@ -74,6 +82,10 @@ const GUARD_INFO: Record<AppGuardReason, { kind: ApiErrorKind; code?: string; re
     todo_operation_not_permitted: { kind: 'forbidden', code: APP_PROBLEM_CODE.TODO_OPERATION_FORBIDDEN },
     todo_organizations_required: { kind: 'invalid_input', code: APP_PROBLEM_CODE.INVALID_TODO_INPUT },
     todo_too_many_assignees: { kind: 'invalid_input' },
+    todo_comment_body_invalid: { kind: 'invalid_input', code: APP_PROBLEM_CODE.INVALID_TODO_INPUT },
+    todo_checklist_title_invalid: { kind: 'invalid_input', code: APP_PROBLEM_CODE.INVALID_TODO_INPUT },
+    todo_checklist_too_many_items: { kind: 'invalid_input', code: APP_PROBLEM_CODE.INVALID_TODO_INPUT },
+    todo_checklist_order_mismatch: { kind: 'invalid_input', code: APP_PROBLEM_CODE.INVALID_TODO_INPUT, requires_reload: true },
 };
 
 /**
@@ -92,6 +104,7 @@ export class AppGuardError extends ApiGuardError {
  * AP 固有の、再取得してからやり直すべき code。
  * API の 403 todo_operation_forbidden は、保持している permissions が古い (担当から外れた等) ことを表すため取り直させる
  * (API を呼ばずに弾いた場合は保持している permissions どおりなので取り直さない)。
+ * コメント・チェックリスト項目の 404 は、ToDo は見えているが表示中の一覧が古い (他の人が削除した) ことを表すため取り直させる。
  */
 const APP_ERROR_RULES: ApiErrorRules = {
     reload_codes: [
@@ -99,6 +112,10 @@ const APP_ERROR_RULES: ApiErrorRules = {
         APP_PROBLEM_CODE.ORGANIZATION_VERSION_CONFLICT,
         APP_PROBLEM_CODE.TODO_VERSION_CONFLICT,
         APP_PROBLEM_CODE.TODO_OPERATION_FORBIDDEN,
+        APP_PROBLEM_CODE.TODO_COMMENT_VERSION_CONFLICT,
+        APP_PROBLEM_CODE.TODO_CHECKLIST_VERSION_CONFLICT,
+        APP_PROBLEM_CODE.TODO_COMMENT_NOT_FOUND,
+        APP_PROBLEM_CODE.TODO_CHECKLIST_ITEM_NOT_FOUND,
     ],
 };
 

@@ -38,10 +38,15 @@ _EXPORTS: dict[str, str] = {
     "TTodoOrganization": "todo",
     "TTodoAssignee": "todo",
     "TTodoActivity": "todo",
+    "TTodoComment": "todo",
+    "TTodoChecklistItem": "todo",
     "TodoStatus": "todo",
     "TodoPriority": "todo",
     "TodoVisibility": "todo",
     "TodoActivityAction": "todo",
+    "TODO_COMMENT_BODY_MAX_LENGTH": "todo",
+    "TODO_CHECKLIST_ITEM_TITLE_MAX_LENGTH": "todo",
+    "TODO_CHECKLIST_ITEMS_MAX": "todo",
 }
 
 __all__ = ["AppPlaneBase", *_EXPORTS]

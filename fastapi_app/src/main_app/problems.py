@@ -18,8 +18,10 @@
 | ``InvalidTodoAssigneesError`` | 422 | ``invalid_todo_assignees``(``errors`` の ``code`` は ``not_found`` / ``inactive``。拡張メンバー ``user_ids``) |
 | ``InvalidTodoOrganizationsError`` | 422 | ``invalid_todo_organizations``(拡張メンバー ``organization_ids``) |
 | ``TodoNotFoundError`` | 404 | ``todo_not_found``(他テナント・存在しない・削除済み・閲覧範囲外を区別しない) |
-| ``TodoPermissionDeniedError`` | 403 | ``todo_operation_forbidden``(拡張メンバー ``operation``) |
-| ``TodoVersionConflictError`` | 412 | ``todo_version_conflict`` |
+| ``TodoCommentNotFoundError`` / ``TodoChecklistItemNotFoundError`` | 404 | ``todo_comment_not_found`` / ``todo_checklist_item_not_found``(別の ToDo のもの・削除済みを区別しない。ToDo を閲覧できなければ先に ``todo_not_found``) |
+| ``TodoPermissionDeniedError`` | 403 | ``todo_operation_forbidden``(拡張メンバー ``operation``。コメント・チェックリストは ``edit_comment`` / ``delete_comment`` / ``edit_checklist`` / ``check_checklist_item``) |
+| ``TodoVersionConflictError`` / ``TodoCommentVersionConflictError`` | 412 | ``todo_version_conflict`` / ``todo_comment_version_conflict`` |
+| ``TodoChecklistVersionConflictError`` | 412 | ``todo_checklist_version_conflict``(拡張メンバー ``target``: ``item`` = 項目の版 / ``checklist`` = チェックリスト全体の版) |
 | ``IdentityProviderOperationError`` | 502 | ``identity_provider_operation_failed`` |
 | ``UserDeactivatedError`` / ``UserNotSyncedError`` | 401 | ``user_deactivated`` / ``user_not_synced``(セッションの破棄は ``route/v1/deps.py``) |
 
@@ -40,6 +42,10 @@ from main_app.services.errors import (
     OrganizationNameConflictError,
     OrganizationNotFoundError,
     OrganizationVersionConflictError,
+    TodoChecklistItemNotFoundError,
+    TodoChecklistVersionConflictError,
+    TodoCommentNotFoundError,
+    TodoCommentVersionConflictError,
     TodoNotFoundError,
     TodoPermissionDeniedError,
     TodoVersionConflictError,
@@ -71,8 +77,12 @@ _TEXTS: dict[str, ProblemText] = {
     "invalid_todo_assignees": ProblemText("担当者に指定できないユーザーが含まれています", "テナント内に存在しないユーザー、無効化されたユーザーは新たに担当者にできません"),
     "invalid_todo_organizations": ProblemText("公開先に指定できない組織が含まれています", "テナント内に存在しない組織、削除された組織は新たに公開先にできません"),
     "todo_not_found": ProblemText("ToDo が見つかりません", "指定された ToDo は存在しないか、閲覧権限がありません"),
+    "todo_comment_not_found": ProblemText("コメントが見つかりません", "指定されたコメントは存在しないか、削除されています"),
+    "todo_checklist_item_not_found": ProblemText("チェックリストの項目が見つかりません", "指定された項目は存在しないか、削除されています"),
     "todo_operation_forbidden": ProblemText("この操作は許可されていません", "この ToDo に対する操作の権限がありません。作成者または管理者に依頼してください"),
     "todo_version_conflict": ProblemText("ToDo が他の操作により更新されています", "最新の状態を取得して、やり直してください"),
+    "todo_comment_version_conflict": ProblemText("コメントが他の操作により更新されています", "最新の状態を取得して、やり直してください"),
+    "todo_checklist_version_conflict": ProblemText("チェックリストが他の操作により更新されています", "最新の状態を取得して、やり直してください"),
     "identity_provider_operation_failed": ProblemText("認証サーバーでの処理に失敗しました", "認証サーバーでの処理に失敗したため、変更していません。時間をおいて、もう一度お試しください"),
     "user_deactivated": ProblemText("このユーザーは無効化されています", "ユーザーが無効化されたため、ログアウトしました。管理者にお問い合わせください"),
     "user_not_synced": ProblemText("もう一度ログインしてください", "ユーザー情報を確認できませんでした。もう一度ログインしてください"),
@@ -85,6 +95,8 @@ _VALIDATION_MESSAGES: dict[str, str] = {
     "too_long": "長すぎます",
     "too_short": "短すぎます",
     "too_many": "件数が多すぎます",
+    "mismatch": "現在の項目と一致しません。最新の状態を取得して、やり直してください",
+    "out_of_range": "指定できる範囲を超えています",
     "format": "形式が正しくありません",
     "type": "型が正しくありません",
     "unsupported": "指定できない値です",
@@ -126,7 +138,7 @@ def app_service_error_to_problem(exc: AppServiceError) -> ProblemError:
         elif isinstance(exc, InvalidTodoOrganizationsError):
             extensions = {"organization_ids": [str(organization_id) for organization_id in exc.organization_ids]}
         return problem_from_text(422, code, text, errors=[error], extensions=extensions)
-    if isinstance(exc, UserNotFoundError | OrganizationNotFoundError | TodoNotFoundError):
+    if isinstance(exc, UserNotFoundError | OrganizationNotFoundError | TodoNotFoundError | TodoCommentNotFoundError | TodoChecklistItemNotFoundError):
         return problem_from_text(404, code, text)
     if isinstance(exc, TodoPermissionDeniedError):
         return problem_from_text(403, code, text, extensions={"operation": exc.operation})
@@ -134,7 +146,9 @@ def app_service_error_to_problem(exc: AppServiceError) -> ProblemError:
         return problem_from_text(409, code, text)
     if isinstance(exc, UserSelfModificationError):
         return problem_from_text(409, code, text, extensions={"operation": exc.operation})
-    if isinstance(exc, UserVersionConflictError | OrganizationVersionConflictError | TodoVersionConflictError):
+    if isinstance(exc, TodoChecklistVersionConflictError):
+        return problem_from_text(412, code, text, extensions={"target": exc.target})
+    if isinstance(exc, UserVersionConflictError | TodoCommentVersionConflictError | OrganizationVersionConflictError | TodoVersionConflictError):
         return problem_from_text(412, code, text)
     if isinstance(exc, IdentityProviderOperationError):
         return problem_from_text(502, code, text)

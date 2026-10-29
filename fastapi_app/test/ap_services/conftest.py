@@ -35,7 +35,7 @@ __all__ = ["ApDb", "TenantRealmIdp", "_tenant_context_is_clean", "ap_db", "app_c
 
 
 # 後片付けの確認で数えるテーブル
-CLEANED_TABLES = ("t_user", "t_organization", "t_organization_member", "t_ap_audit_log", "t_todo", "t_todo_assignee", "t_todo_organization", "t_todo_activity")
+CLEANED_TABLES = ("t_user", "t_organization", "t_organization_member", "t_ap_audit_log", "t_todo", "t_todo_assignee", "t_todo_organization", "t_todo_activity", "t_todo_comment", "t_todo_checklist_item")
 
 
 class ApDb:

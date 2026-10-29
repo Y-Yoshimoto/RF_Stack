@@ -1,12 +1,13 @@
 #!/usr/bin/env python
 # coding:utf-8
-"""ToDo（``t_todo``）・担当者（``t_todo_assignee``）・公開先組織（``t_todo_organization``）の DB アクセス。
+"""ToDo（``t_todo``）・担当者（``t_todo_assignee``）・公開先組織（``t_todo_organization``）の DB アクセスと、
+一覧の件数（総件数・チェックリストの進捗・コメント数）・ホームの要約の集計。
 
 - 閲覧範囲の条件は受け取るだけで、ここでは定義しない（:mod:`main_app.services.todo_policy`。AP-VIS-09）
 - 既定のクエリは論理削除されていない ToDo（``deleted_at IS NULL``）に限る。``tenant_id`` の条件も明示し、
   02 §4.7 / ToDoApp.md §5 の部分インデックス（``(tenant_id, status)`` / ``(tenant_id, due_date)`` / ``(tenant_id, created_by)``、
   担当者の ``(tenant_id, user_id)``）を使える形にする（RLS の条件だけでは部分インデックスの述語に一致しない）
-- 一覧の担当者・公開先組織は ToDo の ID の集合でまとめて取得する（N+1 にしない）
+- 一覧の担当者・公開先組織・件数（:func:`load_todo_counters`）は ToDo の ID の集合でまとめて取得する（N+1 にしない）
 
 セッションは ``app_runtime`` + テナントコンテキスト下（RLS）であること。コミットはしない。
 """
@@ -17,12 +18,12 @@ from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from sqlalchemy import and_, case, delete, or_, tuple_
+from sqlalchemy import and_, case, delete, func, or_, tuple_
 from sqlalchemy.orm import defer
 from sqlalchemy.sql import ColumnElement
 from sqlmodel import Session, col, select
 
-from main_app.models import TodoPriority, TodoVisibility, TOrganization, TTodo, TTodoAssignee, TTodoOrganization, TUser
+from main_app.models import TodoPriority, TodoStatus, TodoVisibility, TOrganization, TTodo, TTodoAssignee, TTodoChecklistItem, TTodoComment, TTodoOrganization, TUser
 from main_app.repositories.keyset import ListSort, Page
 
 # 一覧の並び替えキー（AP-TODO-06）と既定値
@@ -75,6 +76,34 @@ class OrganizationRow:
     todo_id: uuid.UUID
     organization_id: uuid.UUID
     name: str
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class TodoCounters:
+    """ToDo ごとの件数（一覧・詳細の表示用）。
+
+    Attributes:
+        done_count: 完了したチェックリスト項目の数。
+        total_count: チェックリスト項目の数。
+        comment_count: コメント数（論理削除済みを除く）。
+    """
+
+    done_count: int = 0
+    total_count: int = 0
+    comment_count: int = 0
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class SummaryCounts:
+    """ホームの要約の件数（:func:`summary_counts`。いずれも完了を除く）。"""
+
+    assigned_open: int
+    assigned_in_progress: int
+    assigned_overdue: int
+    assigned_due_soon: int
+    created_open: int
+    created_in_progress: int
+    created_overdue: int
 
 
 # --------------------------------------------------------------------------- ToDo
@@ -217,6 +246,107 @@ def list_todos(
         return Page(items=items, next_after=None)
     last = items[-1]
     return Page(items=items, next_after=(_sort_value(last, sort.key), last.id))
+
+
+def count_todos(session: Session, tenant_id: uuid.UUID, *, conditions: Sequence[ColumnElement[bool]], filters: TodoListFilter) -> int:
+    """一覧の総件数（:func:`list_todos` と同じ条件。カーソル・並び順・件数には依存しない。SQL 1 本）。
+
+    Args:
+        session: AP のセッション。
+        tenant_id: テナント ID（コンテキストの値）。
+        conditions: 閲覧範囲・表示範囲の条件（``todo_policy``）。
+        filters: 絞り込み。
+
+    Returns:
+        int: 件数。
+    """
+    statement = select(func.count()).select_from(TTodo).where(*_active_todos(tenant_id), *conditions, *_filter_conditions(tenant_id, filters))
+    return int(session.exec(statement).one())
+
+
+def load_todo_counters(session: Session, tenant_id: uuid.UUID, todo_ids: Collection[uuid.UUID]) -> dict[uuid.UUID, TodoCounters]:
+    """ToDo ごとのチェックリストの進捗とコメント数をまとめて取得する（SQL 1 本。項目・コメントを ToDo ごとに集計して外部結合する）。
+
+    Args:
+        session: AP のセッション。
+        tenant_id: テナント ID。
+        todo_ids: ToDo ID（閲覧範囲の確認は呼び出し側）。
+
+    Returns:
+        dict[uuid.UUID, TodoCounters]: ToDo ID → 件数（テナント内に無い ID はキーが無い）。
+    """
+    if not todo_ids:
+        return {}
+    ids = list(todo_ids)
+    checklist = (
+        select(col(TTodoChecklistItem.todo_id).label("todo_id"), func.count().label("total"), func.count().filter(col(TTodoChecklistItem.is_done)).label("done"))
+        .where(col(TTodoChecklistItem.tenant_id) == tenant_id, col(TTodoChecklistItem.todo_id).in_(ids))
+        .group_by(col(TTodoChecklistItem.todo_id))
+        .subquery("checklist")
+    )
+    comments = (
+        select(col(TTodoComment.todo_id).label("todo_id"), func.count().label("total"))
+        .where(col(TTodoComment.tenant_id) == tenant_id, col(TTodoComment.todo_id).in_(ids), col(TTodoComment.deleted_at).is_(None))
+        .group_by(col(TTodoComment.todo_id))
+        .subquery("comments")
+    )
+    statement = (
+        select(col(TTodo.id), func.coalesce(checklist.c.done, 0), func.coalesce(checklist.c.total, 0), func.coalesce(comments.c.total, 0))
+        .select_from(TTodo)
+        .outerjoin(checklist, checklist.c.todo_id == col(TTodo.id))
+        .outerjoin(comments, comments.c.todo_id == col(TTodo.id))
+        .where(col(TTodo.tenant_id) == tenant_id, col(TTodo.id).in_(ids))
+    )
+    return {todo_id: TodoCounters(done_count=int(done), total_count=int(total), comment_count=int(comment_count)) for todo_id, done, total, comment_count in session.exec(statement).all()}
+
+
+def summary_counts(
+    session: Session,
+    tenant_id: uuid.UUID,
+    *,
+    visible: ColumnElement[bool],
+    assigned: ColumnElement[bool],
+    created: ColumnElement[bool],
+    today: dt.date,
+    due_soon_until: dt.date,
+) -> SummaryCounts:
+    """ホームの要約の件数を ``count(*) FILTER`` で数える（SQL 1 本。論理削除済み・完了を除く。ToDoApp.md §10 #21）。
+
+    Args:
+        session: AP のセッション。
+        tenant_id: テナント ID。
+        visible: 閲覧範囲の条件（``todo_policy.visible_condition``）。
+        assigned: 操作者が担当している条件（``todo_policy.scope_condition(actor, ASSIGNED)``）。
+        created: 操作者が作成した条件（``todo_policy.scope_condition(actor, MINE)``）。
+        today: 今日。期限切れは ``due_date < today``。
+        due_soon_until: 期限間近の終端（期限間近は ``today <= due_date <= due_soon_until``）。
+
+    Returns:
+        SummaryCounts: 件数。
+    """
+    status, due = col(TTodo.status), col(TTodo.due_date)
+    is_open, is_in_progress = status == TodoStatus.OPEN.value, status == TodoStatus.IN_PROGRESS.value
+    overdue = due < today
+    due_soon = and_(due >= today, due <= due_soon_until)
+    statement = select(
+        func.count().filter(and_(assigned, is_open)),
+        func.count().filter(and_(assigned, is_in_progress)),
+        func.count().filter(and_(assigned, overdue)),
+        func.count().filter(and_(assigned, due_soon)),
+        func.count().filter(and_(created, is_open)),
+        func.count().filter(and_(created, is_in_progress)),
+        func.count().filter(and_(created, overdue)),
+    ).where(*_active_todos(tenant_id), visible, status != TodoStatus.DONE.value, or_(assigned, created))
+    row = session.exec(statement).one()
+    return SummaryCounts(
+        assigned_open=int(row[0]),
+        assigned_in_progress=int(row[1]),
+        assigned_overdue=int(row[2]),
+        assigned_due_soon=int(row[3]),
+        created_open=int(row[4]),
+        created_in_progress=int(row[5]),
+        created_overdue=int(row[6]),
+    )
 
 
 # --------------------------------------------------------------------------- 担当者

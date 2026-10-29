@@ -45,6 +45,24 @@ class TodoPermissionsRead(BaseModel):
     can_change_visibility: bool = Field(description="閲覧範囲・公開先組織を変更できるか")
     can_change_assignees: bool = Field(description="担当者を変更できるか")
     can_delete: bool = Field(description="削除できるか")
+    can_comment: bool = Field(description="コメントを参照・投稿できるか(閲覧できる ToDo なら常に `true`)")
+    can_edit_checklist: bool = Field(description="チェックリスト項目の追加・名前変更・削除・並べ替えができるか(作成者・`tenant_admin`)")
+    can_check_checklist: bool = Field(description="チェックリスト項目の完了・未完了を切り替えられるか(作成者・担当者・`tenant_admin`)")
+
+
+class UserNameRead(BaseModel):
+    """ToDo・コメント・チェックリストが参照するユーザーの表示用の情報(無効化されたユーザーも含む)。"""
+
+    id: uuid.UUID = Field(description="ユーザー ID(`GET /api/v1/users` の `id` と同じ値)")
+    display_name: str = Field(description="表示名")
+    is_active: bool = Field(description="有効か。無効化されたユーザーも残る(画面では「無効」と表示する)")
+
+
+class TodoChecklistSummary(BaseModel):
+    """チェックリストの進捗(項目が無ければ 0 / 0)。"""
+
+    done_count: int = Field(description="完了した項目の数")
+    total_count: int = Field(description="項目の数")
 
 
 class TodoRead(BaseModel):
@@ -63,9 +81,13 @@ class TodoRead(BaseModel):
     assignees: list[TodoAssigneeRead] = Field(description="担当者(割り当て日時順。無効化されたユーザーを含む)")
     created_by: uuid.UUID = Field(description="作成者のユーザー ID")
     updated_by: uuid.UUID = Field(description="最終更新者のユーザー ID")
-    version: int = Field(description="楽観ロック用のバージョン。更新系の `If-Match` に `\"<version>\"` で指定する")
+    creator: UserNameRead = Field(description="作成者(表示名と有効か)")
+    updater: UserNameRead = Field(description="最終更新者(表示名と有効か)")
+    checklist: TodoChecklistSummary = Field(description="チェックリストの進捗")
+    comment_count: int = Field(description="コメント数(削除済みを除く)")
+    version: int = Field(description="楽観ロック用のバージョン。更新系の `If-Match` に `\"<version>\"` で指定する。コメント・チェックリストの変更では変わらない")
     created_at: UtcDatetime = Field(description="作成日時(UTC)")
-    updated_at: UtcDatetime = Field(description="更新日時(UTC)")
+    updated_at: UtcDatetime = Field(description="ToDo 本体の更新日時(UTC)。コメント・チェックリストの変更では変わらない")
 
 
 class TodoDetail(TodoRead):
@@ -79,6 +101,32 @@ class TodoPage(CursorPage[TodoRead]):
     """ToDo 一覧(カーソル方式。説明は含まない)。"""
 
 
+class TodoSummaryAssignedRead(BaseModel):
+    """自分が担当の ToDo の件数(完了を除く。閲覧できるものだけ)。"""
+
+    open: int = Field(description="ステータスが `open`")
+    in_progress: int = Field(description="ステータスが `in_progress`")
+    overdue: int = Field(description="期限切れ(`due_date < today`)")
+    due_soon: int = Field(description="期限間近(`today <= due_date <= due_soon_until`)")
+
+
+class TodoSummaryCreatedRead(BaseModel):
+    """自分が作成した ToDo の件数(完了を除く)。"""
+
+    open: int = Field(description="ステータスが `open`")
+    in_progress: int = Field(description="ステータスが `in_progress`")
+    overdue: int = Field(description="期限切れ(`due_date < today`)")
+
+
+class TodoSummaryRead(BaseModel):
+    """ホームの要約(件数)。完了(`done`)と削除済みは数えない。"""
+
+    today: dt.date = Field(description="判定に使った今日(`YYYY-MM-DD`。クライアントのローカル日付。省略時はサーバーの UTC の日付)")
+    due_soon_until: dt.date = Field(description="期限間近の終端(`today + due_soon_days`。この日を含む)")
+    assigned: TodoSummaryAssignedRead = Field(description="自分が担当の ToDo の件数")
+    created: TodoSummaryCreatedRead = Field(description="自分が作成した ToDo の件数")
+
+
 class TodoActivityRead(BaseModel):
     """アクティビティ(変更履歴。ToDo を閲覧できる人が参照できる)。"""
 
@@ -86,7 +134,7 @@ class TodoActivityRead(BaseModel):
     todo_id: uuid.UUID = Field(description="ToDo ID")
     actor_id: uuid.UUID = Field(description="操作者のユーザー ID")
     actor_display_name: str | None = Field(description="操作者の表示名(ユーザーを特定できなければ `null`)")
-    action: TodoActivityAction = Field(description="種別(`created` / `updated` / `status_changed` / `assignees_changed` / `visibility_changed` / `deleted`)")
+    action: TodoActivityAction = Field(description="種別(`created` / `updated` / `status_changed` / `assignees_changed` / `visibility_changed` / `deleted` / `checklist_changed`)")
     payload: dict[str, Any] = Field(
         description=(
             "変更の内容(JSON。日付は ISO 8601 の文字列、ID は文字列)。"
@@ -95,7 +143,8 @@ class TodoActivityRead(BaseModel):
             "`status_changed`: `{changes: {status: {before, after}}}`、"
             "`visibility_changed`: `{changes: {visibility: {before, after}}, organization_ids: {added, removed}}`(変わった方だけ)、"
             "`assignees_changed`: `{added: [...], removed: [...]}`、"
-            "`deleted`: `{title}`"
+            "`deleted`: `{title}`、"
+            "`checklist_changed`: `{op, item_id, title}`(`op` は `added` / `renamed` / `removed` / `checked` / `unchecked`。`renamed` は `before` / `after` に名前。並べ替えは記録しない)"
         )
     )
     created_at: UtcDatetime = Field(description="記録日時(UTC)。1 回の操作で複数の行を記録したときは同じ値")

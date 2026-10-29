@@ -98,3 +98,42 @@ export const toTodoListSearch = (filter: TodoListFilter, base: URLSearchParams |
     }
     return params;
 };
+
+// 表示方法 (リスト / ボード。AP-BRD-01) ///////////////////////////////////////
+// URL の `view` に持つ (`?view=board`)。API には送らないため TODO_LIST_SEARCH_KEYS には含めない (toTodoListSearch は view を残す)。
+
+/** 一覧の表示方法。 */
+export type TodoListView = 'list' | 'board';
+
+/** 表示方法の値 (先頭が既定)。 */
+export const TODO_LIST_VIEWS: readonly TodoListView[] = ['list', 'board'];
+
+/** 表示方法の URL クエリ名。 */
+export const TODO_LIST_VIEW_KEY = 'view';
+
+/** 既定の表示方法 (URL には載せない)。 */
+export const TODO_LIST_DEFAULT_VIEW: TodoListView = 'list';
+
+/**
+ * URL クエリから表示方法を読み取る関数 (未知の値・省略は list)
+ * @param {URLSearchParams | string} search URL クエリ
+ * @returns {TodoListView} 表示方法
+*/
+export const parseTodoListView = (search: URLSearchParams | string): TodoListView => {
+    const params = typeof search === 'string' ? new URLSearchParams(search) : search;
+    return oneOf(TODO_LIST_VIEWS, params.get(TODO_LIST_VIEW_KEY)) ?? TODO_LIST_DEFAULT_VIEW;
+};
+
+/**
+ * 表示方法を URL クエリに設定する関数 (既定の list は省く。他のクエリ・絞り込みは残す)
+ * ボードでは status の絞り込みを使わない (列がステータス。AP-BRD-02) が、リストに戻したときのために URL からは消さない。
+ * @param {TodoListView} view 表示方法
+ * @param {URLSearchParams | string} base 元の URL クエリ (省略時は空)
+ * @returns {URLSearchParams} URL クエリ
+*/
+export const withTodoListView = (view: TodoListView, base: URLSearchParams | string = ''): URLSearchParams => {
+    const params = new URLSearchParams(base);
+    if (view === TODO_LIST_DEFAULT_VIEW) params.delete(TODO_LIST_VIEW_KEY);
+    else params.set(TODO_LIST_VIEW_KEY, view);
+    return params;
+};

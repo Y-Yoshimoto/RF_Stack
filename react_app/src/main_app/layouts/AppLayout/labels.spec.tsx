@@ -1,4 +1,4 @@
-// AP のナビゲーション項目のテスト (ユーザー管理・組織管理・プロフィールが有効、ToDo も有効)
+// AP のナビゲーション項目のテスト (ユーザー管理・組織管理・プロフィールが有効、ToDo も有効。並びは ホーム → ToDo → ユーザー管理 → 組織管理 → プロフィール)
 import { describe, expect, it } from 'vitest';
 import { appNavItemsOf } from './labels';
 
@@ -10,5 +10,10 @@ describe('appNavItemsOf', () => {
 
     it('ToDo の遷移先をテナントのパスで返す', () => {
         expect(appNavItemsOf('alpha').find((item) => item.id === 'todo')?.to).toBe('/alpha/todos');
+    });
+
+    it('ナビゲーションの並びは、ホーム → ToDo → ユーザー管理 → 組織管理 → プロフィール', () => {
+        expect(appNavItemsOf('alpha').map((item) => item.label)).toEqual(['ホーム', 'ToDo', 'ユーザー管理', '組織管理', 'プロフィール']);
+        expect(appNavItemsOf('alpha').map((item) => item.id)).toEqual(['home', 'todo', 'users', 'organizations', 'profile']);
     });
 });

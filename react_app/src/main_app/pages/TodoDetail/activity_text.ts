@@ -3,7 +3,7 @@
 // ユーザー (操作者・担当者) の名前は応答の users (todos/activity_users.ts) で引く。外れた担当者や無効化されたユーザーも名前で出し、無効は「(無効)」を添える。
 import type { TodoActivityRead, TodoActivityUsers } from '@/main_app/api/contract';
 import { TODO_FIELD_LABELS, todoFieldValueTextOf } from '@/main_app/pages/TodoCommon/todo_labels';
-import { todoActivityChangesOf, todoActivityDeletedTitleOf, todoActivityIdDeltaOf } from '@/main_app/todos/activity_payload';
+import { todoActivityChangesOf, todoActivityChecklistChangeOf, todoActivityDeletedTitleOf, todoActivityIdDeltaOf } from '@/main_app/todos/activity_payload';
 import { UNKNOWN_USER_LABEL, todoActivityAssigneeDeltaOf, todoActivityCreatedAssigneesOf, type TodoActivityUserRef } from '@/main_app/todos/activity_users';
 
 /**
@@ -57,6 +57,29 @@ const organizationDeltaOf = (activity: TodoActivityRead, nameOf: NameLookup): { 
 };
 
 /**
+ * チェックリストの変更 (checklist_changed) を文にする関数
+ * @param {TodoActivityRead} activity アクティビティ
+ * @returns {string} 文 (内容が読み取れなければ「チェックリストを変更しました」)
+*/
+const checklistLineOf = (activity: TodoActivityRead): string => {
+    const change = todoActivityChecklistChangeOf(activity);
+    if (change === null) return 'チェックリストを変更しました';
+    const title = `「${change.title ?? change.after ?? '項目'}」`;
+    switch (change.op) {
+        case 'added':
+            return `チェックリストに${title}を追加しました`;
+        case 'renamed':
+            return `チェックリストの項目名を変更: 「${change.before ?? '不明'}」 → 「${change.after ?? change.title ?? '不明'}」`;
+        case 'removed':
+            return `チェックリストから${title}を削除しました`;
+        case 'checked':
+            return `チェックリストの${title}を完了にしました`;
+        case 'unchecked':
+            return `チェックリストの${title}を未完了に戻しました`;
+    }
+};
+
+/**
  * アクティビティの内容を文の並びにする関数
  * @param {TodoActivityRead} activity アクティビティ
  * @param {{ users: TodoActivityUsers; organization: NameLookup }} lookups ユーザー (応答の users) と組織の名前の引き当て
@@ -84,6 +107,8 @@ export const activityLinesOf = (activity: TodoActivityRead, lookups: { users: To
             ];
             return lines.length > 0 ? lines : ['閲覧範囲を変更しました'];
         }
+        case 'checklist_changed':
+            return [checklistLineOf(activity)];
         default: {
             const lines = todoActivityChangesOf(activity).map((change) => changeLineOf(change.field, change.before, change.after));
             return lines.length > 0 ? lines : [activity.action === 'status_changed' ? 'ステータスを変更しました' : '項目を変更しました'];

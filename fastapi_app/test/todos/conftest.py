@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""ToDo のサービス・API のテスト用フィクスチャ。
+"""ToDo のサービス・API のテスト用フィクスチャ(コメント・チェックリストのサービスと直接作成のヘルパーを含む)。
 
 - DB は開発 DB の ``app_db``。**使い捨てのテナント(``ap_db.tenant()``)にだけ書き込み**、終了時に監査ログ・アクティビティを含めて削除する
   (``ap_services/conftest.py``)。alpha / beta のデータには触れない。
@@ -17,7 +17,9 @@ import pytest
 from ap_services.conftest import ApDb, ap_db, app_cp_agent_engine, app_owner_engine, app_runtime_engine  # noqa: F401
 from sqlalchemy import insert
 
-from main_app.models import TTodo, TTodoAssignee, TTodoOrganization
+from main_app.models import TTodo, TTodoAssignee, TTodoChecklistItem, TTodoComment, TTodoOrganization
+from main_app.services.todo_checklist_service import TodoChecklistService
+from main_app.services.todo_comment_service import TodoCommentService
 from main_app.services.todo_service import TodoService
 from modules.tenancy.context import TenantContext
 
@@ -88,6 +90,51 @@ class TodoFactory:
             session.commit()
             return todo.id
 
+    def comment(
+        self,
+        ctx: TenantContext,
+        todo_id: uuid.UUID,
+        author: Person | uuid.UUID,
+        *,
+        body: str = "comment",
+        created_at: dt.datetime | None = None,
+        deleted: bool = False,
+        version: int = 1,
+    ) -> uuid.UUID:
+        """コメントをサービスを通さずに直接作る(コミット済み)。ID を返す。"""
+        author_id = author.id if isinstance(author, Person) else author
+        values: dict[str, Any] = {"tenant_id": ctx.tenant_id, "todo_id": todo_id, "author_id": author_id, "body": body, "version": version}
+        if created_at is not None:
+            values["created_at"] = values["updated_at"] = created_at
+        if deleted:
+            values["deleted_at"] = dt.datetime.now(dt.UTC)
+        with self.ap_db.session(ctx) as session:
+            row = TTodoComment(**values)
+            session.add(row)
+            session.commit()
+            return row.id
+
+    def item(
+        self,
+        ctx: TenantContext,
+        todo_id: uuid.UUID,
+        creator: Person | uuid.UUID,
+        *,
+        title: str = "item",
+        position: int = 0,
+        done_by: Person | uuid.UUID | None = None,
+    ) -> uuid.UUID:
+        """チェックリスト項目をサービスを通さずに直接作る(コミット済み。``done_by`` があれば完了済み)。``checklist_version`` は変えない。"""
+        creator_id = creator.id if isinstance(creator, Person) else creator
+        values: dict[str, Any] = {"tenant_id": ctx.tenant_id, "todo_id": todo_id, "title": title, "position": position, "created_by": creator_id, "updated_by": creator_id}
+        if done_by is not None:
+            values.update(is_done=True, done_at=dt.datetime.now(dt.UTC), done_by=done_by.id if isinstance(done_by, Person) else done_by)
+        with self.ap_db.session(ctx) as session:
+            row = TTodoChecklistItem(**values)
+            session.add(row)
+            session.commit()
+            return row.id
+
     def bulk(self, ctx: TenantContext, creator: Person, count: int, *, assignee_pool: Sequence[Person] = (), org_pool: Sequence[uuid.UUID] = ()) -> list[uuid.UUID]:
         """大量の ToDo を高速に作る(性能の確認用。ステータス・優先度・期限・閲覧範囲・担当者・公開先を循環させる)。"""
         statuses, priorities, visibilities = ("open", "in_progress", "done"), ("low", "medium", "high"), ("private", "organization", "tenant")
@@ -157,6 +204,28 @@ class TodoWorld:
         with self.ap_db.session(ctx or self.ctx) as session:
             yield TodoService(session, actor_user_id=person.id, actor_roles=person.roles)
 
+    @contextmanager
+    def comment_service(self, person: Person, *, ctx: TenantContext | None = None) -> Iterator[TodoCommentService]:
+        """``person`` として動く ``TodoCommentService``。"""
+        with self.ap_db.session(ctx or self.ctx) as session:
+            yield TodoCommentService(session, actor_user_id=person.id, actor_roles=person.roles)
+
+    @contextmanager
+    def checklist_service(self, person: Person, *, ctx: TenantContext | None = None) -> Iterator[TodoChecklistService]:
+        """``person`` として動く ``TodoChecklistService``。"""
+        with self.ap_db.session(ctx or self.ctx) as session:
+            yield TodoChecklistService(session, actor_user_id=person.id, actor_roles=person.roles)
+
+    def comments_call(self, person: Person, func: Callable[[TodoCommentService], Any], *, ctx: TenantContext | None = None) -> Any:
+        """``func(comment_service)`` を ``person`` として 1 回呼ぶ。"""
+        with self.comment_service(person, ctx=ctx) as service:
+            return func(service)
+
+    def checklist_call(self, person: Person, func: Callable[[TodoChecklistService], Any], *, ctx: TenantContext | None = None) -> Any:
+        """``func(checklist_service)`` を ``person`` として 1 回呼ぶ。"""
+        with self.checklist_service(person, ctx=ctx) as service:
+            return func(service)
+
     def call(self, person: Person, func: Callable[[TodoService], Any], *, ctx: TenantContext | None = None) -> Any:
         """``func(service)`` を ``person`` として 1 回呼ぶ。"""
         with self.service(person, ctx=ctx) as service:
@@ -174,6 +243,19 @@ class TodoWorld:
 
     def activities(self, todo_id: uuid.UUID) -> list[dict[str, Any]]:
         return self.ap_db.rows(self.ctx, "SELECT * FROM t_todo_activity WHERE todo_id = :id ORDER BY created_at, id", id=todo_id)
+
+    def comment_rows(self, todo_id: uuid.UUID | None = None, ctx: TenantContext | None = None) -> list[dict[str, Any]]:
+        """コメントの行(論理削除済みを含む。古い順)。"""
+        where, params = ("WHERE todo_id = :id", {"id": todo_id}) if todo_id else ("", {})
+        return self.ap_db.rows(ctx or self.ctx, f"SELECT * FROM t_todo_comment {where} ORDER BY created_at, id", **params)
+
+    def item_rows(self, todo_id: uuid.UUID, ctx: TenantContext | None = None) -> list[dict[str, Any]]:
+        """チェックリスト項目の行(``position`` 順)。"""
+        return self.ap_db.rows(ctx or self.ctx, "SELECT * FROM t_todo_checklist_item WHERE todo_id = :id ORDER BY position", id=todo_id)
+
+    def checklist_activities(self, todo_id: uuid.UUID) -> list[dict[str, Any]]:
+        """``checklist_changed`` のアクティビティ(記録順)。"""
+        return [row for row in self.activities(todo_id) if row["action"] == "checklist_changed"]
 
     def todo_audits(self, todo_id: uuid.UUID | None = None) -> list[dict[str, Any]]:
         rows = [row for row in self.ap_db.audits(self.ctx) if row["target_type"] == "todo"]

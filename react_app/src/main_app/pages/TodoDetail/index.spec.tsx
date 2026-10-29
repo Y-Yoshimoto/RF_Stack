@@ -3,50 +3,20 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import '@testing-library/jest-dom';
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { Route } from 'react-router-dom';
 import type { TodoDetail } from '@/main_app/api/contract';
-import { calledKeys, calledRequests, mockFetch, problemReply, type MockHandler, type MockReply } from '@/shared/testing/fetch_mock';
-import { ORGANIZATION_ID, OTHER_USER_ID, SELF_USER_ID, organizationOf } from '@/main_app/testing/app_test_support';
-import { renderAppScreen } from '@/main_app/testing/render_screen';
-import { SAMPLE_USERS, THIRD_USER_ID, pageOf } from '@/main_app/testing/story_data';
-import { ASSIGNEE_TODO_PERMISSIONS, TODO_ID, activityOf, activityPageOf, todoDetailOf } from '@/main_app/testing/todo_test_data';
-import { AppTodoDetailPage } from '.';
+import { calledKeys, calledRequests, mockFetch, problemReply, type MockReply } from '@/shared/testing/fetch_mock';
+import { ORGANIZATION_ID, OTHER_USER_ID, SELF_USER_ID } from '@/main_app/testing/app_test_support';
+import { ACTIVITIES_KEY, DETAIL_KEY, PATCH_KEY, detailReply, renderTodoDetail } from '@/main_app/testing/todo_detail_support';
+import { THIRD_USER_ID } from '@/main_app/testing/story_data';
+import { ASSIGNEE_TODO_PERMISSIONS, TODO_ID, activityOf, activityPageOf } from '@/main_app/testing/todo_test_data';
 
-const DETAIL_KEY = `GET /api/v1/todos/${TODO_ID}`;
-const PATCH_KEY = `PATCH /api/v1/todos/${TODO_ID}`;
-const ACTIVITIES_KEY = `GET /api/v1/todos/${TODO_ID}/activities`;
-const NO_PERMISSIONS = { can_edit_fields: false, can_change_status: false, can_change_visibility: false, can_change_assignees: false, can_delete: false };
+const NO_PERMISSIONS = { can_edit_fields: false, can_change_status: false, can_change_visibility: false, can_change_assignees: false, can_delete: false, can_comment: true, can_edit_checklist: false, can_check_checklist: false };
 
 afterEach(() => {
     vi.restoreAllMocks();
 });
 
-/**
- * 詳細の応答を作る関数
- * @param {Partial<TodoDetail>} overrides 上書きする項目
- * @returns {MockReply} 応答 (ETag は version)
-*/
-const detailReply = (overrides: Partial<TodoDetail> = {}): MockReply => {
-    const body = todoDetailOf(overrides);
-    return { status: 200, body, headers: { ETag: `"${body.version}"` } };
-};
-
-/**
- * 詳細画面を描画する関数
- * @param {{ detail?: Partial<TodoDetail>; replies?: Record<string, MockHandler>; roles?: string[] }} options 詳細の上書き・追加の応答・ロール
- * @returns {ReturnType<typeof mockFetch>} fetch の spy
-*/
-const renderDetail = ({ detail = {}, replies = {}, roles = ['tenant_admin'] }: { detail?: Partial<TodoDetail>; replies?: Record<string, MockHandler>; roles?: string[] } = {}) => {
-    const spy = mockFetch({
-        [DETAIL_KEY]: detailReply(detail),
-        [ACTIVITIES_KEY]: { status: 200, body: pageOf([]) },
-        'GET /api/v1/users': { status: 200, body: pageOf(SAMPLE_USERS) },
-        'GET /api/v1/organizations': { status: 200, body: pageOf([organizationOf()]) },
-        ...replies,
-    });
-    renderAppScreen(<Route path="/alpha/todos/:todoId" element={<AppTodoDetailPage />} />, { path: `/alpha/todos/${TODO_ID}`, roles });
-    return spy;
-};
+const renderDetail = renderTodoDetail;
 
 const updated = (overrides: Partial<TodoDetail>): MockReply => detailReply({ version: 4, ...overrides });
 const lastRequest = (spy: ReturnType<typeof mockFetch>, method: string) => calledRequests(spy).filter((request) => request.method === method).at(-1);
@@ -187,9 +157,19 @@ describe('ToDo 詳細画面: 更新', () => {
 });
 
 describe('ToDo 詳細画面: 失敗と再読み込み', () => {
-    it('412 (他の操作で更新済み) では、role="alert" で再読み込みを促し、再読み込みで詳細を取り直す', async () => {
+    it('412 で最新の内容を取り直せなかったときは、role="alert" で再読み込みを促し、再読み込みで詳細を取り直す', async () => {
         const user = userEvent.setup();
-        const spy = renderDetail({ replies: { [PATCH_KEY]: problemReply(412, 'todo_version_conflict') } });
+        let detail_calls = 0;
+        const spy = renderDetail({
+            replies: {
+                [PATCH_KEY]: problemReply(412, 'todo_version_conflict'),
+                // 1 回目 (表示) は成功、2 回目 (自動の再表示) は失敗、3 回目 (手動の再読み込み) は成功
+                [DETAIL_KEY]: () => {
+                    detail_calls += 1;
+                    return detail_calls === 2 ? problemReply(503, 'service_unavailable') : detailReply();
+                },
+            },
+        });
         await screen.findByTestId('todo-fields-form');
         await user.clear(screen.getByTestId('todo-edit-title'));
         await user.type(screen.getByTestId('todo-edit-title'), 'x');
@@ -198,16 +178,28 @@ describe('ToDo 詳細画面: 失敗と再読み込み', () => {
         expect(alert).toHaveAttribute('role', 'alert');
         expect(alert).toHaveAttribute('data-error-code', 'todo_version_conflict');
         expect(alert).toHaveTextContent('他の操作で更新されています');
+        expect(screen.queryByTestId('todo-detail-refreshed')).toBeNull();
         await user.click(screen.getByTestId('todo-detail-action-error-reload'));
-        await vi.waitFor(() => expect(calledKeys(spy).filter((key) => key === DETAIL_KEY)).toHaveLength(2));
+        await vi.waitFor(() => expect(calledKeys(spy).filter((key) => key === DETAIL_KEY)).toHaveLength(3));
         expect(await screen.findByTestId('todo-fields-form')).toBeInTheDocument();
         expect(screen.queryByTestId('todo-detail-action-error')).toBeNull();
     });
 
-    it('API の 403 todo_operation_forbidden (権限が変わった) でも、再読み込みを促す', async () => {
+    it('API の 403 todo_operation_forbidden (権限が変わった) では、最新の内容を取り直す。取り直せなければ再読み込みを促す', async () => {
         const user = userEvent.setup();
         const forbidden = problemReply(403, 'todo_operation_forbidden');
-        renderDetail({ detail: { permissions: ASSIGNEE_TODO_PERMISSIONS }, roles: ['member'], replies: { [PATCH_KEY]: { ...forbidden, body: { ...(forbidden.body as object), operation: 'change_status' } } } });
+        let detail_calls = 0;
+        renderDetail({
+            detail: { permissions: ASSIGNEE_TODO_PERMISSIONS },
+            roles: ['member'],
+            replies: {
+                [PATCH_KEY]: { ...forbidden, body: { ...(forbidden.body as object), operation: 'change_status' } },
+                [DETAIL_KEY]: () => {
+                    detail_calls += 1;
+                    return detail_calls === 1 ? detailReply({ permissions: ASSIGNEE_TODO_PERMISSIONS }) : problemReply(503, 'service_unavailable');
+                },
+            },
+        });
         await screen.findByTestId('todo-status-control');
         await user.click(screen.getByTestId('todo-status-done'));
         const alert = await screen.findByTestId('todo-detail-action-error');
@@ -274,6 +266,7 @@ describe('ToDo 詳細画面: アクティビティ', () => {
         ];
         const users = { [SELF_USER_ID]: { display_name: 'Hanako Suzuki', is_active: true }, [OTHER_USER_ID]: { display_name: 'Taro Yamada', is_active: true } };
         renderDetail({ replies: { [ACTIVITIES_KEY]: { status: 200, body: activityPageOf(items, users) } } });
+        await userEvent.click(await screen.findByTestId('todo-tab-activities'));
         const list = await screen.findByTestId('todo-activities-list');
         expect(within(list).getAllByRole('listitem')).toHaveLength(4);
         expect(screen.getByTestId('todo-activity-a4')).toHaveTextContent('閲覧範囲: 非公開 → 組織');

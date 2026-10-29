@@ -148,7 +148,7 @@ ALTER TABLE t_todo_assignee
 - `SQLModel.metadata.create_all()` は使わない。スキーマ変更はすべてリビジョンとして残す
 - プレーン毎の基底: CP は `ControlPlaneBase`（`control_plane_app/models/base.py`）、AP は `AppPlaneBase`（`main_app/models/base.py`）。AP のモデルは `main_app/models/__init__.py` で import して MetaData に載せる
 - CP の初期リビジョンは `0001_create_t_tenant`（既存の `t_tenant` をそのまま作成）。`0002_revise_cp_tables` で 01 の 9.5 に沿って改訂した（4.6）
-- AP のリビジョンは `0001_create_ap_common_tables`（01 の 9.4 の共通テーブル）、`0002_create_todo_tables`（ToDo のテーブル。[ToDoApp.md](../spec/ToDoApp.md) §9.1）、`0003_add_user_name_and_roles`（`t_user` の姓・名・ロールの写し）。テーマのテーブルは基盤の共通テーブルとリビジョンを分ける（4.7）
+- AP のリビジョンは `0001_create_ap_common_tables`（01 の 9.4 の共通テーブル）、`0002_create_todo_tables`（ToDo のテーブル。[ToDoApp.md](../spec/ToDoApp.md) §9.1）、`0003_add_user_name_and_roles`（`t_user` の姓・名・ロールの写し）、`0004_add_todo_comments_and_checklist`（ToDo のコメント・チェックリスト項目）。テーマのテーブルは基盤の共通テーブルとリビジョンを分ける（4.7）
 - ビュー・GRANT / REVOKE は autogenerate で検出されないため、リビジョンに手で書く。ロール名はハードコードせず、マイグレーション実行時の環境変数（`CP_DB_REGISTRY_READER_USER` 等）から取ってクォートする
 
 ### 4.5 プレーン間アクセスの実装
@@ -178,7 +178,7 @@ ALTER TABLE t_todo_assignee
 
 ### 4.7 AP のテーブル
 
-01 の 9.4 の実装。モデルは `main_app/models/ap_common.py`、スキーマはリビジョン `0001_create_ap_common_tables`（`t_user` の姓・名・ロールは `0003_add_user_name_and_roles`）。テーマ（ToDo）のテーブルは [ToDoApp.md](../spec/ToDoApp.md) §9.1。
+01 の 9.4 の実装。モデルは `main_app/models/ap_common.py`、スキーマはリビジョン `0001_create_ap_common_tables`（`t_user` の姓・名・ロールは `0003_add_user_name_and_roles`）。テーマ（ToDo）のテーブルは [ToDoApp.md](../spec/ToDoApp.md) §9.1（`0002_create_todo_tables`、コメント・チェックリスト項目は `0004_add_todo_comments_and_checklist`）。
 
 | 01 の名称 | テーブル | 主キー | 実装上の注記 |
 | --- | --- | --- | --- |
@@ -189,6 +189,7 @@ ALTER TABLE t_todo_assignee
 
 - すべてのテーブルが `tenant_id`（NOT NULL）・RLS（ENABLE / FORCE + `tenant_isolation`）を持ち、検索用のインデックスは `tenant_id` を先頭にする
 - 参照される側は `UNIQUE (tenant_id, id)`、外部キーは `(tenant_id, <列>) → (tenant_id, id)`。`ON DELETE` は指定しない（物理削除はテナント物理削除でのみ行い、`control_plane_app/repositories/app_tenant_data.py` の `TENANT_DATA_PURGE_TABLES` に子テーブルから順に並べる）
+- 同一テナントの同一親の下で並び順を一意にしたい場合（例: ToDo のチェックリスト項目の `position`）は、`UNIQUE (tenant_id, <親>, position)` を `DEFERRABLE INITIALLY DEFERRED` にする（1 トランザクションで入れ替え・詰め直しができる。`ON CONFLICT` の arbiter には使えない）
 - 中間テーブル（主キーが複合のもの）は `TenantScopedMixin` + `AppPlaneBase` で定義し、`PrimaryKeyConstraint` を `__table_args__` に置く
 - 列の部品（`created_at` / `updated_at` / `deleted_at` / `version`、列挙値の CHECK）は `main_app/models/columns.py`
 - 制約名は `modules/db_connector/metadata.py` の命名規約に従う（例: `t_todo_status_check`、`t_todo_tenant_id_created_by_fkey`）。関数・部分インデックスは `<table>_<内容>_key`（一意）/ `ix_<table>_<列>` の名前を明示する
@@ -232,6 +233,7 @@ fastapi_app/
       runner.py               # APScheduler の起動・停止とジョブ登録、有効/無効の判定
     dev_tools/                # 開発専用の補助処理（APP_ENV=development かつ開発用ログインが有効な場合だけ動く）
       e2e_cleanup.py          # Playwright の E2E が作る使い捨てデータの後片付け
+      seed_todos.py           # ToDo の開発用シード（ToDoApp.md §9.4）
   alembic/
     control_plane/            # CP DB のマイグレーション
     app/                      # AP DB のマイグレーション
@@ -259,6 +261,7 @@ fastapi_app/
 | `main_app/services/user_service.py` | `UserService(session, kc_admin_factory)`（`list_users(*, limit, sort, after, is_active, ids)` / `get_user` / `get_user_roles` / `create_user` / `update_user`）。作成は Keycloak → AP の順で、AP 側が失敗したら Keycloak のユーザーを削除する。一時パスワードは戻り値で一度だけ返す。`ids` は ID 指定の絞り込み（重複を除き最大 100 件、超えたら `UserValidationError(field="ids", reason="too_many")`。他テナント・存在しない ID は結果に含まれないだけ）。`get_user` は Keycloak から姓・名・メール・実効ロールを取り直し、写しと違えば更新してコミットする（Keycloak の失敗は `IdentityProviderOperationError`） |
 | `main_app/services/organization_service.py` | `OrganizationService(session)`（`list_organizations` / `get_organization` / `list_member_ids` / `list_user_organizations(user_id)`（ユーザーが所属する有効な組織。組織名順、1 クエリ。`/api/v1/me` 用）/ `create_organization` / `update_organization` / `delete_organization`（論理削除）/ `set_members`（全置換）） |
 | `main_app/services/errors.py` | 例外と Problem Details の `code`・HTTP ステータスの対応（他テナント・存在しないリソースは同じ 404） |
+| `main_app/services/todo_service.py` ほか（テーマ: ToDo） | `TodoService`（ToDo 本体・一覧の総件数 `include_total`・ホームの要約 `summarize`）、`TodoCommentService`（コメント）、`TodoChecklistService`（チェックリスト）、共有部品 `todo_access.py`（`actor_of` / `require_visible_todo`）、閲覧範囲と権限 `todo_policy.py`、ビュー `todo_views.py`。詳細は [ToDoApp.md](../spec/ToDoApp.md) §9.3 |
 | `main_app/services/common.py` | `UserView`（`first_name` / `last_name` / `roles` の写しを含む）/ `UserNameView`（`id` / `display_name` / `is_active`。ID から表示名を引く用途）/ `OrganizationView`、PATCH の未指定を表す `UNSET`、ロールの正規化 `normalize_tenant_roles`、監査ログ・操作者の解決 |
 | `main_app/repositories/` | `users.py` / `organizations.py`（既定で論理削除済みを除く）/ `audit_log.py` / `keyset.py`（キーセット方式の一覧。カーソル文字列化は API 層） |
 | `modules/keycloak_admin/tenant_users.py` | `tenant-user-admin` の権限で動く Keycloak 操作（作成は冪等にせず 409 を返す、ロールは `role-mappings/realm/available` から付与、無効化・セッション失効）。管理クライアントは `templates.create_tenant_user_admin_client(realm_name)` |
@@ -277,7 +280,8 @@ fastapi_app/
 
 | モジュール | 内容 |
 | --- | --- |
-| `dev_tools/e2e_cleanup.py` | `cleanup_e2e_data(*, dry_run=False) -> E2ECleanupResult`（件数の内訳と失敗）。CLI は `python -m dev_tools.e2e_cleanup [--dry-run]`。`APP_ENV=development` かつ `AUTH_DEV_LOGIN_ENABLED`（dev-login と同じ条件）でなければ `E2ECleanupNotAllowedError` で何もしない。対象は E2E の命名（テナント `e2e-<8桁>`、ユーザー `e2e-<8桁>@example.com`、ToDo `E2E ToDo <8桁>`、組織 `E2E Org <8桁>`）でモジュールの定数に固定し、シードのテナント・ユーザー（`DEV_TENANTS` / `DEV_USERS`）とデフォルト組織は明示的に除外する。CP は対象テナントを削除要求 → 猶予 0 で `deprovision`（`PROVISIONING` は 10 分経過したものだけ）、AP は `ACTIVE` なテナントで対象の行を `app_cp_agent` で物理削除し、ユーザーは Keycloak（`tenant-user-admin`）からも削除する。AP 監査ログは対象（target）が削除した行のものだけ消し、操作者（actor）では消さない。冪等 |
+| `dev_tools/seed_todos.py` | ToDo の開発用シード（ToDoApp.md §9.4）。CLI は `python -m dev_tools.seed_todos`（`control_plane_app.seed` の後に実行）。`APP_ENV=development` が明示されていなければ何もしない（`control_plane_app.seed.require_explicit_development`）。台帳で `ACTIVE` な `DEV_TENANTS` ごとに、Keycloak から `DEV_TENANT_USERS` の `sub`・姓・名・実効ロールを引いて `sync_user_on_login` で `t_user` とデフォルト組織を確保し、`[Seed]` 付きの組織 2 つ（1 つは論理削除）と ToDo・チェックリスト・コメントをサービス経由で作る。`[Seed] ` で始まるタイトルで冪等。E2E の後片付けの対象にならない |
+| `dev_tools/e2e_cleanup.py` | `cleanup_e2e_data(*, dry_run=False) -> E2ECleanupResult`（件数の内訳と失敗）。CLI は `python -m dev_tools.e2e_cleanup [--dry-run]`。`APP_ENV=development` かつ `AUTH_DEV_LOGIN_ENABLED`（dev-login と同じ条件）でなければ `E2ECleanupNotAllowedError` で何もしない。対象は E2E の命名（テナント `e2e-<8桁>`、ユーザー `e2e-<8桁>@example.com`、ToDo `E2E ToDo <8桁>`、組織 `E2E Org <8桁>`）でモジュールの定数に固定し、シードのテナント・ユーザー（`DEV_TENANTS` / `DEV_USERS`）とデフォルト組織は明示的に除外する。CP は対象テナントを削除要求 → 猶予 0 で `deprovision`（`PROVISIONING` は 10 分経過したものだけ）、AP は `ACTIVE` なテナントで対象の行を `app_cp_agent` で物理削除し（ToDo のコメント・チェックリスト項目を含む）、ユーザーは Keycloak（`tenant-user-admin`）からも削除する。対象外の ToDo へのコメント・チェックリスト項目から参照されるユーザーは削除しない。AP 監査ログは対象（target）が削除した行のものだけ消し、操作者（actor）では消さない。冪等 |
 
 - 各層の担当エージェント: ルーター・スキーマ → `fastapi-api-schema`、サービス・共通部品 → `fastapi-domain`、モデル・マイグレーション → `postgres-schema`、テスト → `fastapi-pytest`、認証 → `auth-keycloak`
 
@@ -395,13 +399,23 @@ fastapi_app/
 | PATCH | `/api/v1/organizations/{id}` | `tenant_admin` | 組織名の変更。`If-Match` 必須。200 と組織、新しい `ETag` |
 | DELETE | `/api/v1/organizations/{id}` | `tenant_admin` | 論理削除。`If-Match` 必須。204（本文なし） |
 | PUT | `/api/v1/organizations/{id}/members` | `tenant_admin` | `{user_ids}` の全置換。`If-Match` 必須。200 と組織（`member_ids` 付き）、新しい `ETag`。テナント内に存在しないユーザー（他テナントを含む）は 422（`invalid_organization_members`、拡張メンバー `user_ids`） |
-| GET | `/api/v1/todos` | `tenant_admin` / `member` | ToDo 一覧（ToDo アプリ。閲覧できるもののみ）。カーソル方式、`scope`（`mine` / `assigned` / `shared` / `all`）、`status` / `priority`（カンマ区切り）、`q` / `organization_id` / `assignee_id` / `due_before` / `due_after`、`sort`（単一キー: `due_date` / `priority` / `created_at` / `updated_at`、既定 `-created_at`。複数キーは未対応）。説明は含まない |
+| GET | `/api/v1/todos` | `tenant_admin` / `member` | ToDo 一覧（ToDo アプリ。閲覧できるもののみ）。カーソル方式、`scope`（`mine` / `assigned` / `shared` / `all`）、`status` / `priority`（カンマ区切り）、`q` / `organization_id` / `assignee_id` / `due_before` / `due_after`、`sort`（単一キー: `due_date` / `priority` / `created_at` / `updated_at`、既定 `-created_at`。複数キーは未対応）、`include_total=true` で `total`（総件数。省略時は `null`）。説明は含まない。要素に `creator` / `updater` / `checklist`（進捗）/ `comment_count` を含む |
 | POST | `/api/v1/todos` | `tenant_admin` / `member` | 201、`Location` と `ETag`。作成者は操作者 |
+| GET | `/api/v1/todos/summary` | `tenant_admin` / `member` | ホームの要約（件数）。`today`（`YYYY-MM-DD`、省略時は UTC の日付）、`due_soon_days`（1〜30、既定 7）。`/{id}` より前に宣言する |
 | GET | `/api/v1/todos/{id}` | `tenant_admin` / `member` | 説明と `permissions` を含む詳細。`ETag`。他テナント・存在しない・削除済み・閲覧範囲外は同じ 404 |
 | PATCH | `/api/v1/todos/{id}` | `tenant_admin` / `member` | 送った項目だけ（閲覧範囲・公開先組織を含む）。`If-Match` 必須。200 と ToDo、新しい `ETag`。権限は実際に値が変わる項目で判定（担当者はステータスのみ可。無ければ 403 `todo_operation_forbidden`） |
 | DELETE | `/api/v1/todos/{id}` | `tenant_admin` / `member` | 論理削除（作成者・`tenant_admin`）。`If-Match` 必須。204 |
 | PUT | `/api/v1/todos/{id}/assignees` | `tenant_admin` / `member` | `{user_ids}` の全置換。`If-Match` 必須。200 と ToDo、新しい `ETag`。存在しない・無効化されたユーザーの新規割り当ては 422（`invalid_todo_assignees`、拡張メンバー `user_ids`） |
 | GET | `/api/v1/todos/{id}/activities` | `tenant_admin` / `member` | アクティビティ（新しい順。カーソル方式）。`users`（`{<user_id>: {display_name, is_active}}`）に、操作者と `payload` が参照するユーザーの表示名を返す。閲覧できない ToDo は 404 |
+| GET | `/api/v1/todos/{id}/comments` | `tenant_admin` / `member` | コメント（古い順。カーソル方式）。各コメントに `permissions`（`can_edit` / `can_delete`）。閲覧できない ToDo は 404 |
+| POST | `/api/v1/todos/{id}/comments` | `tenant_admin` / `member` | `{body}`。201、`Location`、`ETag`（コメントの版）。ToDo 本体の `version` は変わらない |
+| PATCH | `/api/v1/todos/{id}/comments/{cid}` | `tenant_admin` / `member` | 本文の編集（投稿者のみ。他人のものは 403 `edit_comment`）。`If-Match`（コメントの版）必須。200、新しい `ETag`。412 は `todo_comment_version_conflict` |
+| DELETE | `/api/v1/todos/{id}/comments/{cid}` | `tenant_admin` / `member` | 論理削除（投稿者・`tenant_admin`。それ以外は 403 `delete_comment`）。`If-Match`（コメントの版）必須。204 |
+| GET | `/api/v1/todos/{id}/checklist` | `tenant_admin` / `member` | チェックリスト全体（`position` 順）と権限。`ETag` はチェックリスト全体の版 |
+| POST | `/api/v1/todos/{id}/checklist/items` | `tenant_admin` / `member` | `{title, position?}`（作成者・`tenant_admin`）。`If-Match` 不要。201 とチェックリスト全体、新しい `ETag`。上限 100 項目（超えたら 422 `items` / `too_many`） |
+| PATCH | `/api/v1/todos/{id}/checklist/items/{iid}` | `tenant_admin` / `member` | `{title?, is_done?}`。`If-Match`（項目の版）必須。権限は実際に変わる項目で判定（名前は作成者・`tenant_admin`、完了の切り替えは担当者も可）。200 とチェックリスト全体、`ETag`（チェックリストの版） |
+| DELETE | `/api/v1/todos/{id}/checklist/items/{iid}` | `tenant_admin` / `member` | 物理削除。`If-Match`（項目の版）必須。**200** とチェックリスト全体、新しい `ETag` |
+| PUT | `/api/v1/todos/{id}/checklist/order` | `tenant_admin` / `member` | `{item_ids}` の全置換。`If-Match`（チェックリスト全体の版）必須。現在の項目の集合と一致しなければ 422（`item_ids` / `mismatch`）。200 とチェックリスト全体、新しい `ETag`。412 は `todo_checklist_version_conflict`（拡張メンバー `target`: 項目の版は `item`、並べ替えは `checklist`） |
 | GET | `/api/v1/cp/tenants` | CP 参照 | 一覧。カーソル方式（`limit` / `cursor` / `include_total`）、`sort`（`created_at` 既定 `-created_at` / `tenant_code` / `name`）、`status`（カンマ区切り）。直近の日次メトリクスのユーザー数と、テーマ固有の主要指標（`primary_metrics`: `{metric_key, value, date}` の配列。`modules.tenant_metrics.registry.theme_primary_metric_keys()` の順。ToDo は `todo_count`。集計前は `value` / `date` が `null`）を含む |
 | POST | `/api/v1/cp/tenants` | `saas_admin` | 同期払い出し。201、`Location` と `ETag`。一時パスワードを本文で一度だけ返し、`Cache-Control: no-store` |
 | GET | `/api/v1/cp/tenants/{id}` | CP 参照 | 詳細と払い出し履歴。`ETag` |
@@ -495,7 +509,15 @@ react_app/src/
   + フック: `useTodoList`（表示範囲・絞り込み・並び替え・カーソル）/ `useTodo`（詳細・ETag・`permissions`・操作の対象 `target`）/ `useTodoActions`（`create` / `update` / `changeStatus` / `setAssignees` / `remove`）/ `useTodoActivities`（カーソル。応答のページごとの `users` を読み込み済みの全ページ分まとめた `users` と、名前を引く `userName` を返す。要素は `page_users` 付き）/ `useTodoAssigneeChoices`・`useTodoOrganizationChoices`（ユーザー一覧・組織一覧の全ページから選択肢を作る。無効なユーザーは割り当て済みのものだけ残す。割り当て済みの表示は ToDo の `assignees` / `organizations` の名前で補うため、ID 指定の取得は使わない）
   + 純粋関数: `list_search.ts`（一覧の絞り込みと画面の URL クエリの相互変換。クエリ名は API と同じ）、`todo_changes.ts`（実際に変わる項目の差分・`permissions` による事前の確認）、`activity_payload.ts`（アクティビティの `payload` の読み取り）、`activity_users.ts`（応答の `users` による操作者・担当者の名前の解決。キーが無い ID は「不明なユーザー」）
   + 変更操作は、AP のロール（`can_write`）ではなく ToDo ごとの `permissions` で事前に弾く（`tenant_admin` / `member` のどちらも使える）。更新は実際に値が変わる項目だけを送り、その項目で確かめる（ToDoApp.md §10 #7）。`permissions` を持たない一覧の要素からの操作は API に任せる。API の 403 `todo_operation_forbidden` は `permissions` が古いため `requires_reload` にする
-- プレーン共通の部品は `shared/` に置き、プレーン固有の値（エンドポイント・エラーコード・ロール）は引数で渡す: ETag / If-Match（`shared/api/etag.ts`）、エラーの分類（`shared/api/errors.ts`。`kind` / `code` / `requires_reload`。各プレーンの `classifyCpError` / `classifyAppError` が固有の code を足す）、カーソル一覧（`shared/hooks/useCursorList.ts`）、ETag 付きの詳細（`shared/hooks/useVersionedResource.ts`）、変更操作の実行状態（`shared/hooks/useActionRunner.ts`）、一時パスワードの保持（`shared/hooks/useEphemeralValue.ts`）
+  + v0.6（コメント・チェックリスト・カンバン・ホームの要約・仕上げ。ToDoApp.md §4.5〜§4.8）: エンドポイント関数は `main_app/api/todo_comments.ts`・`todo_checklist.ts` と `todos.ts` の `fetchTodoSummary`。`main_app/todos/` に以下を置く
+    - `useTodoList` は先頭ページだけ `include_total=true` を付け、`total` に総件数を入れる（`insertItem` / `removeItem` で増減する）。無限スクロールは `shared/hooks/useInfiniteScroll` と組み合わせる
+    - `useTodo` の `refresh`（表示を保ったまま取り直す。412 の後の自動の再表示）と、`useRebasedDraft` / `rebaseDraft`（`rebase_draft.ts`。未保存の入力を新しい値に載せ替え、触っていない項目は取り込み、食い違う項目を `conflicts` で知らせる。配列の項目は `sameIdSet` を `equals` に渡す）。フォームは `key={version}` で作り直さない
+    - `useTodoBoard`（ステータスごとの `useTodoList` 3 本。`moveCard` で楽観的に移して `changeStatus` を呼び、失敗したら戻す。412 / 403 / 404 は 2 列を取り直す）、`board_dnd.ts`（`@dnd-kit` の列・カードの ID と data、キーボードで隣の列へ移す `coordinateGetter`、日本語の読み上げ文言）、`list_search.ts` の `parseTodoListView` / `withTodoListView`（`view=board`。API のクエリには含めない）
+    - `useTodoComments`（古い順のカーソル。投稿は末尾に差し込む。投稿は `can_comment`、編集・削除はコメントの `permissions` で事前に弾く）と `comment_changes.ts`
+    - `useTodoChecklist`（全体と ETag。変更の応答の全体で置き換える。`can_edit` / `can_check` で事前に弾き、`requires_reload` の失敗の後は自動で取り直して `failure_refreshed` で知らせる）と `checklist_changes.ts`（事前の確認・並べ替えの計算）
+    - `useTodoSummary`（`today` はブラウザのローカル日付。`todo_dates.ts` の `todayOf`）と `todo_summary.ts`（件数のカードから絞り込み済みの一覧へのリンク）
+    - コメント・チェックリストの変更は ToDo 本体の ETag を変えないため、`useTodo` を取り直さない（版を分ける。ToDoApp.md §10 #16）
+- プレーン共通の部品は `shared/` に置き、プレーン固有の値（エンドポイント・エラーコード・ロール）は引数で渡す: ETag / If-Match（`shared/api/etag.ts`）、エラーの分類（`shared/api/errors.ts`。`kind` / `code` / `requires_reload`。各プレーンの `classifyCpError` / `classifyAppError` が固有の code を足す）、カーソル一覧（`shared/hooks/useCursorList.ts`。`insertItem` と `total` の増減）、無限スクロール（`shared/hooks/useInfiniteScroll.ts`。IntersectionObserver、`rootMargin` 200px）、ETag 付きの詳細（`shared/hooks/useVersionedResource.ts`。`refresh` は loading に戻さない）、変更操作の実行状態（`shared/hooks/useActionRunner.ts`）、一時パスワードの保持（`shared/hooks/useEphemeralValue.ts`）
 - 変更操作のフックの共通方針: 変更権限の無いロール（CP の `saas_viewer`、AP の `member`）・ETag 未取得・二重実行・業務上の禁止操作（AP の自分自身の無効化と `tenant_admin` の解除）は API を呼ばずに失敗にする。412 / 428 は `requires_reload` の失敗にし、画面は詳細を取り直してからやり直させる。操作は reject せず結果（`ok` / `failure`）を返す。一時パスワードはフックの状態にだけ保持し、閉じる・次の操作の開始・一定時間（既定 10 分）・アンマウントで消す（戻り値・通知・ログには含めない）
 - AP の `/api/v1` の 401（`user_deactivated` / `session_expired` 等）は、AP の API クライアント（`useAppApiClient`）が認証状態を取り直し、ルートガードがログイン画面へ遷移させる。フックは `kind: unauthenticated` の失敗を返すだけで、画面での表示は不要
 

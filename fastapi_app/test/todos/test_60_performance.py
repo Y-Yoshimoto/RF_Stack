@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""ToDo 一覧の性能の目安(ToDoApp.md §5 / §9.3: 1 ページあたり 3 クエリ、N+1 にしない)。
+"""ToDo 一覧の性能の目安(ToDoApp.md §5 / §9.3: 1 ページあたり 5 クエリ(v0.5 は 3)、N+1 にしない)。
 
 1 つの使い捨てテナントに数千件を投入し、一覧で実行された SQL の数が件数・ページサイズに依存せず一定であることを確認する。
 実行時間は上限をテストにしない(計測値を ``record_property`` と標準出力に残す。``pytest -s`` で確認できる)。
@@ -14,7 +14,10 @@ from sqlalchemy import event
 SEED_FIRST = 500
 SEED_TOTAL = 3000
 # 一覧 1 回の想定: ToDo 本体 + 担当者 + 公開先組織 = 3 クエリ(+ トランザクション開始時の GUC 設定 1 回)
-MAX_QUERIES_PER_LIST = 5
+# v0.6(AP-UX-03)で、件数(チェックリストの進捗・コメント数。load_todo_counters)と作成者・更新者の表示名の 2 クエリが加わり 5 クエリ。
+# 余裕は従来と同じ 2(include_total=True のときの総件数 1 クエリもこの範囲に収まる)
+QUERIES_PER_LIST = 5
+MAX_QUERIES_PER_LIST = 7
 
 
 class QueryCounter:
@@ -78,7 +81,7 @@ def test_query_count_is_constant_regardless_of_rows_and_page_size(big_world, rec
         small_count, small_time, small_rows, _ = small[name]
         large_count, large_time, large_rows, counter = large[name]
         check.equal(large_count, small_count, f"{name}: 件数が増えても SQL の数は同じ")
-        check.less_equal(large_count, MAX_QUERIES_PER_LIST, f"{name}: 想定は 3 クエリ(実測 {large_count})\n" + "\n".join(counter.data_queries))
+        check.less_equal(large_count, MAX_QUERIES_PER_LIST, f"{name}: 想定は {QUERIES_PER_LIST} クエリ(実測 {large_count})\n" + "\n".join(counter.data_queries))
         check.greater(large_rows, 0, name)
         record_property(f"{name}", f"queries={large_count} rows={large_rows} time_ms={large_time * 1000:.1f} (500 rows: {small_time * 1000:.1f} ms)")
         print(f"[perf] {name}: queries={large_count} rows={large_rows} time={large_time * 1000:.1f}ms (at {SEED_FIRST} rows: {small_time * 1000:.1f}ms)")
@@ -87,11 +90,14 @@ def test_query_count_is_constant_regardless_of_rows_and_page_size(big_world, rec
 
 
 def test_page_with_many_assignees_and_organizations_still_three_queries(big_world):
-    """担当者・公開先組織を持つ ToDo が 200 件並ぶページでも、担当者・組織の取得は 1 回ずつ(ToDo ごとに引かない)。"""
+    """担当者・公開先組織を持つ ToDo が 200 件並ぶページでも、担当者・組織の取得は 1 回ずつ(ToDo ごとに引かない)。
+
+    v0.6 で件数と作成者・更新者の表示名の 2 クエリが加わり、ページ全体は QUERIES_PER_LIST(5) クエリ(テスト名の 3 は v0.5 時点の値)。
+    """
     world = big_world
     queries, _, rows, counter = measure(world, world.admin, limit=200, sort="created_at")
     check.equal(rows, 200)
-    check.equal(queries, 3, "\n".join(counter.data_queries))
+    check.equal(queries, QUERIES_PER_LIST, "\n".join(counter.data_queries))
     tables = ["t_todo_assignee" in s for s in counter.data_queries], ["t_todo_organization" in s for s in counter.data_queries]
     check.equal((sum(tables[0]) >= 1, sum(tables[1]) >= 1), (True, True))
     assignee_statements = [s for s in counter.data_queries if "FROM t_todo_assignee" in s and "JOIN t_user" in s]
@@ -106,7 +112,8 @@ def test_detail_and_activities_use_a_constant_number_of_queries(big_world):
         world.call(world.creator, lambda s, index=index: s.update_todo(todo_id, expected_version=index + 1, title=f"edit {index}"))
     with world.service(world.admin) as service, QueryCounter(world.ap_db.runtime) as counter:
         service.get_todo(todo_id)
-    check.less_equal(len(counter.data_queries), 4, "\n".join(counter.data_queries))
+    # 詳細: ToDo + 担当者 + 組織 + 件数 + 作成者・更新者の表示名 = 5 クエリ(v0.6 で 2 クエリ増。余裕 1 は従来どおり)
+    check.less_equal(len(counter.data_queries), 6, "\n".join(counter.data_queries))
     with world.service(world.admin) as service, QueryCounter(world.ap_db.runtime) as counter:
         page = service.list_activities(todo_id, limit=200)
     check.equal(len(page.items), 30)

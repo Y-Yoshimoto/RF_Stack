@@ -30,4 +30,20 @@ describe('activityLinesOf', () => {
         expect(activityLinesOf(activityOf({ action: 'status_changed', payload: {} }), LOOKUPS)).toEqual(['ステータスを変更しました']);
         expect(activityLinesOf(activityOf({ action: 'assignees_changed', payload: { added: 1 } }), LOOKUPS)).toEqual(['担当者を変更しました']);
     });
+
+    it('チェックリストの変更 (追加・名前変更・削除・完了・未完了) を文にする', () => {
+        const lineOf = (payload: Record<string, unknown>) => activityLinesOf(activityOf({ action: 'checklist_changed', payload }), LOOKUPS);
+        expect(lineOf({ op: 'added', item_id: 'i1', title: '雛形を探す' })).toEqual(['チェックリストに「雛形を探す」を追加しました']);
+        expect(lineOf({ op: 'renamed', item_id: 'i1', title: '雛形を確認する', before: '雛形を探す', after: '雛形を確認する' })).toEqual(['チェックリストの項目名を変更: 「雛形を探す」 → 「雛形を確認する」']);
+        expect(lineOf({ op: 'removed', item_id: 'i1', title: '雛形を探す' })).toEqual(['チェックリストから「雛形を探す」を削除しました']);
+        expect(lineOf({ op: 'checked', item_id: 'i1', title: '雛形を探す' })).toEqual(['チェックリストの「雛形を探す」を完了にしました']);
+        expect(lineOf({ op: 'unchecked', item_id: 'i1', title: '雛形を探す' })).toEqual(['チェックリストの「雛形を探す」を未完了に戻しました']);
+    });
+
+    it('チェックリストの変更の項目名が無ければ「項目」、op が読み取れなければ種別の説明だけにする', () => {
+        const lineOf = (payload: Record<string, unknown>) => activityLinesOf(activityOf({ action: 'checklist_changed', payload }), LOOKUPS);
+        expect(lineOf({ op: 'checked' })).toEqual(['チェックリストの「項目」を完了にしました']);
+        expect(lineOf({ op: 'moved' })).toEqual(['チェックリストを変更しました']);
+        expect(lineOf({})).toEqual(['チェックリストを変更しました']);
+    });
 });

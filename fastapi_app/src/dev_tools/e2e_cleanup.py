@@ -39,9 +39,11 @@ AP の組織                      ``E2E Org <suffix>``           ``app_organizat
     2. AP: シードのテナント（:data:`PROTECTED_TENANT_CODES`。alpha / beta）のうち ``ACTIVE`` なものごとに、``app_cp_agent``（SELECT / DELETE のみ、RLS 適用）で
        GUC を切り替えて 1 トランザクションで処理する。
 
-       - 対象の ToDo・組織は論理削除済みを含めて物理削除する。子の行（アクティビティ・担当者・公開先組織・組織メンバー）も消す
+       - 対象の ToDo・組織は論理削除済みを含めて物理削除する。子の行（コメント・チェックリスト項目・アクティビティ・担当者・公開先組織・
+         組織メンバー）も消す
        - 対象のユーザーは Keycloak（``tenant-user-admin``）と AP の両方から削除する。組織メンバー・担当者の行も消す。
-         削除しない行（シードの ToDo の作成者等）から参照されているユーザーは削除せずスキップする（外部キーを壊さないため）
+         削除しない行（シードの ToDo の作成者、対象外の ToDo へのコメントの投稿者・チェックリスト項目の作成者・完了者等）から
+         参照されているユーザーは削除せずスキップする（外部キーを壊さないため。他人の ToDo のコメント・項目は消さない）
        - Keycloak だけに残ったユーザー（AP の行が無い）も、メールアドレスがパターンに一致すれば削除する
        - AP 監査ログは **対象（target）が削除したユーザー・組織・ToDo の行だけ** 消す。操作者（actor）が削除したユーザーの行は残す
          （監査ログは actor に外部キーを張らない設計で、E2E 以外のデータへの操作の記録を消さないため。E2E のユーザーはログインしないため実際には生じない）
@@ -74,7 +76,7 @@ from control_plane_app.services.errors import TenantOperationInProgressError, Te
 from control_plane_app.services.tenant_lifecycle import STALE_PROVISIONING_THRESHOLD
 from control_plane_app.services.tenant_maintenance import REAPED_ERROR
 from control_plane_app.services.tenant_provisioning import AuditAction, TenantProvisioningService, bump_version, engine_of, status_change_payload, utcnow
-from main_app.models import TApAuditLog, TOrganization, TOrganizationMember, TTodo, TTodoActivity, TTodoAssignee, TTodoOrganization, TUser
+from main_app.models import TApAuditLog, TOrganization, TOrganizationMember, TTodo, TTodoActivity, TTodoAssignee, TTodoChecklistItem, TTodoComment, TTodoOrganization, TUser
 from main_app.services.user_sync import DEFAULT_ORGANIZATION_NAME
 from modules.auth.dev_profiles import DEV_TENANTS, DEV_USERS
 from modules.auth.environment import KeyCloakEnvironmentVariables
@@ -267,6 +269,8 @@ class AppTenantCleanupCounts:
         organizations: 組織（論理削除済みを含む）。
         organization_members: 組織メンバー（対象の組織・ユーザーのもの）。
         todos: ToDo（論理削除済みを含む）。
+        todo_comments: ToDo のコメント（対象の ToDo のもの。論理削除済みを含む）。
+        todo_checklist_items: ToDo のチェックリスト項目（対象の ToDo のもの）。
         todo_activities: ToDo アクティビティ。
         todo_assignees: ToDo の担当者（対象の ToDo・ユーザーのもの）。
         todo_organizations: ToDo の公開先組織（対象の ToDo・組織のもの）。
@@ -280,6 +284,8 @@ class AppTenantCleanupCounts:
     organizations: int = 0
     organization_members: int = 0
     todos: int = 0
+    todo_comments: int = 0
+    todo_checklist_items: int = 0
     todo_activities: int = 0
     todo_assignees: int = 0
     todo_organizations: int = 0
@@ -379,12 +385,14 @@ def _blocked_user_ids(conn: Connection, tenant_id: uuid.UUID, targets: _AppTarge
     """対象のユーザーのうち、削除しない行から外部キーで参照されているものを返す。
 
     組織メンバー・担当者（``user_id``）の行は削除するため含めない。対象の ToDo・組織・ユーザーの行からの参照も含めない。
+    対象外の ToDo のコメント（投稿者）・チェックリスト項目（作成者・更新者・完了者）は消さないため、それらから参照されるユーザーも返す。
     """
     users, organizations, todos = list(targets.user_ids), list(targets.organization_ids), list(targets.todo_ids)
     if not users:
         return set()
     user, organization, todo = _table(TUser), _table(TOrganization), _table(TTodo)
     assignee, activity = _table(TTodoAssignee), _table(TTodoActivity)
+    comment, item = _table(TTodoComment), _table(TTodoChecklistItem)
     queries = [
         select(user.c.created_by.label("user_id")).where(user.c.tenant_id == tenant_id, user.c.created_by.in_(users), user.c.id.not_in(users)),
         select(user.c.updated_by).where(user.c.tenant_id == tenant_id, user.c.updated_by.in_(users), user.c.id.not_in(users)),
@@ -394,6 +402,10 @@ def _blocked_user_ids(conn: Connection, tenant_id: uuid.UUID, targets: _AppTarge
         select(todo.c.updated_by).where(todo.c.tenant_id == tenant_id, todo.c.updated_by.in_(users), todo.c.id.not_in(todos)),
         select(assignee.c.assigned_by).where(assignee.c.tenant_id == tenant_id, assignee.c.assigned_by.in_(users), assignee.c.todo_id.not_in(todos), assignee.c.user_id.not_in(users)),
         select(activity.c.actor_id).where(activity.c.tenant_id == tenant_id, activity.c.actor_id.in_(users), activity.c.todo_id.not_in(todos)),
+        select(comment.c.author_id).where(comment.c.tenant_id == tenant_id, comment.c.author_id.in_(users), comment.c.todo_id.not_in(todos)),
+        select(item.c.created_by).where(item.c.tenant_id == tenant_id, item.c.created_by.in_(users), item.c.todo_id.not_in(todos)),
+        select(item.c.updated_by).where(item.c.tenant_id == tenant_id, item.c.updated_by.in_(users), item.c.todo_id.not_in(todos)),
+        select(item.c.done_by).where(item.c.tenant_id == tenant_id, item.c.done_by.in_(users), item.c.todo_id.not_in(todos)),
     ]
     return set(conn.execute(union(*queries)).scalars())
 
@@ -412,6 +424,7 @@ def _purge_specs(tenant_id: uuid.UUID, targets: _AppTargets) -> list[_PurgeSpec]
     users, organizations, todos = list(targets.user_ids), list(targets.organization_ids), list(targets.todo_ids)
     activity, assignee, todo_organization = _table(TTodoActivity), _table(TTodoAssignee), _table(TTodoOrganization)
     todo, member, organization = _table(TTodo), _table(TOrganizationMember), _table(TOrganization)
+    comment, item = _table(TTodoComment), _table(TTodoChecklistItem)
     audit_log, user = _table(TApAuditLog), _table(TUser)
     audit_targets = [
         (_AUDIT_TARGET_TODO, todos),
@@ -419,6 +432,8 @@ def _purge_specs(tenant_id: uuid.UUID, targets: _AppTargets) -> list[_PurgeSpec]
         (_AUDIT_TARGET_USER, users),
     ]
     specs = [
+        _PurgeSpec("todo_comments", comment, comment.c.todo_id.in_(todos)),
+        _PurgeSpec("todo_checklist_items", item, item.c.todo_id.in_(todos)),
         _PurgeSpec("todo_activities", activity, activity.c.todo_id.in_(todos)),
         _PurgeSpec("todo_assignees", assignee, or_(assignee.c.todo_id.in_(todos), assignee.c.user_id.in_(users))),
         _PurgeSpec("todo_organizations", todo_organization, or_(todo_organization.c.todo_id.in_(todos), todo_organization.c.organization_id.in_(organizations))),

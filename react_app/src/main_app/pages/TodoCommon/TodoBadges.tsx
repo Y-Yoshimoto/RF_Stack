@@ -12,7 +12,11 @@ import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import { Chip, Stack, Typography } from '@mui/material';
 import type { ReactElement } from 'react';
 import type { TodoPriority, TodoStatus } from '@/main_app/api/contract';
+import { isOverdue } from '@/main_app/todos/todo_dates';
 import { TODO_PRIORITY_LABELS, TODO_STATUS_LABELS } from './todo_labels';
+
+// 日付の判定は main_app/todos/todo_dates.ts に移した (フックからも使うため)。既存の import 先のために再公開する
+export { isOverdue, todayOf } from '@/main_app/todos/todo_dates';
 
 /** ステータスのアイコン */
 export const TODO_STATUS_ICONS: Readonly<Record<TodoStatus, ReactElement>> = {
@@ -40,22 +44,6 @@ export type TodoPriorityChipProps = { priority: TodoPriority; test_id: string };
 export const TodoPriorityChip = ({ priority, test_id }: TodoPriorityChipProps) => (
     <Chip size="small" variant="outlined" color={PRIORITY_COLORS[priority]} icon={PRIORITY_ICONS[priority]} label={`優先度 ${TODO_PRIORITY_LABELS[priority]}`} data-testid={test_id} data-priority={priority} />
 );
-
-/**
- * 今日の日付 (ブラウザのタイムゾーン) を `YYYY-MM-DD` で返す関数
- * @param {Date} now 現在時刻
- * @returns {string} 今日の日付
-*/
-export const todayOf = (now: Date = new Date()): string => `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-
-/**
- * 期限切れかを判定する関数 (完了していない ToDo の期限が今日より前)
- * @param {string | null} due_date 期限
- * @param {TodoStatus} status ステータス
- * @param {string} today 今日の日付
- * @returns {boolean} 期限切れなら true
-*/
-export const isOverdue = (due_date: string | null, status: TodoStatus, today: string = todayOf()): boolean => due_date !== null && status !== 'done' && due_date < today;
 
 export type TodoDueTextProps = { due_date: string | null; status: TodoStatus; test_id: string };
 

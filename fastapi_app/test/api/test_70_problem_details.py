@@ -258,6 +258,16 @@ class TestOpenApiContract:
         ("delete", "/api/v1/todos/{todo_id}"),
         ("put", "/api/v1/todos/{todo_id}/assignees"),
         ("get", "/api/v1/todos/{todo_id}/activities"),
+        ("get", "/api/v1/todos/summary"),
+        ("get", "/api/v1/todos/{todo_id}/comments"),
+        ("post", "/api/v1/todos/{todo_id}/comments"),
+        ("patch", "/api/v1/todos/{todo_id}/comments/{comment_id}"),
+        ("delete", "/api/v1/todos/{todo_id}/comments/{comment_id}"),
+        ("get", "/api/v1/todos/{todo_id}/checklist"),
+        ("post", "/api/v1/todos/{todo_id}/checklist/items"),
+        ("patch", "/api/v1/todos/{todo_id}/checklist/items/{item_id}"),
+        ("delete", "/api/v1/todos/{todo_id}/checklist/items/{item_id}"),
+        ("put", "/api/v1/todos/{todo_id}/checklist/order"),
         ("get", "/api/v1/cp/tenants"),
         ("post", "/api/v1/cp/tenants"),
         ("get", "/api/v1/cp/tenants/{tenant_id}"),
@@ -307,7 +317,7 @@ class TestOpenApiContract:
                     content = operation["responses"].get("400", {}).get("content", {})
                     check.equal(set(content), {"application/problem+json"}, f"{method} {path}")
                     check.is_in("ProblemDetails", str(content), f"{method} {path}")
-        check.equal(len(found), 11)
+        check.equal(len(found), 16)
         check.is_true(any(path.startswith("/api/v1/cp/") for _, path in found) and any(not path.startswith("/api/v1/cp/") for _, path in found))
 
     def test_error_responses_are_problem_json(self, spec):
@@ -384,7 +394,7 @@ class TestOpenApiContract:
                         if parameter["in"] == "header" and parameter["name"].lower() == "if-match":
                             found[(method, path)] = parameter["required"]
             check.equal({key for key, required in found.items() if not required}, optional)
-            check.equal(len(found), 11)
+            check.equal(len(found), 16)
 
     def test_etag_headers_are_documented_on_success_responses(self, spec):
         """ETag を返す成功レスポンスは、CP / AP とも responses.headers に ETag を載せている(作成系は Location も)。"""

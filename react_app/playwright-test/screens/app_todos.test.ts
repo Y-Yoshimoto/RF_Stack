@@ -41,7 +41,8 @@ test.describe('AP: ToDo', () => {
         await member_page.goto(appPath('todos'));
         await member_page.getByTestId('todo-scope-assigned').click();
         await expect(member_page.getByTestId('app-todo-list-page')).toHaveAttribute('data-scope', 'assigned');
-        const row = member_page.getByTestId(`todo-row-${todo_id}`);
+        // md 以上は表の行 (todo-row-)、md 未満 (モバイル) はカード (todo-card-)
+        const row = member_page.getByTestId(new RegExp(`^todo-(row|card)-${todo_id}$`));
         await expect(row).toContainText(title);
         await expect(row).toHaveAttribute('data-status', 'open');
         await member_page.getByTestId(`todo-status-select-${todo_id}`).getByRole('combobox').click();
@@ -72,7 +73,7 @@ test.describe('AP: ToDo', () => {
         await admin.getByTestId('todo-delete-dialog-confirm').click();
         await expect(admin).toHaveURL(appPath('todos'));
         await expect(admin.getByTestId('todo-list-notice')).toContainText(title);
-        await expect(admin.getByTestId(`todo-row-${todo_id}`)).toHaveCount(0);
+        await expect(admin.getByTestId(new RegExp(`^todo-(row|card)-${todo_id}$`))).toHaveCount(0);
 
         // 削除後は担当者からも見えない (404)
         await member_page.goto(appPath(`todos/${todo_id}`));

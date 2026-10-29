@@ -132,7 +132,7 @@ curl -i "http://localhost:8000/api/auth/dev-login?as=alpha-admin"
 - `APP_ENV=development` かつ `AUTH_DEV_LOGIN_ENABLED=true` であること
   （どちらかを満たさない場合、エンドポイントは登録されず **404** になる）
 - KeyCloak の Realm / クライアント / ユーザーが作成済みであること
-  （未作成ならシードを実行する。シードは開発用テナント `alpha` / `beta` と `control-plane` を払い出しと同じ関数で作る。`tenant-provisioning` スキル参照）
+  （未作成ならシードを実行する: `make d-seed`（テナント・ユーザー → ToDo の順。冪等）、ToDo だけなら `make d-seed-todos`。シードは開発用テナント `alpha` / `beta` と `control-plane` を払い出しと同じ関数で作る。`tenant-provisioning` スキル参照）
 
 プロファイルと開発用の認証情報は `fastapi_app/src/modules/auth/dev_profiles.py` に 1 箇所で定義し、シードと共有する（`DEV_PROFILES` / `DEV_TENANTS` / `DEV_TENANT_USERS`、要素は `DevUser`）。開発用パスワードは `APP_ENV=development` 以外では読めない。
 AP のプロファイルは Cookie `rf_sid_app`、CP のプロファイルは `rf_sid_cp` のセッションを作る（状態確認は `/api/auth/app/status` / `/api/auth/cp/status`）。
@@ -168,17 +168,26 @@ CP のテナント管理、AP のユーザー・組織・ToDo の画面を、開
 ```bash
 make d-run SERVICE=react_app CMD="npm run playwright"                                  # 既存 + 画面の E2E（setup が全プロファイルの認証状態を作る）
 make d-run SERVICE=react_app CMD="npm run playwright -- screens"                       # 画面の E2E だけ
-make d-run SERVICE=react_app CMD="npm run playwright -- screens/app_todos"             # ファイル指定（cp_tenants / app_organizations / app_users / app_todos）
+make d-run SERVICE=react_app CMD="npm run playwright -- screens/app_todos"             # ファイル指定（cp_tenants / app_organizations / app_users / app_todos / app_todos_collab）
 ```
 
 - 対象は Vite の **dev サーバー（5173）**（`playwright.config.ts` が起動済みならそれを使い、無ければ起動する）。変更系の API は `Origin` が `FRONTEND_URL`（5173）か `CSRF_TRUSTED_ORIGINS` のものでないと 403 になるため、`vite preview`（4173）では動かない。preview で動かす場合は FastAPI の `CSRF_TRUSTED_ORIGINS` に `http://localhost:4173` を足し、`E2E_SCREEN_BASEURL` で指定する。
 - 複数の利用者が登場するシナリオは、`playwright-test/fixtures.ts` の `openAs(profile)` で利用者ごとのブラウザコンテキストを開く。前提データの用意と失敗時の後片付けは `playwright-test/helpers/api.ts`（API。`Origin` と `X-Requested-With` を付ける）。
-- **テストはデータを作り、実行後に自動で削除される（ティアダウン）。** 組織・ToDo は画面で削除し、CP のテナントは「削除を要求」まで、ユーザーは「無効にする」までを画面で検証する。これらの使い捨てデータ（CP のテナント `e2e-<8 文字>`、alpha のユーザー `e2e-<8 文字>@example.com`、ToDo `E2E ToDo <8 文字>`、組織 `E2E Org <8 文字>`）は、`setup` プロジェクトの `teardown` に指定した `cleanup` プロジェクト（`playwright-test/cleanup.teardown.ts`）が、全プロジェクトの完了後に 1 回だけ開発専用 API `POST /api/dev/e2e-cleanup`（FastAPI `dev_tools/e2e_cleanup.py`。命名は完全一致で判定し、シードのデータは常に除外）を呼んで物理削除する。テストが途中で失敗して残ったデータも同じ実行で消える。
+- **テストはデータを作り、実行後に自動で削除される（ティアダウン）。** 組織・ToDo は画面で削除し（`app_todos_collab` の ToDo・コメント・チェックリスト項目は API で作り、画面では消さずにティアダウンに任せる）、CP のテナントは「削除を要求」まで、ユーザーは「無効にする」までを画面で検証する。これらの使い捨てデータ（CP のテナント `e2e-<8 文字>`、alpha のユーザー `e2e-<8 文字>@example.com`、ToDo `E2E ToDo <8 文字>`、組織 `E2E Org <8 文字>`）は、`setup` プロジェクトの `teardown` に指定した `cleanup` プロジェクト（`playwright-test/cleanup.teardown.ts`）が、全プロジェクトの完了後に 1 回だけ開発専用 API `POST /api/dev/e2e-cleanup`（FastAPI `dev_tools/e2e_cleanup.py`。命名は完全一致で判定し、シードのデータは常に除外）を呼んで物理削除する。テストが途中で失敗して残ったデータも同じ実行で消える。
   - 認証は `cp-admin`（`.auth/cp-admin.json`）、Origin / `X-Requested-With` を付けて dev サーバー経由で呼ぶ。同期処理でテナント数に比例して時間がかかる（タイムアウト 4 分）。409（別の後片付けが実行中）は 5 秒待って 1 回だけ再試行する。
   - **後片付けの失敗ではテストを赤にしない。** 失敗（HTTP エラー・通信失敗・`ok=false`）は `[teardown] 警告:` を出して終わる。結果は `[teardown] 後片付け: テナント削除 N / ... ok=true` の 1 行で出力される。開発専用機能が無効だと 404 になり、警告だけが出てデータは残る。
   - 残骸の確認（件数のみ）: `docker compose exec -T fastapi_app uv run python -m dev_tools.e2e_cleanup --dry-run`。消す場合は `--dry-run` を外す（次回の E2E 実行でも消える）。
   - ティアダウンは `npm run playwright`（`setup` に依存するプロジェクトを実行したとき）だけ。`npm run playwright:keycloak` は `setup` に依存せずデータを作らない（Keycloak のユーザーは参照のみ）ため呼ばない。
   - サンプル画面・サンプル API に依存する E2E（`sample_ButtonPueh` / `sample_FetchPage` / `sample_PageTitle`）は、サンプルをアプリから外したため `playwright.config.ts` の `SAMPLE_TESTS`（`testIgnore`）で実行対象外にしている。
+- **ToDo の共同作業の E2E（`screens/app_todos_collab.test.ts`。docs/spec/ToDoApp.md v0.6 §4.5〜§4.8）。** 1 ファイルに次のシナリオが入っている（どれも Desktop / Mobile で通る。ToDo は `createTodo`（`helpers/api.ts`）で作る前提データで、タイトルは `E2E ToDo <8 文字>`）。
+  - チェックリスト: admin が項目の追加・名前変更・並べ替え（メニューの「上へ／下へ移動」）、担当者の member はチェックだけ（追加・名前変更・削除・並べ替えの UI なし）、進捗の表示の変化。
+  - コメント: member の投稿・編集（「編集済み」）、admin から見える・admin だけが他人のコメントを削除（member には削除・編集が出ない）。
+  - ボード（`?view=board&q=<タイトル>`）: Desktop はマウスのドラッグ、Mobile はカードのメニューで「未着手 → 進行中 → 完了」。キーボード（ハンドルにフォーカス → Space → 右矢印 → Space）は Desktop のみ。作成者でも担当者でもない member（tenant 公開・担当者なしの ToDo の alpha-member）はカードが `aria-disabled`・メニューなし。
+  - 412: alpha-admin の 2 つのコンテキストで同じ ToDo を開き、A がタイトルを保存、B が説明を未保存のままステータスを保存 → 自動再表示の通知が出て、説明の入力が残る。
+  - ホーム: 要約カードとリンク先の一覧（絞り込みが URL に入る）。クロステナント: beta-member の API が alpha の ToDo のコメント・チェックリストで 404。
+  - 一覧は md 以上が表（`todo-row-<id>`）、md 未満がカード（`todo-card-<id>`）。両方を扱うテストは `getByTestId(/^todo-(row|card)-<id>$/)` を使う。
+  - コメントは投稿ボタンで投稿し、Desktop では Ctrl + Enter での投稿も別のステップで確認する。モバイルでも一覧のスコープのタブ・投稿ボタンを通常どおりクリックする（以前あったページ幅のはみ出しは画面側で解消済み。Mobile で後続のクリックが背面に遮られる場合は、まず `innerWidth` と `scrollWidth` が画面幅と一致するかを確認する）。
+  - 結果の出力（`[teardown] 後片付け: ...`）には ToDo のほか、コメント・チェック項目の削除件数も出る。
 - **後片付け（手動）:** テストが残した `e2e-*` のテナント・ユーザー・組織・ToDo は `make d-run SERVICE=fastapi_app CMD="uv run python -m dev_tools.e2e_cleanup --dry-run"`（`--dry-run` を外すと削除）で消せる。同じ処理を `POST /api/dev/e2e-cleanup?dry_run=`（CP の `saas_admin` + CSRF ヘッダー。開発用ログイン有効時のみ）でも呼べる。
 - 前提: §5 の前提に加え、`keycloak_c` が Keycloak の管理 API を呼べること（テナント・ユーザーの作成が実際にレルム・ユーザーを作る）。
 

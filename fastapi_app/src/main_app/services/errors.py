@@ -25,8 +25,12 @@ Problem Details（03 §2）に変換する。ログイン処理（auth-keycloak 
 | :class:`InvalidTodoAssigneesError` | ``invalid_todo_assignees`` | 422（``user_ids`` と ``reason``: ``not_found`` = テナント内に無い（他テナントを含む）/ ``inactive`` = 無効化されたユーザーの新規割り当て） |
 | :class:`InvalidTodoOrganizationsError` | ``invalid_todo_organizations`` | 422（``organization_ids``。テナント内に無い・論理削除済みの組織を新たに公開先にした） |
 | :class:`TodoNotFoundError` | ``todo_not_found`` | 404（他テナント・存在しない・論理削除済み・**閲覧範囲外**を区別しない。03 §2） |
+| :class:`TodoCommentNotFoundError` | ``todo_comment_not_found`` | 404（別の ToDo のコメント・論理削除済み・他テナント・存在しないを区別しない。ToDo 自体が閲覧できなければ先に ``todo_not_found``） |
+| :class:`TodoChecklistItemNotFoundError` | ``todo_checklist_item_not_found`` | 404（別の ToDo の項目・削除済み・他テナント・存在しないを区別しない。ToDo 自体が閲覧できなければ先に ``todo_not_found``） |
 | :class:`TodoPermissionDeniedError` | ``todo_operation_forbidden`` | 403（閲覧はできるが操作の権限が無い。``operation`` は ``todo_policy.TodoOperation`` の値） |
 | :class:`TodoVersionConflictError` | ``todo_version_conflict`` | 412 |
+| :class:`TodoCommentVersionConflictError` | ``todo_comment_version_conflict`` | 412（コメントの版） |
+| :class:`TodoChecklistVersionConflictError` | ``todo_checklist_version_conflict`` | 412（``target``: ``item`` = 項目の版 / ``checklist`` = チェックリスト全体の版 ``t_todo.checklist_version``） |
 
 メッセージ・属性には一時パスワード・トークン・``KeycloakAdminError.detail`` を含めない。
 原因の例外は ``__cause__`` に残す（ログ出力用。永続化しないこと）。
@@ -223,13 +227,62 @@ class TodoNotFoundError(AppServiceError):
         super().__init__(f"todo not found: {todo_id}")
 
 
+class TodoCommentNotFoundError(AppServiceError):
+    """ToDo のコメントが存在しない（AP-CMT）。別の ToDo のコメント・論理削除済み・他テナント・存在しないを区別しない。
+
+    ToDo 自体が閲覧できない場合は、先に :class:`TodoNotFoundError` になる（ToDo の存在を明かさない。AP-CMT-06）。
+
+    Attributes:
+        todo_id: 指定された ToDo ID。
+        comment_id: 指定されたコメント ID。
+    """
+
+    code = "todo_comment_not_found"
+
+    def __init__(self, todo_id: uuid.UUID, comment_id: uuid.UUID):
+        """例外を初期化する。
+
+        Args:
+            todo_id: 指定された ToDo ID。
+            comment_id: 指定されたコメント ID。
+        """
+        self.todo_id = todo_id
+        self.comment_id = comment_id
+        super().__init__(f"todo comment not found: {comment_id}")
+
+
+class TodoChecklistItemNotFoundError(AppServiceError):
+    """チェックリスト項目が存在しない（AP-CHK）。別の ToDo の項目・削除済み（物理削除）・他テナント・存在しないを区別しない。
+
+    ToDo 自体が閲覧できない場合は、先に :class:`TodoNotFoundError` になる。
+
+    Attributes:
+        todo_id: 指定された ToDo ID。
+        item_id: 指定された項目 ID。
+    """
+
+    code = "todo_checklist_item_not_found"
+
+    def __init__(self, todo_id: uuid.UUID, item_id: uuid.UUID):
+        """例外を初期化する。
+
+        Args:
+            todo_id: 指定された ToDo ID。
+            item_id: 指定された項目 ID。
+        """
+        self.todo_id = todo_id
+        self.item_id = item_id
+        super().__init__(f"todo checklist item not found: {item_id}")
+
+
 # --------------------------------------------------------------------------- 403
 class TodoPermissionDeniedError(AppServiceError):
     """閲覧できる ToDo に対して、操作の権限が無い（ToDoApp.md §3）。
 
     Attributes:
         todo_id: ToDo ID。
-        operation: 拒否した操作（``edit_fields`` / ``change_status`` / ``change_visibility`` / ``change_assignees`` / ``delete``）。
+        operation: 拒否した操作（``edit_fields`` / ``change_status`` / ``change_visibility`` / ``change_assignees`` / ``delete`` /
+            ``edit_checklist`` / ``check_checklist_item`` / ``edit_comment`` / ``delete_comment``）。
     """
 
     code = "todo_operation_forbidden"
@@ -340,6 +393,40 @@ class TodoVersionConflictError(VersionConflictError):
     """ToDo の楽観ロックの不一致（AP-TODO-08）。"""
 
     code = "todo_version_conflict"
+
+
+class TodoCommentVersionConflictError(VersionConflictError):
+    """コメントの楽観ロックの不一致（コメントの ``version``。ToDo 本体の版とは別。ToDoApp.md §10 #16）。
+
+    ``resource_id`` はコメント ID。
+    """
+
+    code = "todo_comment_version_conflict"
+
+
+class TodoChecklistVersionConflictError(VersionConflictError):
+    """チェックリストの楽観ロックの不一致（AP-CHK-07、ToDoApp.md §10 #17）。
+
+    Attributes:
+        target: 食い違った版。``item``（項目の ``version``。名前変更・完了の切り替え・削除。``resource_id`` は項目 ID）/
+            ``checklist``（チェックリスト全体の版 ``t_todo.checklist_version``。並べ替え。``resource_id`` は ToDo ID）。
+    """
+
+    code = "todo_checklist_version_conflict"
+
+    def __init__(self, resource_id: uuid.UUID, expected_version: int, actual_version: int, *, target: str):
+        """例外を初期化する。
+
+        Args:
+            resource_id: 項目 ID（``target="item"``）または ToDo ID（``target="checklist"``）。
+            expected_version: 呼び出し側が指定したバージョン。
+            actual_version: 現在のバージョン。
+            target: ``item`` / ``checklist``。
+        """
+        if target not in ("item", "checklist"):
+            raise ValueError(f"unsupported target: {target}")
+        self.target = target
+        super().__init__(resource_id, expected_version, actual_version)
 
 
 # --------------------------------------------------------------------------- 502

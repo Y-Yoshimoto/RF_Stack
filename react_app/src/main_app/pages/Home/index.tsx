@@ -1,12 +1,13 @@
 /**
  * @desc AP のホーム (`/{tenant_code}/`。ログイン成功後の遷移先)
- * ヘッダー・ナビゲーション・ログアウトは AppLayout が持つ。この画面はログイン中のユーザーの概要と、今後追加する機能への入口の枠を出す。
- * 使えるフック: useAppSession (テナントコード・ユーザー)。AP の API 呼び出し (useAppApiClient) は、データを出す機能が加わる段階で使う。
+ * ヘッダー・ナビゲーション・ログアウトは AppLayout が持つ。この画面は ToDo の要約 (TodoSummarySection。AP-UX-01)、ログイン中のユーザーの概要、機能への入口を出す。
+ * 使えるフック: useAppSession (テナントコード・ユーザー)。要約は TodoSummarySection が useTodoSummary / useTodoList で取得する (失敗してもホーム全体は止めない)。
  */
 import { Link as RouterLink } from 'react-router-dom';
 import { Box, Card, CardActionArea, CardContent, Chip, Stack, Typography } from '@mui/material';
 import { useAppSession } from '@/main_app/auth/useAppAuth';
 import { appNavItemsOf, appRoleLabelsOf } from '@/main_app/layouts/AppLayout/labels';
+import { TodoSummarySection } from './TodoSummarySection';
 
 export const AppHomePage = () => {
     const { tenant_code, user } = useAppSession();
@@ -21,6 +22,8 @@ export const AppHomePage = () => {
                     テナント「<Box component="span" data-testid="app-home-tenant" sx={{ fontWeight: 'bold' }}>{tenant_code}</Box>」にログインしています。
                 </Typography>
             </Box>
+
+            <TodoSummarySection />
 
             <Card variant="outlined" component="section" aria-labelledby="app-home-user-heading">
                 <CardContent>

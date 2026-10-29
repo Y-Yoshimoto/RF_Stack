@@ -60,7 +60,7 @@ teardown('使い捨てデータを後片付けする', async () => {
             const { tenants } = result;
             console.log(
                 `[teardown] 後片付け: テナント削除 ${countOf(tenants.deprovisioned)} / 回収 ${countOf(tenants.reaped)} / スキップ ${countOf(tenants.skipped)} / 失敗 ${countOf(tenants.failed)}, ` +
-                    `AP ユーザー ${sumApp(result, 'users')} / 組織 ${sumApp(result, 'organizations')} / ToDo ${sumApp(result, 'todos')}, failures ${result.failures.length}, ok=${result.ok}`,
+                    `AP ユーザー ${sumApp(result, 'users')} / 組織 ${sumApp(result, 'organizations')} / ToDo ${sumApp(result, 'todos')} / コメント ${sumApp(result, 'todo_comments')} / チェック項目 ${sumApp(result, 'todo_checklist_items')}, failures ${result.failures.length}, ok=${result.ok}`,
             );
             if (!result.ok) warn(`後片付けで失敗がありました (failures ${result.failures.length} 件)。残ったデータは次回の実行で再度対象になります`);
         } finally {

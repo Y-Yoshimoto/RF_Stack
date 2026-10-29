@@ -14,6 +14,10 @@ const OPERATION_LABELS: Readonly<Record<TodoOperation, string>> = {
     change_visibility: '閲覧範囲の変更',
     change_assignees: '担当者の変更',
     delete: '削除',
+    edit_comment: 'コメントの編集',
+    delete_comment: 'コメントの削除',
+    edit_checklist: 'チェックリストの編集',
+    check_checklist_item: 'チェックリスト項目の完了・未完了の切り替え',
 };
 
 /**

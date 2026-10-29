@@ -12,6 +12,8 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Response
 
+from main_app.route.v1.api_todos.checklist import router as checklist_router
+from main_app.route.v1.api_todos.comments import router as comments_router
 from main_app.route.v1.api_todos.schemas import (
     TodoActivityPage,
     TodoActivityRead,
@@ -21,6 +23,9 @@ from main_app.route.v1.api_todos.schemas import (
     TodoDetail,
     TodoPage,
     TodoRead,
+    TodoSummaryAssignedRead,
+    TodoSummaryCreatedRead,
+    TodoSummaryRead,
     TodoUpdate,
 )
 from main_app.route.v1.deps import TodoServiceDep, require_tenant_member
@@ -28,12 +33,15 @@ from main_app.route.v1.openapi import success_headers
 from main_app.route.v1.paging import decode_after, encode_next_cursor, parse_sort
 from main_app.services.common import UNSET
 from main_app.services.todo_policy import TodoScope
-from main_app.services.todo_service import DEFAULT_TODO_SORT, TODO_SORT_KEYS
+from main_app.services.todo_service import DEFAULT_DUE_SOON_DAYS, DEFAULT_TODO_SORT, TODO_SORT_KEYS
 from modules.api_common.etag import IfMatchVersion, set_etag
-from modules.api_common.pagination import CursorQuery, LimitQuery
+from modules.api_common.pagination import CursorQuery, IncludeTotalQuery, LimitQuery
 from modules.errors.openapi import problem_responses
 
 router = APIRouter(dependencies=[Depends(require_tenant_member)])
+# コメント・チェックリストは別ファイル。パスは ``/{todo_id}/comments``・``/{todo_id}/checklist`` 以下(``/summary`` は下で ``/{todo_id}`` より先に宣言する)
+router.include_router(comments_router)
+router.include_router(checklist_router)
 
 # アクティビティの並び順は新しい順で固定(ToDoApp.md §10 #15)。カーソルには並び替えの指定として含める。
 _ACTIVITY_SORT = parse_sort("-created_at", ("created_at",))
@@ -76,12 +84,15 @@ def list_todos(
             )
         ),
     ] = DEFAULT_TODO_SORT,
+    include_total: IncludeTotalQuery = False,
 ) -> TodoPage:
     """閲覧できる ToDo(論理削除済みを除く)の一覧をカーソル方式で返す(`tenant_admin` / `member`)。
 
     `tenant_admin` はテナント内の全件、`member` は閲覧範囲のルール(`private` は作成者と担当者のみ、`organization` は公開先組織の所属メンバーなど)で見えるものだけ。
     説明(`description`)は含まない(`GET /todos/{todo_id}` で取得する)。各要素の `version` は更新系の `If-Match` に使える。
-    `include_total` は無い(`total` は常に `null`)。`status` / `priority` / `sort` / `scope` が不正、またはカーソルが壊れている場合は 422。
+    各要素に作成者・最終更新者(`creator` / `updater`)、チェックリストの進捗(`checklist`)、コメント数(`comment_count`)を含む。
+    `include_total=true` のときだけ、表示範囲・絞り込みを適用した総件数(カーソルに依存しない)を `total` に入れる(件数を数える分だけ重くなるため、先頭ページだけで指定する)。省略時の `total` は `null`。
+    `status` / `priority` / `sort` / `scope` が不正、またはカーソルが壊れている場合は 422。
     """
     list_sort = parse_sort(sort, TODO_SORT_KEYS)
     page = service.list_todos(
@@ -96,8 +107,34 @@ def list_todos(
         sort=str(list_sort),
         limit=limit,
         after=decode_after(cursor, list_sort),
+        include_total=include_total,
     )
-    return TodoPage(items=[TodoRead.model_validate(view, from_attributes=True) for view in page.items], next_cursor=encode_next_cursor(list_sort, page.next_after))
+    return TodoPage(items=[TodoRead.model_validate(view, from_attributes=True) for view in page.items], next_cursor=encode_next_cursor(list_sort, page.next_after), total=page.total)
+
+
+@router.get(
+    "/summary",
+    summary="ホームの要約",
+    responses=problem_responses(422),
+)
+def get_todo_summary(
+    service: TodoServiceDep,
+    today: Annotated[dt.date | None, Query(description="今日の日付(`YYYY-MM-DD`。クライアントのローカル日付)。省略時はサーバーの UTC の日付")] = None,
+    due_soon_days: Annotated[int, Query(ge=1, le=30, description="期限間近とみなす日数(1〜30)。`today` から数えて、この日数後の日を含む")] = DEFAULT_DUE_SOON_DAYS,
+) -> TodoSummaryRead:
+    """ホームに出す ToDo の件数の要約を返す(`tenant_admin` / `member`)。閲覧できる ToDo だけを数え、完了(`done`)と削除済みは含まない。
+
+    `assigned`(自分が担当)は `open` / `in_progress` / `overdue`(`due_date < today`)/ `due_soon`(`today <= due_date <= due_soon_until`)、
+    `created`(自分が作成)は `open` / `in_progress` / `overdue`。`due_soon_until` は `today + due_soon_days`。`today` / `due_soon_days` が不正な場合は 422。
+    `/{todo_id}` より前に宣言している(`summary` を ToDo の ID と解釈しない)。
+    """
+    view = service.summarize(today=today, due_soon_days=due_soon_days)
+    return TodoSummaryRead(
+        today=view.today,
+        due_soon_until=view.due_soon_until,
+        assigned=TodoSummaryAssignedRead.model_validate(view.assigned, from_attributes=True),
+        created=TodoSummaryCreatedRead.model_validate(view.created, from_attributes=True),
+    )
 
 
 @router.post(

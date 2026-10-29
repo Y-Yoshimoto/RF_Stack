@@ -46,6 +46,15 @@ make d-up
 make d-ps
 ```
 
+### 1-2b. 開発用データを投入する（シード）
+
+`make d-up` の後、依存インストールの完了（1-3）を待ってから実行する。Keycloak のレルム・ユーザー、テナント、ToDo を作る。**冪等（再実行しても件数は増えない）で、`APP_ENV=development` 以外では何もしない。**
+
+```bash
+make d-seed         # テナント・ユーザーのシード(control_plane_app.seed) -> ToDo のシード(dev_tools.seed_todos)
+make d-seed-todos   # ToDo のシードだけ（テナント・ユーザーのシード済みが前提）
+```
+
 ### 1-3. 依存インストールの完了を待つ
 
 コンテナ起動時に entrypoint が依存をインストールする。**この間はコマンドを実行しても失敗する。**
@@ -104,6 +113,8 @@ make d-down        # 停止（イメージ・ボリュームは残す）
 make d-upb         # ビルドし直して起動
 make d-exec SERVICE=react_app                      # 対話シェル
 make d-run SERVICE=react_app CMD="npm run lint"    # 単発コマンド
+make d-seed                                        # 開発用シード（冪等）
+make d-seed-todos                                  # ToDo のシードだけ
 ```
 
 各コンテナの作業ディレクトリは `/work/<サービス名>`。リポジトリ全体が `/work/` にマウントされている。
@@ -147,6 +158,8 @@ make d-upb
 ```bash
 make d-reset-db   # ★★ 全データが失われる。必ず確認を取る
 ```
+
+DB を初期化した後は、`make d-seed` で開発用データを入れ直す。
 
 ---
 

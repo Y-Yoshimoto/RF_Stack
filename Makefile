@@ -45,6 +45,16 @@ d-clean:
 	@rm -rf ./fastapi_app/.venv
 	@rm -f ./fastapi_app/uv.lock
 	./fastapi_app/auxiliary/clean-temporary-files.sh ./
+### 開発用シード（冪等。APP_ENV=development のみ）
+#   d-seed-todos: ToDoのシードのみ（control_plane_app.seed の実行後に使う）
+#   d-seed: テナント・ユーザーのシード -> ToDoのシード
+d-seed-todos:
+	@$(COMPOSE) exec -T fastapi_app uv run python -m dev_tools.seed_todos
+
+d-seed:
+	@$(COMPOSE) exec -T fastapi_app uv run python -m control_plane_app.seed
+	@$(COMPOSE) exec -T fastapi_app uv run python -m dev_tools.seed_todos
+
 ### PostgreSQLコンテナの再生作成
 d-reset-db:
 	@$(COMPOSE) down --volumes postgres_c 

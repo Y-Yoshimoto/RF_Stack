@@ -7,9 +7,10 @@
 // | visibility_changed | {changes?: {visibility: {before, after}}, organization_ids?: {added, removed}} (変わった方だけ) |
 // | assignees_changed | {added: [...], removed: [...]} |
 // | deleted | {title} |
+// | checklist_changed | {op: added / renamed / removed / checked / unchecked, item_id, title, before?, after?} (renamed の before / after は項目名。§10 #20) |
 // ID はユーザー・組織の ID。ユーザーの名前は応答の users で引く (activity_users.ts。useTodoActivities の users / userName)。
 // 組織の名前は応答に含まれないため、useTodoOrganizationChoices の選択肢などで引く。
-import type { TodoActivityRead } from '@/main_app/api/contract';
+import type { TodoActivityRead, TodoChecklistActivityOp } from '@/main_app/api/contract';
 
 /**
  * 項目の変更 (変更前と変更後。値は文字列か null)。
@@ -96,4 +97,34 @@ export const todoActivityCreatedValuesOf = (activity: TodoActivityRead): Record<
 export const todoActivityDeletedTitleOf = (activity: TodoActivityRead): string | null => {
     const title = activity.payload.title;
     return activity.action === 'deleted' && typeof title === 'string' ? title : null;
+};
+
+/**
+ * チェックリストの変更 (checklist_changed の payload)。
+ */
+export type TodoChecklistActivityChange = {
+    op: TodoChecklistActivityOp;
+    item_id: string | null;
+    /** 項目名 (renamed では変更後の名前。分からなければ null)。 */
+    title: string | null;
+    /** 変更前の項目名 (renamed のみ。無ければ null)。 */
+    before: string | null;
+    /** 変更後の項目名 (renamed のみ。無ければ null)。 */
+    after: string | null;
+};
+
+const CHECKLIST_OPS: readonly TodoChecklistActivityOp[] = ['added', 'renamed', 'removed', 'checked', 'unchecked'];
+
+/**
+ * チェックリストの変更を取り出す関数 (checklist_changed の payload)
+ * @param {TodoActivityRead} activity アクティビティ
+ * @returns {TodoChecklistActivityChange | null} 変更 (checklist_changed 以外・op が分からなければ null)
+*/
+export const todoActivityChecklistChangeOf = (activity: TodoActivityRead): TodoChecklistActivityChange | null => {
+    if (activity.action !== 'checklist_changed') return null;
+    const { payload } = activity;
+    const op = CHECKLIST_OPS.find((value) => value === payload.op);
+    if (op === undefined) return null;
+    const stringOf = (value: unknown): string | null => (typeof value === 'string' ? value : null);
+    return { op, item_id: stringOf(payload.item_id), title: stringOf(payload.title), before: stringOf(payload.before), after: stringOf(payload.after) };
 };

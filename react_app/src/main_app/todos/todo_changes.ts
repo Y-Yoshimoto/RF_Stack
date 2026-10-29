@@ -67,16 +67,20 @@ export class TodoGuardError extends AppGuardError {
     }
 }
 
-/** 操作と、必要な権限 */
-const PERMISSION_OF: Record<TodoOperation, keyof TodoPermissions> = {
+/** 操作と、必要な ToDo の権限 (null はコメントごとの permissions で判定する操作) */
+const PERMISSION_OF: Record<TodoOperation, keyof TodoPermissions | null> = {
     edit_fields: 'can_edit_fields',
     change_status: 'can_change_status',
     change_visibility: 'can_change_visibility',
     change_assignees: 'can_change_assignees',
     delete: 'can_delete',
+    edit_comment: null,
+    delete_comment: null,
+    edit_checklist: 'can_edit_checklist',
+    check_checklist_item: 'can_check_checklist',
 };
 
-const TODO_OPERATIONS: readonly TodoOperation[] = ['edit_fields', 'change_status', 'change_visibility', 'change_assignees', 'delete'];
+const TODO_OPERATIONS = Object.keys(PERMISSION_OF) as TodoOperation[];
 
 /**
  * 詳細 (permissions を持つ) かを判定する関数
@@ -110,8 +114,8 @@ export const permissionsOfTarget = (target: TodoTarget): TodoPermissions | null 
  * @returns {TodoRead} 一覧の要素
 */
 export const todoReadOf = (detail: TodoDetail): TodoRead => {
-    const { id, title, status, priority, due_date, visibility, effective_visibility, organizations, assignees, created_by, updated_by, version, created_at, updated_at } = detail;
-    return { id, title, status, priority, due_date, visibility, effective_visibility, organizations, assignees, created_by, updated_by, version, created_at, updated_at };
+    const { id, title, status, priority, due_date, visibility, effective_visibility, organizations, assignees, created_by, updated_by, creator, updater, checklist, comment_count, version, created_at, updated_at } = detail;
+    return { id, title, status, priority, due_date, visibility, effective_visibility, organizations, assignees, created_by, updated_by, creator, updater, checklist, comment_count, version, created_at, updated_at };
 };
 
 /**
@@ -208,7 +212,10 @@ export const requiredTodoOperationsOf = (changes: TodoChanges): TodoOperation[] 
 */
 export const deniedTodoOperationOf = (permissions: TodoPermissions | null, operations: readonly TodoOperation[]): TodoOperation | null => {
     if (permissions === null) return null;
-    return operations.find((operation) => !permissions[PERMISSION_OF[operation]]) ?? null;
+    return operations.find((operation) => {
+        const permission = PERMISSION_OF[operation];
+        return permission !== null && !permissions[permission];
+    }) ?? null;
 };
 
 /**

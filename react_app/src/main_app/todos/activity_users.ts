@@ -1,6 +1,7 @@
 // ToDo のアクティビティが参照するユーザーの名前を解決する関数 (純粋関数)
 // `GET /api/v1/todos/{todo_id}/activities` の応答はページごとに users (ユーザー ID → 表示名・有効/無効) を持つ。
 // 対象は操作者 (actor_id) と payload のユーザー ID (created の values.assignee_ids、assignees_changed の added / removed)。
+// checklist_changed の payload はユーザー ID を持たない (完了した人は操作者)。参照するのは操作者だけ。
 // キーが無い ID (テナント内に存在しないユーザー) は「不明なユーザー」として扱う (user: null)。
 // payload の読み取りは activity_payload.ts。
 import type { TodoActivityRead, TodoActivityUser, TodoActivityUsers } from '@/main_app/api/contract';

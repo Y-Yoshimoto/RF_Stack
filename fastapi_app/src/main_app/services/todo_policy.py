@@ -28,6 +28,16 @@
 | 閲覧範囲・公開先組織の変更 ``change_visibility`` | ○ | ○ | × | × |
 | 担当者の変更 ``change_assignees`` | ○ | ○ | ○ | × |
 | 削除 ``delete`` | ○ | ○ | × | × |
+| コメントの参照・投稿（``can_comment``） | ○ | ○ | ○ | ○（閲覧できれば誰でも。AP-CMT-01） |
+| チェックリスト項目の追加・名前変更・削除・並べ替え ``edit_checklist`` | ○ | ○ | × | × |
+| チェックリスト項目の完了・未完了の切り替え ``check_checklist_item`` | ○ | ○ | ○ | × |
+
+コメントごとの権限（:func:`comment_permissions`。閲覧できる ToDo のコメントに対して判定する）:
+
+| 操作（:class:`TodoOperation`） | 投稿者 | ``tenant_admin``（投稿者以外） | それ以外 |
+| --- | --- | --- | --- |
+| 編集 ``edit_comment`` | ○ | ×（AP-CMT-04） | × |
+| 削除 ``delete_comment`` | ○ | ○ | × |
 
 一覧の表示範囲（AP-TODO-07。:func:`scope_condition`。いずれも閲覧できるものに限る）:
 ``mine``（作成者が自分）/ ``assigned``（担当者に自分）/ ``shared``（作成者でも担当者でもない）/ ``all``（すべて）。
@@ -64,6 +74,10 @@ class TodoOperation(StrEnum):
     CHANGE_VISIBILITY = "change_visibility"
     CHANGE_ASSIGNEES = "change_assignees"
     DELETE = "delete"
+    EDIT_CHECKLIST = "edit_checklist"
+    CHECK_CHECKLIST_ITEM = "check_checklist_item"
+    EDIT_COMMENT = "edit_comment"
+    DELETE_COMMENT = "delete_comment"
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,6 +110,9 @@ class TodoPermissions:
         can_change_visibility: 閲覧範囲・公開先組織を変更できるか。
         can_change_assignees: 担当者を変更できるか。
         can_delete: 削除できるか。
+        can_comment: コメントを参照・投稿できるか（閲覧できる ToDo なら常に ``True``。AP-CMT-01）。
+        can_edit_checklist: チェックリスト項目を追加・名前変更・削除・並べ替えできるか（AP-CHK-03）。
+        can_check_checklist: チェックリスト項目の完了・未完了を切り替えられるか（AP-CHK-04）。
     """
 
     can_edit_fields: bool
@@ -103,16 +120,72 @@ class TodoPermissions:
     can_change_visibility: bool
     can_change_assignees: bool
     can_delete: bool
+    can_comment: bool
+    can_edit_checklist: bool
+    can_check_checklist: bool
 
     def allows(self, operation: TodoOperation) -> bool:
-        """操作が許可されているか。"""
-        return {
+        """操作が許可されているか。
+
+        Raises:
+            ValueError: コメントごとの操作（``edit_comment`` / ``delete_comment``）。:func:`comment_permissions` で判定する。
+        """
+        allowed = {
             TodoOperation.EDIT_FIELDS: self.can_edit_fields,
             TodoOperation.CHANGE_STATUS: self.can_change_status,
             TodoOperation.CHANGE_VISIBILITY: self.can_change_visibility,
             TodoOperation.CHANGE_ASSIGNEES: self.can_change_assignees,
             TodoOperation.DELETE: self.can_delete,
-        }[operation]
+            TodoOperation.EDIT_CHECKLIST: self.can_edit_checklist,
+            TodoOperation.CHECK_CHECKLIST_ITEM: self.can_check_checklist,
+        }
+        if operation not in allowed:
+            raise ValueError(f"{operation} is judged per comment (comment_permissions)")
+        return allowed[operation]
+
+    @property
+    def checklist(self) -> "TodoChecklistPermissions":
+        """チェックリストの画面向けの権限（``can_edit_checklist`` / ``can_check_checklist`` と同じ値）。"""
+        return TodoChecklistPermissions(can_edit=self.can_edit_checklist, can_check=self.can_check_checklist)
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class TodoChecklistPermissions:
+    """チェックリストに対する操作者の権限（チェックリストの応答に付ける。:attr:`TodoPermissions.checklist`）。
+
+    Attributes:
+        can_edit: 項目の追加・名前変更・削除・並べ替え（作成者・``tenant_admin``）。
+        can_check: 完了・未完了の切り替え（作成者・担当者・``tenant_admin``）。
+    """
+
+    can_edit: bool
+    can_check: bool
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class TodoCommentPermissions:
+    """1 件のコメントに対する操作者の権限（:func:`comment_permissions`）。
+
+    Attributes:
+        can_edit: 編集できるか（投稿者のみ。``tenant_admin`` も他人のコメントは編集できない。AP-CMT-03, 04）。
+        can_delete: 削除できるか（投稿者・``tenant_admin``）。
+    """
+
+    can_edit: bool
+    can_delete: bool
+
+    def allows(self, operation: TodoOperation) -> bool:
+        """操作が許可されているか（``edit_comment`` / ``delete_comment`` のみ）。
+
+        Raises:
+            ValueError: コメントの操作以外。
+        """
+        match operation:
+            case TodoOperation.EDIT_COMMENT:
+                return self.can_edit
+            case TodoOperation.DELETE_COMMENT:
+                return self.can_delete
+        raise ValueError(f"{operation} is not a comment operation")
 
 
 # --------------------------------------------------------------------------- 閲覧範囲（SQL）
@@ -239,4 +312,23 @@ def todo_permissions(actor: TodoActor, *, created_by: uuid.UUID, assignee_ids: C
         can_change_visibility=owner,
         can_change_assignees=owner or is_assignee,
         can_delete=owner,
+        can_comment=True,
+        can_edit_checklist=owner,
+        can_check_checklist=owner or is_assignee,
     )
+
+
+def comment_permissions(actor: TodoActor, *, author_id: uuid.UUID) -> TodoCommentPermissions:
+    """閲覧できる ToDo のコメントに対する操作者の権限（AP-CMT-03, 04）。
+
+    ToDo を閲覧できるかは判定しない（呼び出し側が :func:`visible_condition` で ToDo を取得してから使う）。
+
+    Args:
+        actor: 操作者。
+        author_id: コメントの投稿者。
+
+    Returns:
+        TodoCommentPermissions: 権限。
+    """
+    is_author = author_id == actor.user_id
+    return TodoCommentPermissions(can_edit=is_author, can_delete=is_author or actor.is_tenant_admin)

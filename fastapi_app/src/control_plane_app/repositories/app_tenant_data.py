@@ -29,7 +29,9 @@ from modules.tenancy.db import run_per_tenant
 # テナント物理削除の対象テーブル（削除する順。子テーブルを先に並べる）。01 §13 #9 の拡張点。
 # テーマ(ToDo)のテーブルを先に、基盤の共通テーブルを後に削除する(ToDoApp.md §7 #9)。t_user は全テーブルから参照されるため最後。
 TENANT_DATA_PURGE_TABLES: tuple[str, ...] = (
-    # ToDo(main_app.models.todo)
+    # ToDo(main_app.models.todo)。コメント・チェックリスト項目は t_todo と t_user を参照するため先に消す
+    "t_todo_comment",
+    "t_todo_checklist_item",
     "t_todo_activity",
     "t_todo_assignee",
     "t_todo_organization",

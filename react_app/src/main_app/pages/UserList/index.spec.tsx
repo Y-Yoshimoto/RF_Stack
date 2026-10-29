@@ -5,15 +5,18 @@ import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Route } from 'react-router-dom';
 import { calledRequests, mockFetch, problemReply, type MockHandler } from '@/shared/testing/fetch_mock';
+import { pageOverflowOf, resetViewport, useMobileViewport } from '@/shared/testing/page_overflow';
 import { renderAppScreen } from '@/main_app/testing/render_screen';
 import { OTHER_USER_ID, SELF_USER_ID } from '@/main_app/testing/app_test_support';
 import { SAMPLE_USERS, THIRD_USER_ID, pageOf } from '@/main_app/testing/story_data';
+import { AppLayout } from '@/main_app/layouts/AppLayout';
 import { AppUserListPage } from '.';
 
 const LIST_KEY = 'GET /api/v1/users';
 
-afterEach(() => {
+afterEach(async () => {
     vi.restoreAllMocks();
+    await resetViewport();
 });
 
 /**
@@ -115,5 +118,14 @@ describe('ユーザー一覧画面', () => {
         expect(alert).toHaveAttribute('role', 'alert');
         await user.click(screen.getByTestId('user-list-error-reload'));
         expect(await screen.findByTestId('user-table')).toBeInTheDocument();
+    });
+
+    it('狭い幅 (Pixel 5 相当) でも、表は表のコンテナの中でスクロールし、ページ全体は横にはみ出さない', async () => {
+        await useMobileViewport();
+        mockFetch({ [LIST_KEY]: { status: 200, body: pageOf(SAMPLE_USERS, 'next-1') } });
+        // 本番と同じく、認証後のレイアウト (本文の余白) の中に表示する
+        renderAppScreen(<Route path="/:tenantCode/*" element={<AppLayout />}><Route path="users" element={<AppUserListPage />} /></Route>, { path: '/alpha/users' });
+        await screen.findByTestId('user-table');
+        expect(pageOverflowOf()).toMatchObject({ ok: true });
     });
 });

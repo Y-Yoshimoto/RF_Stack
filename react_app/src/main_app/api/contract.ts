@@ -10,7 +10,8 @@
 //   ToDo (`/api/v1/todos`) は例外で、どちらのロールも使え、ToDo ごとの閲覧範囲 (404) と操作の権限 (403) をサーバーが判定する。
 // - PATCH / PUT / DELETE は If-Match が必須 (無ければ 428 precondition_required、不一致は 412 user_version_conflict /
 //   organization_version_conflict、形式不正は 400 invalid_if_match)。値は GET の ETag ヘッダー、または version から ifMatchOf で作る。
-// - 一覧はカーソル方式 (limit / cursor / sort)。include_total は無い (total は常に null)。不正な sort・cursor は 422。
+// - 一覧はカーソル方式 (limit / cursor / sort)。不正な sort・cursor は 422。ユーザー・組織の一覧に include_total は無い (total は常に null)。
+//   ToDo の一覧 (`GET /api/v1/todos`) だけは include_total=true で total を返す。
 // - 日時は UTC の ISO 8601 (`Z` 付き)。
 
 //// エンドポイントのパス (Vite proxy は /api をそのまま FastAPI に転送する)
@@ -26,6 +27,14 @@ export const APP_API_PATHS = {
     todo: (todo_id: string) => `/api/v1/todos/${encodeURIComponent(todo_id)}`,
     todoAssignees: (todo_id: string) => `/api/v1/todos/${encodeURIComponent(todo_id)}/assignees`,
     todoActivities: (todo_id: string) => `/api/v1/todos/${encodeURIComponent(todo_id)}/activities`,
+    /** ホームの要約 (`?today=&due_soon_days=`)。 */
+    TODO_SUMMARY: '/api/v1/todos/summary',
+    todoComments: (todo_id: string) => `/api/v1/todos/${encodeURIComponent(todo_id)}/comments`,
+    todoComment: (todo_id: string, comment_id: string) => `/api/v1/todos/${encodeURIComponent(todo_id)}/comments/${encodeURIComponent(comment_id)}`,
+    todoChecklist: (todo_id: string) => `/api/v1/todos/${encodeURIComponent(todo_id)}/checklist`,
+    todoChecklistItems: (todo_id: string) => `/api/v1/todos/${encodeURIComponent(todo_id)}/checklist/items`,
+    todoChecklistItem: (todo_id: string, item_id: string) => `/api/v1/todos/${encodeURIComponent(todo_id)}/checklist/items/${encodeURIComponent(item_id)}`,
+    todoChecklistOrder: (todo_id: string) => `/api/v1/todos/${encodeURIComponent(todo_id)}/checklist/order`,
 } as const;
 
 //// AP 固有のエラーコード (main_app/problems.py)。共通のコードは FetchComponents/problem.ts の PROBLEM_CODE
@@ -52,10 +61,15 @@ export const APP_PROBLEM_CODE = {
     IDENTITY_PROVIDER_OPERATION_FAILED: 'identity_provider_operation_failed',
     // ToDo: 404 (他テナント・存在しない・削除済み・閲覧範囲外を区別しない)
     TODO_NOT_FOUND: 'todo_not_found',
-    // ToDo: 403 (拡張メンバー operation: TodoOperation。権限の無い項目が実際に変わる更新)
+    // ToDo: 404 (コメント・チェックリスト項目。ToDo を閲覧できないときは todo_not_found)
+    TODO_COMMENT_NOT_FOUND: 'todo_comment_not_found',
+    TODO_CHECKLIST_ITEM_NOT_FOUND: 'todo_checklist_item_not_found',
+    // ToDo: 403 (拡張メンバー operation: TodoOperation。権限の無い項目が実際に変わる更新・他人のコメントの編集など)
     TODO_OPERATION_FORBIDDEN: 'todo_operation_forbidden',
-    // ToDo: 412
+    // ToDo: 412 (todo_checklist_version_conflict は拡張メンバー target: TodoChecklistConflictTarget)
     TODO_VERSION_CONFLICT: 'todo_version_conflict',
+    TODO_COMMENT_VERSION_CONFLICT: 'todo_comment_version_conflict',
+    TODO_CHECKLIST_VERSION_CONFLICT: 'todo_checklist_version_conflict',
     // ToDo: 422 (invalid_todo_assignees は拡張メンバー user_ids・errors[].code は not_found / inactive、
     // invalid_todo_organizations は拡張メンバー organization_ids)
     INVALID_TODO_INPUT: 'invalid_todo_input',
