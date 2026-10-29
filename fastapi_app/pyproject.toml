@@ -22,6 +22,8 @@ dependencies = [
     "psycopg2-binary",
     "alembic",
     "pyjwt[crypto]>=2.10.1",
+    # 定期実行(scheduler/。4.x は API が異なるため 3 系に固定)
+    "apscheduler>=3.11,<4",
 ]
 [dependency-groups]
 dev = [

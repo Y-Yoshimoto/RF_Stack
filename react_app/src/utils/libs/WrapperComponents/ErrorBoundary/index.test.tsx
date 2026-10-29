@@ -2,12 +2,12 @@
  * エラー境界コンポーネント
  * ユニットテスト用
  */
-import { vi, expect, describe, it, beforeEach, beforeAll, afterAll } from 'vitest';
+import { vi, expect, describe, it } from 'vitest';
 import '@testing-library/jest-dom';
-import { screen, render, fireEvent, act, waitFor } from '@testing-library/react';
+import { render, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event'
 // テスト対象
-import { WErrorBoundary, WErrorBoundaryRouter, onResetDefault } from "./"
+import { WErrorBoundary, onResetDefault } from "./"
 
 // テスト用に意図的にエラーを発生させるコンポーネント
 const TestErrorPage = () => {

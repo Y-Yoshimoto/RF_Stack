@@ -6,10 +6,11 @@ process.env.TZ = "Asia/Tokyo";
 // テストの実行環境の言語を指定
 process.env.LANG = "ja_JP.UTF-8";
 import * as path from "path";
-import { fileURLToPath } from 'node:url';
-import { storybookTest } from '@storybook/addon-vitest/vitest-plugin';
 import { playwright } from '@vitest/browser-playwright';
-const dirname = typeof __dirname !== 'undefined' ? __dirname : path.dirname(fileURLToPath(import.meta.url));
+// Storybook のテスト (下の projects) を有効にする場合は、以下の import と dirname も戻すこと。
+// import { fileURLToPath } from 'node:url';
+// import { storybookTest } from '@storybook/addon-vitest/vitest-plugin';
+// const dirname = typeof __dirname !== 'undefined' ? __dirname : path.dirname(fileURLToPath(import.meta.url));
 
 // More info at: https://storybook.js.org/docs/next/writing-tests/integrations/vitest-addon
 export default defineConfig({

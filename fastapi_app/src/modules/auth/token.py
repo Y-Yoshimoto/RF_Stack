@@ -149,6 +149,70 @@ def verify_id_token(
     return claims
 
 
+def verify_access_token(access_token: str, jwks_uri: str, authorized_party: str, allowed_issuers: list[str]) -> dict[str, Any]:
+    """access token の署名とクレームを検証し、payload を返す。
+
+    ロール (``realm_access.roles``) は Keycloak の既定では access token にだけ載るため、
+    ログイン完了時にこれを検証してから読み取る。
+
+    検証内容:
+        - JWKS から取得した公開鍵による **署名検証** (RS256)
+        - ``exp`` / ``iat`` の有効期限
+        - ``iss`` が許容 issuer のいずれかと一致すること
+        - ``azp`` (authorized party) がクライアント ID と一致すること
+
+    Note:
+        ``aud`` は検証しない。Keycloak の access token の ``aud`` は Audience マッパーの有無で
+        変わる (未設定のレルムでは ``account`` 等になる) ため、発行先クライアントの確認は
+        ``azp`` で行う (01 §7.4「audience / authorized party」)。
+
+    Args:
+        access_token: トークンエンドポイントから受け取った access token。
+        jwks_uri: 署名鍵を取得する JWKS エンドポイント URL。
+        authorized_party: 期待する ``azp`` (OIDC クライアント ID)。
+        allowed_issuers: 許容する ``iss`` クレームのリスト。
+
+    Returns:
+        dict: 検証済みの access token payload。
+
+    Raises:
+        jwt.PyJWTError: 署名不正、期限切れなど JWT の検証に失敗した場合。
+        ValueError: ``iss`` または ``azp`` が期待値と一致しない場合。
+    """
+    signing_key = _jwks_client(jwks_uri).get_signing_key_from_jwt(access_token)
+    claims = jwt.decode(
+        access_token,
+        signing_key.key,
+        algorithms=ALLOWED_ALGORITHMS,
+        options={
+            "verify_aud": False,
+            "verify_iss": False,
+            "require": ["exp", "iat", "iss"],
+        },
+    )
+
+    issuer = claims.get("iss")
+    if issuer not in allowed_issuers:
+        raise ValueError(f"Unexpected issuer: {issuer}")
+    if claims.get("azp") != authorized_party:
+        raise ValueError("Unexpected authorized party")
+    return claims
+
+
+def extract_realm_roles(claims: dict[str, Any]) -> list[str]:
+    """access token の ``realm_access.roles`` を取り出す。
+
+    Args:
+        claims: access token の payload。
+
+    Returns:
+        list[str]: レルムロール。無い場合は空リスト。
+    """
+    realm_access = claims.get("realm_access")
+    roles = realm_access.get("roles") if isinstance(realm_access, dict) else None
+    return [role for role in roles if isinstance(role, str)] if isinstance(roles, list) else []
+
+
 def build_token_record(token_data: dict[str, Any]) -> dict[str, Any]:
     """KeyCloak のトークンレスポンスをセッション保存用に正規化する。
 

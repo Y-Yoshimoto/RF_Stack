@@ -117,13 +117,13 @@ http://localhost:5173/dev-login
 
 | クエリ | 内容 |
 | --- | --- |
-| `as` | 使用するプロファイル名。既定は `default`(tenant-a / user001) |
-| `next` | ログイン後の遷移先パス。既定は `/button`。例: `/dev-login?next=/fetch` |
+| `as` | 使用するプロファイル名。既定は `alpha-admin`。`cp-admin` / `cp-viewer` / `alpha-admin` / `alpha-member` / `beta-member`（02 §7.2） |
+| `next` | ログイン後の遷移先パス(同一オリジンのパスのみ)。既定は AP のプロファイルが `/{tenant_code}/`(例: `alpha-admin` は `/alpha/`)、CP のプロファイルが `/cp/`。例: `/dev-login?as=cp-viewer&next=/cp/tenants` |
 
 FastAPI に直接アクセスして Cookie だけ得ることもできる。
 
 ```bash
-curl -i "http://localhost:8000/api/auth/dev-login?as=default"
+curl -i "http://localhost:8000/api/auth/dev-login?as=alpha-admin"
 ```
 
 前提:
@@ -132,14 +132,55 @@ curl -i "http://localhost:8000/api/auth/dev-login?as=default"
 - `APP_ENV=development` かつ `AUTH_DEV_LOGIN_ENABLED=true` であること
   （どちらかを満たさない場合、エンドポイントは登録されず **404** になる）
 - KeyCloak の Realm / クライアント / ユーザーが作成済みであること
-  （未作成なら `keycloak_c/setup_realm_client_user.sh` を実行する。詳細は `keycloak_c/KEYCLOAK_SETUP.md`）
+  （未作成ならシードを実行する。シードは開発用テナント `alpha` / `beta` と `control-plane` を払い出しと同じ関数で作る。`tenant-provisioning` スキル参照）
 
-プロファイルは `fastapi_app/src/main_app/route/auth/dev_login.py` の `DEV_LOGIN_PROFILES` に定義する。
-権限の異なるユーザーを追加する場合はここにプロファイルを足す。
+プロファイルと開発用の認証情報は `fastapi_app/src/modules/auth/dev_profiles.py` に 1 箇所で定義し、シードと共有する（`DEV_PROFILES` / `DEV_TENANTS` / `DEV_TENANT_USERS`、要素は `DevUser`）。開発用パスワードは `APP_ENV=development` 以外では読めない。
+AP のプロファイルは Cookie `rf_sid_app`、CP のプロファイルは `rf_sid_cp` のセッションを作る（状態確認は `/api/auth/app/status` / `/api/auth/cp/status`）。
+権限の異なるユーザーを追加する場合は `dev_profiles.py` にユーザーを足し、シードを再実行する。
 
 > **この機能は開発専用。** 認証済みセッションを無条件に発行するため、`APP_ENV` が
 > `development` 以外のときは有効化できず、有効化を要求すると起動時にエラーになる。
 > フロントエンドの `/dev-login` も `npm run build:production` ではバンドルから除去される。
+
+### Keycloak のログイン画面を実際に通る E2E
+
+上記のバイパス（`auth.setup.ts` が使う dev-login）を使わず、Keycloak のログインフォーム（`keycloak_c` の実画面）を通る E2E は別プロジェクト（`Keycloak Desktop` / `Keycloak Mobile`）に分けている。テストは `react_app/playwright-test/keycloak/` にある。
+
+```bash
+make d-run SERVICE=react_app CMD="npm run playwright:keycloak"                                   # 両プロジェクト
+make d-run SERVICE=react_app CMD="npm run playwright:keycloak -- --project='Keycloak Desktop'"   # 片方だけ
+make d-run SERVICE=react_app CMD="npm run playwright:keycloak -- app_login"                      # ファイル指定 (app_login / cp_login)
+```
+
+- `npm run playwright` には含まれない（`E2E_KEYCLOAK=1` のときだけ project を切り替える。このとき既存の `setup` / `Chrome *` と `npm run preview` は使わない）。
+- ブラウザは preview（4173）ではなく **Vite の dev サーバー（5173）** を使う。BFF のコールバック先とログイン後の遷移先が `APP_CALLBACK_URL` / `FRONTEND_URL`（5173）だからである。起動済みならそれを使い、無ければ Playwright が `npm run dev` を起動する。
+- 前提: `fastapi_app` / `keycloak_c` / `redis_c` / `postgres_c` が起動し、シード（§5 の前提）が投入済みであること。Keycloak のユーザーは参照のみで、テストは作成・変更しない。
+- `react_app` コンテナ内の `localhost:8080`（BFF が返す `KEYCLOAK_EXTERNAL_URL`）は、サイドカー `keycloak_forward`（socat）が `keycloak_c:8080` へ転送するため、Chromium の名前解決は書き換えない（`--host-resolver-rules` の既定は空）。サイドカーが無い環境でだけ `E2E_KEYCLOAK_HOST_RULES='MAP localhost:8080 keycloak_c:8080'` を指定する。`E2E_KEYCLOAK_BASEURL` で対象 URL を変更できる。
+- Keycloak プロジェクトのワーカーは 1 に固定している（`setup` が無く、複数ワーカーが同時に `test-results` を作ると bind mount 上で `ENOTDIR` になることがあるため）。
+- 開発用パスワードは `fastapi_app/src/modules/auth/dev_profiles.py` の `_DEV_PASSWORD` を `playwright-test/keycloak/dev_credentials.ts` が読む（リポジトリ全体が `/work` にマウントされているため）。読めない環境では環境変数 `E2E_DEV_PASSWORD` を指定する。ユーザー名もこのファイルの 1 箇所に置く。
+- Keycloak の画面のロケーターは `playwright-test/keycloak/pages/keycloak_login_page.ts` だけにあり、Keycloak 更新で壊れた場合はここを直す。
+- 誤ったパスワードのテストは専用ユーザー（`alpha-member2`）を使う。Keycloak のブルートフォース検知（`bruteForceProtected`）のカウントが他のテストのユーザーへ波及しないようにするため。連続して実行しすぎると一時ロックされうるが、ロック中も「エラーが表示される」ことは変わらない。
+
+### 新しい画面の E2E（`playwright-test/screens/`）
+
+CP のテナント管理、AP のユーザー・組織・ToDo の画面を、開発用ログイン（`alpha-admin` / `alpha-member` / `beta-member` / `cp-admin` / `cp-viewer`）で通す E2E。`npm run playwright` に含まれ、`Screens Desktop` / `Screens Mobile` プロジェクトで実行される。
+
+```bash
+make d-run SERVICE=react_app CMD="npm run playwright"                                  # 既存 + 画面の E2E（setup が全プロファイルの認証状態を作る）
+make d-run SERVICE=react_app CMD="npm run playwright -- screens"                       # 画面の E2E だけ
+make d-run SERVICE=react_app CMD="npm run playwright -- screens/app_todos"             # ファイル指定（cp_tenants / app_organizations / app_users / app_todos）
+```
+
+- 対象は Vite の **dev サーバー（5173）**（`playwright.config.ts` が起動済みならそれを使い、無ければ起動する）。変更系の API は `Origin` が `FRONTEND_URL`（5173）か `CSRF_TRUSTED_ORIGINS` のものでないと 403 になるため、`vite preview`（4173）では動かない。preview で動かす場合は FastAPI の `CSRF_TRUSTED_ORIGINS` に `http://localhost:4173` を足し、`E2E_SCREEN_BASEURL` で指定する。
+- 複数の利用者が登場するシナリオは、`playwright-test/fixtures.ts` の `openAs(profile)` で利用者ごとのブラウザコンテキストを開く。前提データの用意と失敗時の後片付けは `playwright-test/helpers/api.ts`（API。`Origin` と `X-Requested-With` を付ける）。
+- **テストはデータを作り、実行後に自動で削除される（ティアダウン）。** 組織・ToDo は画面で削除し、CP のテナントは「削除を要求」まで、ユーザーは「無効にする」までを画面で検証する。これらの使い捨てデータ（CP のテナント `e2e-<8 文字>`、alpha のユーザー `e2e-<8 文字>@example.com`、ToDo `E2E ToDo <8 文字>`、組織 `E2E Org <8 文字>`）は、`setup` プロジェクトの `teardown` に指定した `cleanup` プロジェクト（`playwright-test/cleanup.teardown.ts`）が、全プロジェクトの完了後に 1 回だけ開発専用 API `POST /api/dev/e2e-cleanup`（FastAPI `dev_tools/e2e_cleanup.py`。命名は完全一致で判定し、シードのデータは常に除外）を呼んで物理削除する。テストが途中で失敗して残ったデータも同じ実行で消える。
+  - 認証は `cp-admin`（`.auth/cp-admin.json`）、Origin / `X-Requested-With` を付けて dev サーバー経由で呼ぶ。同期処理でテナント数に比例して時間がかかる（タイムアウト 4 分）。409（別の後片付けが実行中）は 5 秒待って 1 回だけ再試行する。
+  - **後片付けの失敗ではテストを赤にしない。** 失敗（HTTP エラー・通信失敗・`ok=false`）は `[teardown] 警告:` を出して終わる。結果は `[teardown] 後片付け: テナント削除 N / ... ok=true` の 1 行で出力される。開発専用機能が無効だと 404 になり、警告だけが出てデータは残る。
+  - 残骸の確認（件数のみ）: `docker compose exec -T fastapi_app uv run python -m dev_tools.e2e_cleanup --dry-run`。消す場合は `--dry-run` を外す（次回の E2E 実行でも消える）。
+  - ティアダウンは `npm run playwright`（`setup` に依存するプロジェクトを実行したとき）だけ。`npm run playwright:keycloak` は `setup` に依存せずデータを作らない（Keycloak のユーザーは参照のみ）ため呼ばない。
+  - サンプル画面・サンプル API に依存する E2E（`sample_ButtonPueh` / `sample_FetchPage` / `sample_PageTitle`）は、サンプルをアプリから外したため `playwright.config.ts` の `SAMPLE_TESTS`（`testIgnore`）で実行対象外にしている。
+- **後片付け（手動）:** テストが残した `e2e-*` のテナント・ユーザー・組織・ToDo は `make d-run SERVICE=fastapi_app CMD="uv run python -m dev_tools.e2e_cleanup --dry-run"`（`--dry-run` を外すと削除）で消せる。同じ処理を `POST /api/dev/e2e-cleanup?dry_run=`（CP の `saas_admin` + CSRF ヘッダー。開発用ログイン有効時のみ）でも呼べる。
+- 前提: §5 の前提に加え、`keycloak_c` が Keycloak の管理 API を呼べること（テナント・ユーザーの作成が実際にレルム・ユーザーを作る）。
 
 ## 6. 結果の報告
 

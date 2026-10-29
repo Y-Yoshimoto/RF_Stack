@@ -1,8 +1,9 @@
 import { test, expect } from '@playwright/test';
+import { samplePath } from './constants';
 
 test.describe('ButtonPueh', () => {
     test('ボタンのテキストを確認する', async ({ page }: { page }) => {
-        await page.goto('/button');
+        await page.goto(samplePath('button'));
         // 全てのボタンのテキストを取得
         const [primaryButtonText, secondaryButtonText, clearButtonText] = await Promise.all([
             page.textContent('[data-testid="button-primary"]'),
@@ -15,7 +16,7 @@ test.describe('ButtonPueh', () => {
     });
 
     test('ボタンをクリックしてテキストを変更する', async ({ page }: { page }) => {
-        await page.goto('/button');
+        await page.goto(samplePath('button'));
         // data-testid="button-primary"のボタンをクリックする
         await page.getByTestId('button-primary').click();
 
@@ -27,7 +28,7 @@ test.describe('ButtonPueh', () => {
 
 
     test('プロミス内でテスト実施する', async ({ page }: { page }) => {
-        return page.goto('/button').then(() => {
+        return page.goto(samplePath('button')).then(() => {
             const actionCallback = () => clickButton(page, '[data-testid="button-secondary"]');
             const expextCallback = () => expectCheckText(page, '[data-testid="text-label"]', 'secondary');
             return testSet(actionCallback, expextCallback);

@@ -27,12 +27,18 @@ def test_validate_realm_name_strips_whitespace():
 
 @pytest.mark.parametrize(
     "realm_name",
-    ["", "   ", "../../evil", "a/b", "tenant a", "tenant.a", "x" * 65],
+    ["", "   ", "../../evil", "a/b", "tenant a", "tenant.a", "x" * 65, "tenant-a\nx"],
 )
 def test_validate_realm_name_rejects_invalid_names(realm_name):
     """パス区切りや相対パス指定を含む Realm 名は拒否されること。"""
     with pytest.raises(ValueError):
         environment.validate_realm_name(realm_name)
+
+
+def test_realm_name_pattern_rejects_trailing_newline():
+    """パターン単体でも末尾の改行を許さないこと (``$`` は末尾の改行 1 つに一致するため fullmatch で判定する)。"""
+    assert environment.REALM_NAME_PATTERN.fullmatch("tenant-a") is not None
+    assert environment.REALM_NAME_PATTERN.fullmatch("tenant-a\n") is None
 
 
 # ---------------------------------------------------------------------- PKCE
@@ -210,7 +216,7 @@ def test_verify_id_token_accepts_external_issuer(rsa_key_pair, patch_jwks):
 def test_validate_secrets_raises_in_production_with_defaults(monkeypatch):
     """本番環境で既定の秘密鍵のままなら起動を止めること。"""
     monkeypatch.setenv("APP_ENV", "production")
-    monkeypatch.setenv("KEYCLOAK_CLIENT_SECRET", "change-me")
+    monkeypatch.setenv("KC_CLIENT_SECRET_SEED", "change-me-client-secret-seed")
     monkeypatch.setenv("SESSION_SECRET_KEY", "change-me-session-secret")
 
     with pytest.raises(RuntimeError, match="既定値"):
@@ -220,7 +226,7 @@ def test_validate_secrets_raises_in_production_with_defaults(monkeypatch):
 def test_validate_secrets_passes_in_production_with_real_secrets(monkeypatch):
     """本番環境でも秘密鍵が設定済みなら通過すること。"""
     monkeypatch.setenv("APP_ENV", "production")
-    monkeypatch.setenv("KEYCLOAK_CLIENT_SECRET", "real-client-secret")
+    monkeypatch.setenv("KC_CLIENT_SECRET_SEED", "real-client-secret-seed")
     monkeypatch.setenv("SESSION_SECRET_KEY", "real-session-secret")
 
     environment.KeyCloakEnvironmentVariables().validate_secrets()
@@ -229,10 +235,20 @@ def test_validate_secrets_passes_in_production_with_real_secrets(monkeypatch):
 def test_validate_secrets_only_warns_in_development(monkeypatch):
     """開発環境では既定値のままでも起動を妨げないこと。"""
     monkeypatch.setenv("APP_ENV", "development")
-    monkeypatch.setenv("KEYCLOAK_CLIENT_SECRET", "change-me")
+    monkeypatch.delenv("KC_CLIENT_SECRET_SEED", raising=False)
     monkeypatch.setenv("SESSION_SECRET_KEY", "change-me-session-secret")
 
     environment.KeyCloakEnvironmentVariables().validate_secrets()
+
+
+def test_validate_secrets_raises_in_production_without_seed(monkeypatch):
+    """本番環境でシークレット導出用のシードが未設定なら起動を止めること。"""
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.delenv("KC_CLIENT_SECRET_SEED", raising=False)
+    monkeypatch.setenv("SESSION_SECRET_KEY", "real-session-secret")
+
+    with pytest.raises(RuntimeError, match="KC_CLIENT_SECRET_SEED"):
+        environment.KeyCloakEnvironmentVariables().validate_secrets()
 
 
 # ------------------------------------------------ トークンのライフサイクル

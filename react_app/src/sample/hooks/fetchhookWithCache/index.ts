@@ -1,7 +1,8 @@
 /** 
  * @description:
  * CacheとFetch APIを使用してデータを取得するカスタムフック
-*/import { useState, useEffect, useMemo } from 'react';
+*/
+import { useState, useEffect, useMemo } from 'react';
 
 // キャッシュ名定義
 const CACHE_NAME = 'cache-hook';
@@ -31,11 +32,17 @@ const useRequestObjectMemo = <T>({ url, method = 'GET', body, headers }: Resourc
     }, [url, method, body, headers]);
 };
 
+// Fetchの結果 (どのリクエストの結果かを保持する)
+type FetchState<T> = {
+    response: T | null;
+    error: Error | null;
+    // 結果が確定したリクエストキー (未確定なら null)。現在のキーと異なる間は読み込み中とみなす。
+    settled_key: string | null;
+};
+
 const useFetch = <T>({ url = './api/sample', method = 'GET', body, headers, takeData = (p) => p.json(), cachelife = 3000 }: ResourceObj<T>) => {
     // Fetch状態ステート
-    const [response, setResponse] = useState<T | null>(null);
-    const [loading, setLoading] = useState<boolean>(false);
-    const [error, setError] = useState<Error | null>(null);
+    const [state, setState] = useState<FetchState<T>>({ response: null, error: null, settled_key: null });
     // リクエストオブジェクトメモを生成
     const { request, request_key } = useRequestObjectMemo({ url, method, body, headers });
 
@@ -43,14 +50,12 @@ const useFetch = <T>({ url = './api/sample', method = 'GET', body, headers, take
     useEffect(() => {
         // クリーンアップ時用のAbortControllerを生成
         const controller = new AbortController();
-        setLoading(true);
         const propmise = promiseWrap({ request, takeData });
         propmise.then((stream) => {
-            setResponse(stream);
-            setError(null);
+            setState({ response: stream, error: null, settled_key: request_key });
         })
-            .catch((err) => setError(err))
-            .finally(() => setLoading(false));
+            // エラー時は直前のレスポンスを保持したままエラーを設定する
+            .catch((err) => setState((prev) => ({ ...prev, error: err, settled_key: request_key })));
         return () => {
             controller.abort();
         }
@@ -58,12 +63,17 @@ const useFetch = <T>({ url = './api/sample', method = 'GET', body, headers, take
 
     // キャッシュの寿命を設定(unmount時も実行される)
     useEffect(() => {
-        const _ = setTimeout(() => {
+        // タイマーはクリアしない (アンマウント後も指定時間後にキャッシュを削除する)
+        setTimeout(() => {
             caches.open(CACHE_NAME).then((cache) => cache.delete(request))
         }, cachelife); // 指定された時間後にキャッシュを削除
         return () => { };
     }, [request_key]); // URL, bodyが変わったら再実行
-    return { response, loading, error };
+
+    // 読み込み中は「現在のリクエストの結果がまだ確定していない」ことから導出する
+    // (effect 内で同期的に setLoading(true) すると連鎖的な再レンダリングになるため。react-hooks/set-state-in-effect)
+    const loading = state.settled_key !== request_key;
+    return { response: state.response, loading, error: state.error };
 };
 
 // キャッシュを経由してfetchを実行する関数の型定義

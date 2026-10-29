@@ -10,9 +10,11 @@ import Button from '@mui/material/Button';
 // Fetchコンポーネント
 import FetchComponent from '@/utils/libs/FetchComponents/component';
 
+// 成功時のレスポンス(static.json)の型
+type SampleResponse = { id: number; type: string; name: string };
+
 // 成功時のコンポーネント
-// eslint-disable-next-line
-const SuccessComponent = ({ response }: { response: any }) => {
+const SuccessComponent = ({ response }: { response: SampleResponse }) => {
   console.log('SuccessComponent', response);
   return (
     <>
@@ -20,20 +22,6 @@ const SuccessComponent = ({ response }: { response: any }) => {
         <li>Id: {response.id}</li>
         <li>Type: {response.type}</li>
         <li>Name: {response.name}</li>
-      </ul>
-    </>
-  );
-};
-
-// API用 成功時のコンポーネントサンプル
-const SuccessComponentApi = ({ response }: { response: any }) => {
-  // サンプルレスポンス: {"id":123,"name":"sample","date":"2024-02-27"}
-  return (
-    <>
-      <ul data-testid='response-info'>
-        <li>Id: {response.id}</li>
-        <li>Name: {response.name}</li>
-        <li>Date: {response.date}</li>
       </ul>
     </>
   );

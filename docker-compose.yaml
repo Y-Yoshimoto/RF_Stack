@@ -27,6 +27,19 @@ services:
     volumes:
       - ./:/work/
       # - /tmp/.X11-unix:/tmp/.X11-unix
+  # react_app コンテナ内の localhost:8080 を keycloak_c:8080 に転送する
+  # BFF は KEYCLOAK_EXTERNAL_URL(http://localhost:8080)をブラウザ向けに返すため、react_app コンテナ内の Chromium
+  # (Playwright の Keycloak 経由 E2E)からは localhost:8080 に届く必要がある。react_app のネットワーク名前空間を共有し、
+  # そこの 8080 で待ち受けて keycloak_c に中継する(IPv4/IPv6 の両方。localhost が ::1 に解決される場合に備える)。
+  # ポートは公開しない(ホストの 8080 は keycloak_c が公開している)。react_app を作り直した場合は、このサービスも作り直すこと
+  # (docker compose up -d が自動で行う。react_app だけ docker restart した場合は docker compose restart keycloak_forward)
+  keycloak_forward:
+    image: alpine/socat:1.8.1.3
+    network_mode: "service:react_app"
+    command: ["TCP6-LISTEN:8080,ipv6-v6only=0,fork,reuseaddr", "TCP:keycloak_c:8080"]
+    depends_on:
+      - react_app
+      - keycloak_c
   # FastAPI アプリケーション
   fastapi_app:
     image: fastapi_app
@@ -39,9 +52,14 @@ services:
         GROUP_ID: ${GROUP_ID:-1000}
     # restart: always
     # PYTHONPATH=/work/fastapi_app/src/ が通っているため、モジュール指定は app:app となる
-    command: "uvicorn app:app --host 0.0.0.0 --port 8000"
+    # --log-config: アクセスログから認可コードを含むクエリ(/api/auth/callback?code=...&state=...)を除く(src/access_log_filter.py)
+    command: "uvicorn app:app --host 0.0.0.0 --port 8000 --log-config /work/fastapi_app/src/uvicorn_log_config.json"
     volumes:
       - ./:/work/
+      # Python仮想環境とuvキャッシュは名前付きボリュームに置き、コンテナを作り直しても依存を再インストールしない。
+      # 空のボリュームは初回にイメージの内容(所有者はvscode)で初期化される。入れ直す場合は dev-environment スキルを参照
+      - fastapi_uv_venv:/usr/local/uv
+      - fastapi_uv_cache:/usr/local/uv-cache
     ports:
       - "8000:8000"
     user: vscode
@@ -57,17 +75,34 @@ services:
       - DB_HOST=postgres_c
       - DB_PORT=5432
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
-      # アプリケーション用データベース
-      - APP_DB_USER=${APP_DB_USER}
-      - APP_DB_PASSWORD=${APP_DB_PASSWORD}
-      # コントロールプレーン用データベース
-      - CONTROL_PLANE_DB_NAME=${CONTROL_PLANE_DB_NAME}
+      # DBロール接続情報。
+      # 開発コンテナではマイグレーションも実行するため owner ロールも渡している。
+      # 本番では実行時ロール(*_RUNTIME_* / *_REGISTRY_READER_* / *_CP_AGENT_*)のみを渡し、owner は渡さないこと。
+      # コントロールプレーン用ロール
+      - CP_DB_OWNER_USER=${CP_DB_OWNER_USER:-cp_owner}
+      - CP_DB_OWNER_PASSWORD=${CP_DB_OWNER_PASSWORD:-cp_owner_password}
+      - CP_DB_RUNTIME_USER=${CP_DB_RUNTIME_USER:-cp_runtime}
+      - CP_DB_RUNTIME_PASSWORD=${CP_DB_RUNTIME_PASSWORD:-cp_runtime_password}
+      - CP_DB_REGISTRY_READER_USER=${CP_DB_REGISTRY_READER_USER:-cp_registry_reader}
+      - CP_DB_REGISTRY_READER_PASSWORD=${CP_DB_REGISTRY_READER_PASSWORD:-cp_registry_reader_password}
+      # アプリケーションプレーン用ロール
+      - APP_DB_OWNER_USER=${APP_DB_OWNER_USER:-app_owner}
+      - APP_DB_OWNER_PASSWORD=${APP_DB_OWNER_PASSWORD:-app_owner_password}
+      - APP_DB_RUNTIME_USER=${APP_DB_RUNTIME_USER:-app_runtime}
+      - APP_DB_RUNTIME_PASSWORD=${APP_DB_RUNTIME_PASSWORD:-app_runtime_password}
+      - APP_DB_CP_AGENT_USER=${APP_DB_CP_AGENT_USER:-app_cp_agent}
+      - APP_DB_CP_AGENT_PASSWORD=${APP_DB_CP_AGENT_PASSWORD:-app_cp_agent_password}
+      # データベース名
+      - APP_DB_NAME=${APP_DB_NAME:-app_db}
+      - CONTROL_PLANE_DB_NAME=${CONTROL_PLANE_DB_NAME:-control_plane_db}
       # KeyCloak認証設定
       - KEYCLOAK_URL=${KEYCLOAK_URL:-http://keycloak_c:8080}
       - KEYCLOAK_EXTERNAL_URL=${KEYCLOAK_EXTERNAL_URL:-http://localhost:8080}
       - KEYCLOAK_HTTP_RELATIVE_PATH=${KEYCLOAK_HTTP_RELATIVE_PATH:-keycloak}
       - KEYCLOAK_CLIENT_ID=${KEYCLOAK_CLIENT_ID:-fastapi-app}
-      - KEYCLOAK_CLIENT_SECRET=${KEYCLOAK_CLIENT_SECRET:-change-me}
+      - KEYCLOAK_CP_CLIENT_ID=${KEYCLOAK_CP_CLIENT_ID:-fastapi-cp}
+      # クライアントシークレット導出用のシード (開発用の既定値は APP_ENV=development 以外で起動エラー)
+      - KC_CLIENT_SECRET_SEED=${KC_CLIENT_SECRET_SEED:-change-me-client-secret-seed}
       - APP_CALLBACK_URL=${APP_CALLBACK_URL:-http://localhost:5173/api/auth/callback}
       - FRONTEND_URL=${FRONTEND_URL:-http://localhost:5173}
       # セッション管理
@@ -76,9 +111,19 @@ services:
       - AUTH_DEV_LOGIN_ENABLED=${AUTH_DEV_LOGIN_ENABLED:-true}
       # 空の場合 CORS は無効(Vite proxy 経由の同一オリジン運用では不要)
       - CORS_ALLOW_ORIGINS=${CORS_ALLOW_ORIGINS:-}
+      # CSRF 対策で FRONTEND_URL 以外に許可する Origin (カンマ区切り。空なら FRONTEND_URL のみ)
+      - CSRF_TRUSTED_ORIGINS=${CSRF_TRUSTED_ORIGINS:-}
       - REDIS_URL=${REDIS_URL:-redis://redis_c:6379/0}
       - SESSION_SECRET_KEY=${SESSION_SECRET_KEY:-change-me-session-secret}
       - SESSION_TTL_SECONDS=${SESSION_TTL_SECONDS:-3600}
+      # Keycloak セットアップ CLI が Admin API を呼ぶための管理者資格情報。開発専用(本番では渡さない)
+      - KEYCLOAK_ADMIN_USERNAME=${KC_BOOTSTRAP_ADMIN_USERNAME:-admin}
+      - KEYCLOAK_ADMIN_PASSWORD=${KC_BOOTSTRAP_ADMIN_PASSWORD:-admin}
+      # テナント払い出し用のサービスアカウント(master の cp-provisioner)。APP_ENV=development 以外で使用し、シークレットは必須
+      - KEYCLOAK_PROVISIONER_CLIENT_ID=${KEYCLOAK_PROVISIONER_CLIENT_ID:-cp-provisioner}
+      - KEYCLOAK_PROVISIONER_CLIENT_SECRET=${KEYCLOAK_PROVISIONER_CLIENT_SECRET:-}
+      # 定期ジョブのスケジューラ。空なら APP_ENV=development では無効、それ以外では有効
+      - SCHEDULER_ENABLED=${SCHEDULER_ENABLED:-}
     depends_on:
       - postgres_c
       - keycloak_c
@@ -95,13 +140,24 @@ services:
     environment:
       #POSTGRES_USER:
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
-      # アプリケーション/コントロールプレーンユーザー
-      - APP_DB_USER=${APP_DB_USER}
-      - APP_DB_PASSWORD=${APP_DB_PASSWORD}
-      # アプリケーション用データベース
-      - APP_DB_NAME=${APP_DB_NAME}
-      # コントロールプレーン用データベース
-      - CONTROL_PLANE_DB_NAME=${CONTROL_PLANE_DB_NAME}
+      # initdb で作成する DBロールと DB 名
+      # コントロールプレーン用ロール
+      - CP_DB_OWNER_USER=${CP_DB_OWNER_USER:-cp_owner}
+      - CP_DB_OWNER_PASSWORD=${CP_DB_OWNER_PASSWORD:-cp_owner_password}
+      - CP_DB_RUNTIME_USER=${CP_DB_RUNTIME_USER:-cp_runtime}
+      - CP_DB_RUNTIME_PASSWORD=${CP_DB_RUNTIME_PASSWORD:-cp_runtime_password}
+      - CP_DB_REGISTRY_READER_USER=${CP_DB_REGISTRY_READER_USER:-cp_registry_reader}
+      - CP_DB_REGISTRY_READER_PASSWORD=${CP_DB_REGISTRY_READER_PASSWORD:-cp_registry_reader_password}
+      # アプリケーションプレーン用ロール
+      - APP_DB_OWNER_USER=${APP_DB_OWNER_USER:-app_owner}
+      - APP_DB_OWNER_PASSWORD=${APP_DB_OWNER_PASSWORD:-app_owner_password}
+      - APP_DB_RUNTIME_USER=${APP_DB_RUNTIME_USER:-app_runtime}
+      - APP_DB_RUNTIME_PASSWORD=${APP_DB_RUNTIME_PASSWORD:-app_runtime_password}
+      - APP_DB_CP_AGENT_USER=${APP_DB_CP_AGENT_USER:-app_cp_agent}
+      - APP_DB_CP_AGENT_PASSWORD=${APP_DB_CP_AGENT_PASSWORD:-app_cp_agent_password}
+      # データベース名
+      - APP_DB_NAME=${APP_DB_NAME:-app_db}
+      - CONTROL_PLANE_DB_NAME=${CONTROL_PLANE_DB_NAME:-control_plane_db}
       - LANG=en_US.UTF-8
       - LANGUAGE=en_US:en
       - LC_ALL=en_US.UTF-8
@@ -145,3 +201,9 @@ services:
     ports:
       - "6379:6379"
     command: ["redis-server", "--appendonly", "yes"]
+
+volumes:
+  # fastapi_app の Python 仮想環境(UV_PROJECT_ENVIRONMENT)
+  fastapi_uv_venv:
+  # fastapi_app の uv キャッシュ(UV_CACHE_DIR)
+  fastapi_uv_cache:

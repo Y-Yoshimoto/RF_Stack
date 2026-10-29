@@ -10,21 +10,18 @@ import WErrorBoundary from '@/utils/libs/WrapperComponents/ErrorBoundary';
 import { ThemeProvider } from '@mui/material/styles';
 import theme from './theme.tsx';
 
-// 認証認可コンテキストプロバイダー
-import { AuthNZProvider } from './store/AuthNZ/index.tsx';
-
 
 // APPコンポーネント
-// アプリケーション全体へのサスペンドとエラーバウンダリー, テーマプロバイダー、認証認可プロバイダーを提供
+// アプリケーション全体へのサスペンドとエラーバウンダリー, テーマプロバイダーを提供する。
+// 認証状態はプレーン毎に別インスタンスとし、各プレーンのルートツリーの中で提供する
+// (main_app/auth/AppAuthProvider、control_plane_app/auth/ControlPlaneAuthProvider。01 §11.2)。
 export default function App() {
 
   return (
     <Suspense fallback={<></>}>
       <WErrorBoundary>
         <ThemeProvider theme={theme}>
-          <AuthNZProvider>
-            <AppRoutes />
-          </AuthNZProvider>
+          <AppRoutes />
         </ThemeProvider>
       </WErrorBoundary>
     </Suspense>

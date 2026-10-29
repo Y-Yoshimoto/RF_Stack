@@ -10,6 +10,10 @@ from http_client.client import HttpClient
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# 書き方の参考用サンプルのため実行対象外とする。
+# 起動中のサーバーへ認証なしで HTTP を送るが、RestSample は認証必須になっており成功しない。
+pytestmark = pytest.mark.skip(reason="参考用サンプル(起動中のサーバーに認証なしで接続するため実行しない)")
+
 @pytest.fixture(scope="class")
 def re_client():
     print("セットアップを実行します。", flush=True)
@@ -59,9 +63,8 @@ def test_request(caplog, request):
     caplog.set_level(logging.INFO)
     logger.info("ユニットテストを実行します。")
 
-    # 環境変数の表示
-    for key, value in request.config.env.items():
-        print(f"{key}={value}", flush=True)
+    # 環境変数は秘密の値を含むため表示しない(件数のみ)
+    print(f"環境変数: {len(request.config.env)} 件", flush=True)
 
     test_instance = TestSampleClass(baseURL="http://127.0.0.1:8000/RestSample")
     test_instance.test_sample()

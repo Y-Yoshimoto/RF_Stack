@@ -15,6 +15,8 @@ description: Dev Container 開発環境の初期セットアップ、起動・�
 | `fastapi_app` | FastAPI | 8000 |
 | `postgres_c` | PostgreSQL | 5432 |
 | `keycloak_c` | Keycloak | 8080、8443、9000 |
+| `keycloak_forward` | `react_app` コンテナ内の `localhost:8080` を `keycloak_c:8080` へ中継する socat(`react_app` のネットワークを共有。公開ポートなし) | なし |
+| `redis_c` | Redis(セッションストア) | 6379 |
 
 `npm run storybook`(6006) と `npm run preview`(4173) はいずれもホストのブラウザから開ける。どちらも常駐プロセスなので、確認が終わったら停止すること。
 
@@ -51,7 +53,7 @@ make d-ps
 | コンテナ | 実行内容 | 進行中を示すロックファイル |
 | --- | --- | --- |
 | `react_app` | `npm install --include=dev --force` と Playwright ブラウザ(chromium / chromium-headless-shell / webkit)のインストール | `react_app/.npm_install.lock` |
-| `fastapi_app` | `uv sync --locked`（失敗時は `uv sync`）と仮想環境の有効化(`$UV_PROJECT_ENVIRONMENT` = `/usr/local/uv`。バインドマウント上の `.venv` ではなくコンテナ内固有の場所に置くことで、依存インストール時のファイルコピー競合を回避している) | `fastapi_app/.uv_install.lock` |
+| `fastapi_app` | `uv sync --locked`（失敗時は `uv sync`）と仮想環境の有効化(`$UV_PROJECT_ENVIRONMENT` = `/usr/local/uv`。バインドマウント上の `.venv` ではなくコンテナ内固有の場所に置くことで、依存インストール時のファイルコピー競合を回避している。この場所は名前付きボリュームで、作り直しても残る。後述) | `fastapi_app/.uv_install.lock` |
 
 **ロックファイルが存在する間はインストール中。消えるまで待つ。** 特に react_app はブラウザのダウンロードを伴うため初回は時間がかかる。
 
@@ -60,6 +62,36 @@ ls react_app/.npm_install.lock fastapi_app/.uv_install.lock 2>/dev/null || echo 
 ```
 
 > `README.md` には `.npm.lock` と書かれているが、実際のファイル名は `.npm_install.lock`。
+
+**react_app は `npm install` が失敗するとコンテナが非 0 で終了する**（原因候補を出し、`.npm_install.lock` は削除される）。`docker compose logs react_app` で npm の出力を確認する。Playwright ブラウザのインストール失敗は警告のみで起動は続ける（E2E だけが失敗する）。
+
+**fastapi_app は 2 回の `uv sync` がどちらも失敗するとコンテナが非 0 で終了する**（原因を示すメッセージを出し、`.uv_install.lock` は削除される）。`docker compose logs fastapi_app` で uv の出力を確認する。以前は失敗しても CMD に進み、`uvicorn` が見つからず exit 127 になっていた。
+
+### 1-4. fastapi_app の仮想環境ボリューム
+
+`fastapi_app` の Python 依存は、コンテナを作り直しても再ダウンロードしないよう、次の名前付きボリュームに置いている（`docker-compose.yaml` の `volumes`）。実体名はプロジェクト名が前置される（例: `rf_stack_fastapi_uv_venv`。`docker volume ls | grep fastapi_uv` で確認）。
+
+| ボリューム | マウント先 | 内容 |
+| --- | --- | --- |
+| `fastapi_uv_venv` | `/usr/local/uv` | uv の仮想環境（`UV_PROJECT_ENVIRONMENT`） |
+| `fastapi_uv_cache` | `/usr/local/uv-cache` | uv のキャッシュ（`UV_CACHE_DIR`） |
+
+- 空のボリュームは初回にイメージの内容と所有者（`vscode`、`USER_ID` / `GROUP_ID`）で初期化される。**初回起動だけ全パッケージをダウンロードする**（85 パッケージ・約 140MB。回線次第で数分）。2 回目以降の `uv sync` は差分なしで数秒で終わる。
+- `make d-down` / `docker compose up -d` による作り直しではボリュームは残る。**`make d-down-all` / `make d-clean`（`--volumes`）は削除する。**
+- ボリュームはイメージを再ビルドしても**再初期化されない**（空のときだけイメージの内容で初期化される）。`Dockerfile_dev` の Python バージョンを上げた、`USER_ID` / `GROUP_ID` を変えた、仮想環境が壊れた場合は、ボリュームを削除して入れ直す。
+- ダウンロード耐性のため `Dockerfile_dev` で `UV_HTTP_TIMEOUT=300` / `UV_CONCURRENT_DOWNLOADS=4` を設定している。
+
+**依存を入れ直したいとき**（`fastapi_app` だけを対象にする。DB など他のボリュームは消えない）:
+
+```bash
+make d-down                                       # コンテナを停止・削除（ボリュームは残る）。他の担当が使用中でないか確認してから
+docker volume ls | grep fastapi_uv                # 実体名を確認
+docker volume rm <プロジェクト名>_fastapi_uv_venv    # 仮想環境を削除
+docker volume rm <プロジェクト名>_fastapi_uv_cache   # キャッシュも消す場合のみ（通常は残してよい）
+make d-up                                         # 起動。entrypoint が最初から uv sync する
+```
+
+`make d-down` は全サービスを止めるため、`fastapi_app` だけを止める場合は `docker compose rm -sf fastapi_app` を使ってもよい。ボリュームを使用中のコンテナがあると `docker volume rm` は失敗する。
 
 ---
 
@@ -108,6 +140,8 @@ make d-upb
 
 `d-clean` が消すもの: コンテナ・イメージ・ボリューム・孤立コンテナ、`react_app/node_modules`、`react_app/.npm_install.lock`、および各アプリの一時ファイル（`dist` / `coverage` / `test-results` / `playwright-report` / `eslint-report.html` 等）。
 
+`fastapi_app` の依存だけを入れ直す場合は、`d-clean` ではなく「1-4. fastapi_app の仮想環境ボリューム」の手順で `fastapi_uv_venv` だけを削除する。
+
 ### レベル4: DB を初期化する
 
 ```bash
@@ -124,9 +158,12 @@ make d-reset-db   # ★★ 全データが失われる。必ず確認を取る
 | ファイルの所有権が `root` になる / 書き込めない | `.env` の `USER_ID` / `GROUP_ID` がホストと不一致。`id -u` / `id -g` の値と照合し、直したら `make d-upb` |
 | `npm install` が終わらない・コマンドが見つからない | entrypoint のインストールが進行中。`.npm_install.lock` が消えるまで待つ |
 | Vitest / Playwright がブラウザ起動に失敗する | Playwright ブラウザが未インストール。`make d-run SERVICE=react_app CMD="npx playwright install chromium"` |
+| `fastapi_app` が起動直後に終了する / `uv sync` のタイムアウト | `docker compose logs fastapi_app` で原因を確認。ネットワーク由来なら再度 `make d-up`（取得済みの分はキャッシュに残るので続きから進む）。仮想環境の破損ならボリュームを削除（1-4） |
 | FastAPI で `ModuleNotFoundError` | `PYTHONPATH=/work/fastapi_app/src/` に依存している。compose の environment を確認する |
-| DB に接続できない | `postgres_c` の起動と、`DB_HOST=postgres_c` / `DB_PORT=5432` および `APP_DB_*` 環境変数を確認 |
+| DB に接続できない | `postgres_c` の起動と、`DB_HOST=postgres_c` / `DB_PORT=5432` および `CP_DB_*` / `APP_DB_*` 環境変数を確認。`role ... does not exist` なら旧構成の initdb のままなので `make d-reset-db`（要確認） |
 | ポートが衝突する | 4173 / 5173 / 6006 / 8000 / 8080 / 8443 / 9000 / 9323 / 5432 のいずれかをホスト側で他プロセスが使用している |
+| react_app コンテナ内で `localhost:8080`(Keycloak)に接続できない | `keycloak_forward` が動いているか `make d-ps` で確認する。`react_app` だけを `docker restart` / 再作成した場合（`docker compose up -d --build react_app` を含む）は `docker compose up -d --force-recreate keycloak_forward`（引数なしの `docker compose up -d` なら自動で作り直される。`react_app` のネットワーク名前空間が変わると中継が効かなくなるため） |
+| アクセスログに `?code=...` が出る | `fastapi_app` が `--log-config`(`fastapi_app/src/uvicorn_log_config.json`)付きで起動していない。compose の `command` を確認し、`docker compose up -d fastapi_app` で作り直す |
 | Dev Container の設定変更が反映されない | VS Code の再ビルド（Rebuild Container）が必要 |
 
 ---
@@ -137,7 +174,7 @@ make d-reset-db   # ★★ 全データが失われる。必ず確認を取る
 
 | コマンド | 影響 |
 | --- | --- |
-| `make d-down-all` / `make p-down-all` | イメージ・ボリューム・孤立コンテナを削除 |
+| `make d-down-all` / `make p-down-all` | イメージ・ボリューム（`fastapi_uv_venv` / `fastapi_uv_cache` を含む）・孤立コンテナを削除 |
 | `make d-clean` / `make p-clean` | 上記に加え `node_modules` と一時ファイルを削除 |
 | `make d-reset-db` | **PostgreSQL のボリュームを削除。全データが失われる** |
 | `make k-delete` | Kubernetes のリソースを削除 |

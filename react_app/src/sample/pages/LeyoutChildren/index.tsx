@@ -1,10 +1,11 @@
 // React
-/* eslint-disable @typescript-eslint/no-unused-vars */
-import { useState, useEffect, useCallback, memo, Fragment, useMemo } from 'react';
+import { useState, useEffect, Fragment, useMemo } from 'react';
 // MUI Components
-import { Container, Switch, Box, Button, TextField } from '@mui/material';
+import { Container, Switch, Box } from '@mui/material';
 
-const InItem = ({ head }: { head: string }) => {
+type InItemProps = { head: string };
+
+const InItem = ({ head }: InItemProps) => {
     const [time, setTime] = useState(0);
     // 1秒ごとにカウントアップする関数
     // 100msごとにcountUp関数を実行するタイマーをセット
@@ -43,16 +44,15 @@ const WrapItem = ({ children, toggle, key_tag }: { children: React.ReactNode; to
     }
 }
 
+// InItemを関数として呼び出すラッパーコンポーネント
+// render中に生成するとレンダリングごとに別コンポーネントとなるため(react-hooks/static-components)、モジュールレベルで定義する。
+// ラップ構造がtoggleで切り替わる際にサブツリーごと再マウントされるため、画面上の挙動は変わらない。
+const Comp = (props: InItemProps) => InItem(props);
+const UseCallbackComp = (props: InItemProps) => InItem(props);
+
 export const LeyoutChildren: React.FC = () => {
-    // コンポーネントを再定義
     // toggleの状態を管理するためのuseStateフック
     const [toggle, setToggle] = useState(false);
-    // 型はそのまま伝搬するため、anyを使用
-    // eslint-disable-next-line 
-    const Comp = (s: any) => InItem(s);
-    // メモコールバック関数を定義
-    // eslint-disable-next-line 
-    const UseCallbackComp = useCallback((s: any) => InItem(s), []);
 
     const use_memo_comp = useMemo(() => {
         return <InItem key={`UseMemoComp`} head={"UseMemoComp"} />;

@@ -11,6 +11,13 @@ RUN --mount=type=cache,mode=0755,target=/root/.cache/pip \
     && chmod -R 777 /usr/local/uv
 ENV UV_PROJECT_ENVIRONMENT=/usr/local/uv
 ENV PATH="/usr/local/uv/bin:$PATH" 
+# uv のキャッシュ置き場。仮想環境(/usr/local/uv)と同様に compose で名前付きボリュームを重ねる
+ENV UV_CACHE_DIR=/usr/local/uv-cache
+# 仮想環境とキャッシュは別ボリュームになりハードリンクできないため、コピーに固定して警告を抑止する
+ENV UV_LINK_MODE=copy
+# ネットワークが遅い環境でのダウンロード失敗対策(既定はタイムアウト30秒・同時ダウンロード50)
+ENV UV_HTTP_TIMEOUT=300
+ENV UV_CONCURRENT_DOWNLOADS=4
 
 # Playwrightインストール
 ## 日本語ロケール、Notoフォントインストール
@@ -49,6 +56,11 @@ RUN groupadd -f -g $GROUP_ID $USERNAME || true\
     && mkdir -p /vscode/vscode-server/ \
     && chown $USERNAME:dialout /vscode/vscode-server/.*
 
+# 仮想環境とuvキャッシュの所有者をvscodeにする
+# compose側で名前付きボリュームを重ねる。空のボリュームは初回にイメージの内容と所有者で初期化されるため、ここで設定しておく
+RUN mkdir -p /usr/local/uv-cache \
+    && chown -R $USER_ID:$GROUP_ID /usr/local/uv /usr/local/uv-cache
+
 # アプリケーションディレクトリ作成/権限変更
 RUN mkdir -p /work/$APPNAME/ 
 RUN chown $USERNAME:dialout /work/$APPNAME/ \
@@ -65,8 +77,8 @@ RUN echo 'alias py="python"' >> /etc/bash.bashrc \
 EXPOSE 8000
 ENTRYPOINT ["/usr/bin/docker-entrypoint.sh"]
 ## unicon起動用(uvicorn app:app --reload --host 0.0.0.0 --port 8000)
-# CMD ["uvicorn", "app:app", "--reload", "--host", "0.0.0.0", "--port", "8000"]
-## Gunicorn起動用(gunicorn --config ./src/gunicorn.conf.py)
+# CMD ["uvicorn", "app:app", "--reload", "--host", "0.0.0.0", "--port", "8000", "--log-config", "./src/uvicorn_log_config.json"]
+## Gunicorn起動用(gunicorn --config ./src/gunicorn.conf.py。アクセスログの認可コード除去・タイムアウト 60 秒を含む)
 # CMD ["gunicorn" ,"--config", "./src/gunicorn.conf.py"]
 ## デバック用
 CMD [ "tail", "-f", "/dev/null"]

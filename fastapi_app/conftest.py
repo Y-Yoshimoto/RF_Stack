@@ -16,10 +16,9 @@ from dotenv import dotenv_values
 def pytest_configure(config):
     """ pytestの実行前に環境変数を読み込むフック """
     config.env = dotenv_values('.env')
-    print("============================= environment variables ============================")
-    # config.envの中身をkeyとvalueのペアで表示
-    for key, value in config.env.items():
-        print(f"{key}={value}")
+    # 秘匿情報(パスワード・クライアントシークレット等)を含むため、値は標準出力・ログ・HTMLレポートに出さない。
+    # 確認用には読み込んだ件数だけを表示する。キー名・値は出力しない。
+    print(f"[conftest] .env から {len(config.env)} 件の環境変数を読み込みました")
 
 # レポート設定関連
 # https://pytest-html.readthedocs.io/en/latest/index.html
